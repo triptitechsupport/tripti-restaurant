@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/app-icon.png" />
+    <link rel="apple-touch-icon" href="/app-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA / installable app metadata -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#8b1538" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Tripti Genusswelt" />
+    <meta name="application-name" content="Tripti Genusswelt" />
+    <meta name="description" content="Tripti Genusswelt – Indian restaurant. Browse the menu, reserve a table, and order online." />
+
+    <title>Tripti Genusswelt</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Serve the dedicated Waiter app manifest on waiter routes so the
+      // installed app is branded "Tripti Genusswelt - Waiter" and launches
+      // straight into the waiter dashboard.
+      (function () {
+        try {
+          if (location.pathname.indexOf('/waiter') === 0) {
+            var link = document.querySelector('link[rel="manifest"]');
+            if (link) link.setAttribute('href', '/waiter-manifest.webmanifest');
+            var title = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+            if (title) title.setAttribute('content', 'Tripti Genusswelt - Waiter');
+            var appName = document.querySelector('meta[name="application-name"]');
+            if (appName) appName.setAttribute('content', 'Tripti Genusswelt - Waiter');
+          }
+        } catch (e) {}
+      })();
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/service-worker.js').catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+{
+  "name": "Tripti Genusswelt - Waiter",
+  "short_name": "Tripti Waiter",
+  "description": "Waiter app for Tripti Genusswelt – place table orders, view active orders, print KOT, chat with Admin and KDS, and track order status in real time.",
+  "id": "/waiter-login",
+  "start_url": "https://triptigenusswelt.at/waiter-login?source=waiter-app",
+  "scope": "https://triptigenusswelt.at/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5edd7",
+  "theme_color": "#8b1538",
+  "lang": "de",
+  "dir": "ltr",
+  "categories": ["business", "food", "productivity"],
+  "icons": [
+    {
+      "src": "https://triptigenusswelt.at/app-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://triptigenusswelt.at/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://triptigenusswelt.at/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Place Order",
+      "url": "https://triptigenusswelt.at/waiter-dashboard?source=waiter-app",
+      "description": "Open the waiter dashboard to place a new order"
+    },
+    {
+      "name": "Active Orders",
+      "url": "https://triptigenusswelt.at/waiter-dashboard?tab=active&source=waiter-app",
+      "description": "View active kitchen orders"
+    }
+  ]
+}

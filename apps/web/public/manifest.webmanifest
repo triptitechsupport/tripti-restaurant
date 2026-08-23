@@ -1,0 +1,35 @@
+{
+  "name": "Tripti Genusswelt",
+  "short_name": "Tripti",
+  "description": "Tripti Genusswelt – Indian restaurant. Browse the menu, reserve a table, and order online.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5ecd6",
+  "theme_color": "#8b1538",
+  "lang": "de",
+  "dir": "ltr",
+  "categories": ["food", "lifestyle", "business"],
+  "icons": [
+    {
+      "src": "/app-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
