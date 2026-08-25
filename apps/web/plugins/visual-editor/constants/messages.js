@@ -22,8 +22,6 @@ export const ChildMessage = {
 	EDIT_SAVE: 'edit-save',
 	DRAFT_SAVE: 'draft-save',
 	DRAFT_DISCARD: 'draft-discard',
-	DRAFT_RESTORE: 'draft-restore',
-	DRAFT_SNAPSHOT_REQUEST: 'draft-snapshot-request',
 	EDIT_UNDO: 'edit-undo',
 	EDIT_REDO: 'edit-redo',
 	EDIT_CANCEL: 'edit-cancel',

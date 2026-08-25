@@ -2,7 +2,6 @@ import { ICON_SPARKLES } from '../../constants/icons.js';
 import { ANNOTATION_MARKER_STYLES } from './styles.js';
 import { Z_OFFSET_MARKER } from '../../constants/theme.js';
 import { getEditId } from '../../constants/selectors.js';
-import { setComments } from '../../state/annotation-state.js';
 import { elementZIndex, getAppRoot } from '../../utils/dom-utils.js';
 import {
 	showHoverOutline, holdHoverOutline, releaseHoverOutline, lockHoverOutline,
@@ -170,31 +169,8 @@ function resolveMarkerElements(entry) {
 }
 
 /**
- * Places one marker over its annotation's current elements.
- * @param {object} entry
- * @param {HTMLElement[]} elements - `resolveMarkerElements` output, never empty.
- */
-function positionMarker(entry, elements) {
-	const anchorElement = elements[0];
-	const rect = anchorElement.getBoundingClientRect();
-	const fixed = entry.fixed;
-
-	const anchored = elements.length === 1
-		&& Array.from(anchorElement.attributes || []).some(attr => attr.name.startsWith('data-edit-'));
-	const relativeX = anchored ? 0 : entry.relativeX;
-	const relativeY = anchored ? rect.height / 2 : entry.relativeY;
-
-	const baseX = fixed ? rect.left + relativeX : rect.left + window.scrollX + relativeX;
-	const baseY = fixed ? rect.top + relativeY : rect.top + window.scrollY + relativeY;
-	entry.marker.style.left = `${clampX(baseX, fixed)}px`;
-	entry.marker.style.top = `${clampY(baseY, fixed)}px`;
-	entry.marker.style.zIndex = Math.max(...elements.map(elementZIndex)) + Z_OFFSET_MARKER;
-}
-
-/**
  * Repositions every marker over its annotation, hiding the ones whose elements
- * are no longer on the page so annotations never bleed onto another route. This
- * is also what anchors a restored annotation, once its route renders.
+ * are no longer on the page so annotations never bleed onto another route.
  */
 export function refreshAnnotationMarkers() {
 	for (const entry of _markers) {
@@ -204,7 +180,21 @@ export function refreshAnnotationMarkers() {
 			continue;
 		}
 		entry.marker.style.display = '';
-		positionMarker(entry, elements);
+
+		const anchorElement = elements[0];
+		const rect = anchorElement.getBoundingClientRect();
+		const fixed = entry.fixed;
+
+		const anchored = elements.length === 1
+			&& Array.from(anchorElement.attributes || []).some(attr => attr.name.startsWith('data-edit-'));
+		const relativeX = anchored ? 0 : entry.relativeX;
+		const relativeY = anchored ? rect.height / 2 : entry.relativeY;
+
+		const baseX = fixed ? rect.left + relativeX : rect.left + window.scrollX + relativeX;
+		const baseY = fixed ? rect.top + relativeY : rect.top + window.scrollY + relativeY;
+		entry.marker.style.left = `${clampX(baseX, fixed)}px`;
+		entry.marker.style.top = `${clampY(baseY, fixed)}px`;
+		entry.marker.style.zIndex = Math.max(...elements.map(elementZIndex)) + Z_OFFSET_MARKER;
 	}
 }
 
@@ -216,40 +206,48 @@ function ensureScrollListener() {
 }
 
 /**
- * Builds and registers the pin of one annotation. `targets` may describe elements
- * that are not on the page: the pin stays hidden until a refresh resolves them.
- * @param {{
- *   comment: import('../../state/annotation-state.js').AnnotationComment,
- *   targets: Array<{element: HTMLElement|null, editId: string|null, anchor: object|null, selection: object|null}>,
- *   relativeX: number,
- *   relativeY: number,
- *   fixed: boolean,
- *   route: string,
- *   onMarkerClick: (comment: object, clientX: number, clientY: number) => void,
- * }} options
- * @returns {object} The marker entry.
+ * Adds the single pin that represents one annotation, tracked against the first
+ * of its elements. Hovering it outlines the whole group.
+ * @param {import('../../state/annotation-state.js').AnnotationComment} comment
+ * @param {(comment: object, clientX: number, clientY: number) => void} onMarkerClick
  */
-function createMarkerEntry({ comment, targets, relativeX, relativeY, fixed, route, onMarkerClick }) {
+export function addAnnotationMarker(comment, onMarkerClick) {
 	ensureStyles();
 	ensureScrollListener();
+
+	const { elements, selections, clickX, clickY, fixed } = comment;
+	const anchorElement = elements[0];
+	const rect = anchorElement.getBoundingClientRect();
+
+	// A group's pin stays where the drag was released; only a lone editable
+	// element snaps to its left border, where there is no click point to honour.
+	const anchorToLeftBorder = elements.length === 1
+		&& (anchorElement.hasAttribute('data-edit-id') || anchorElement.hasAttribute('data-edit-assisted-id'));
+	const relativeX = anchorToLeftBorder ? 0 : clickX - rect.left;
+	const relativeY = anchorToLeftBorder ? rect.height / 2 : clickY - rect.top;
 
 	const marker = document.createElement('div');
 	marker.className = 'selection-mode-annotation-marker';
 	marker.style.position = fixed ? 'fixed' : 'absolute';
-	marker.style.display = 'none';
 	marker.innerHTML = ICON_SPARKLES;
+
+	const baseX = fixed ? rect.left + relativeX : rect.left + window.scrollX + relativeX;
+	const baseY = fixed ? rect.top + relativeY : rect.top + window.scrollY + relativeY;
+	marker.style.left = `${clampX(baseX, fixed)}px`;
+	marker.style.top = `${clampY(baseY, fixed)}px`;
+	marker.style.zIndex = Math.max(...elements.map(elementZIndex)) + Z_OFFSET_MARKER;
 
 	// The outline and panel target `entry.elements`, not the captured ones:
 	// re-resolution after a re-render swaps in the freshly mounted nodes.
 	const entry = {
-		marker,
-		elements: targets.map(target => target.element).filter(Boolean),
-		relativeX,
-		relativeY,
-		fixed,
-		comment,
-		targets,
-		route,
+		marker, elements, relativeX, relativeY, fixed, comment,
+		targets: elements.map((element, index) => ({
+			element,
+			editId: getEditId(element),
+			anchor: captureAnchor(element),
+			selection: selections[index] ?? null,
+		})),
+		route: currentRoute(),
 	};
 
 	marker.addEventListener('mouseenter', () => {
@@ -272,115 +270,6 @@ function createMarkerEntry({ comment, targets, relativeX, relativeY, fixed, rout
 
 	_markers.push(entry);
 	comment.marker = marker;
-
-	return entry;
-}
-
-/**
- * Adds the single pin that represents one annotation, tracked against the first of its elements
- * @param {import('../../state/annotation-state.js').AnnotationComment} comment
- * @param {(comment: object, clientX: number, clientY: number) => void} onMarkerClick
- */
-export function addAnnotationMarker(comment, onMarkerClick) {
-	const { elements, selections, clickX, clickY, fixed } = comment;
-	const anchorElement = elements[0];
-	const rect = anchorElement.getBoundingClientRect();
-
-	const anchorToLeftBorder = elements.length === 1
-		&& (anchorElement.hasAttribute('data-edit-id') || anchorElement.hasAttribute('data-edit-assisted-id'));
-
-	const entry = createMarkerEntry({
-		comment,
-		targets: elements.map((element, index) => ({
-			element,
-			editId: getEditId(element),
-			anchor: captureAnchor(element),
-			selection: selections[index] ?? null,
-		})),
-		relativeX: anchorToLeftBorder ? 0 : clickX - rect.left,
-		relativeY: anchorToLeftBorder ? rect.height / 2 : clickY - rect.top,
-		fixed,
-		route: currentRoute(),
-		onMarkerClick,
-	});
-
-	entry.marker.style.display = '';
-	positionMarker(entry, elements);
-}
-
-/**
- * Recreates the pin of a persisted annotation
- * @param {import('../../state/annotation-state.js').AnnotationComment} comment
- * @param {ReturnType<typeof exportAnnotationMarkers>[number]} serialized
- * @param {(comment: object, clientX: number, clientY: number) => void} onMarkerClick
- */
-function addRestoredAnnotationMarker(comment, serialized, onMarkerClick) {
-	createMarkerEntry({
-		comment,
-		targets: (serialized.targets ?? []).map(target => ({
-			element: null,
-			editId: target.editId ?? null,
-			anchor: target.anchor ?? null,
-			selection: target.selection ?? null,
-		})),
-		relativeX: serialized.relativeX ?? 0,
-		relativeY: serialized.relativeY ?? 0,
-		fixed: !!serialized.fixed,
-		route: serialized.route ?? currentRoute(),
-		onMarkerClick,
-	});
-}
-
-/**
- * Rebuilds annotation comments and their pins from a snapshot. Nothing is
- * resolved here: the refresh pass anchors each annotation as its route renders
- * @param {ReturnType<typeof exportAnnotationMarkers>|null|undefined} serialized
- * @param {(comment: object, clientX: number, clientY: number) => void} onMarkerClick
- */
-export function importAnnotationMarkers(serialized, onMarkerClick) {
-	clearAllAnnotationMarkers();
-	setComments([]);
-
-	if (!Array.isArray(serialized)) return;
-
-	// Without targets an annotation can never be anchored again, so it would sit
-	// in the draft as a change the user cannot see, reach or remove.
-	const annotations = serialized.filter(annotation => annotation?.targets?.length);
-	if (!annotations.length) return;
-
-	const comments = annotations.map(annotation => ({
-		elements: [],
-		selections: annotation.targets.map(target => target.selection).filter(Boolean),
-		text: annotation.text ?? '',
-		clickX: annotation.clickX ?? 0,
-		clickY: annotation.clickY ?? 0,
-		fixed: !!annotation.fixed,
-	}));
-
-	setComments(comments);
-	comments.forEach((comment, index) => addRestoredAnnotationMarker(comment, annotations[index], onMarkerClick));
-	refreshAnnotationMarkers();
-}
-
-/**
- * Serializes every annotation for persistence
- * @returns {Array<{
- *   targets: Array<{editId: string|null, anchor: object|null, selection: object|null}>,
- *   text: string, clickX: number, clickY: number,
- *   relativeX: number, relativeY: number, fixed: boolean, route: string,
- * }>}
- */
-export function exportAnnotationMarkers() {
-	return _markers.map(entry => ({
-		targets: entry.targets.map(({ editId, anchor, selection }) => ({ editId, anchor, selection })),
-		text: entry.comment.text ?? '',
-		clickX: entry.comment.clickX ?? 0,
-		clickY: entry.comment.clickY ?? 0,
-		relativeX: entry.relativeX,
-		relativeY: entry.relativeY,
-		fixed: entry.fixed,
-		route: entry.route,
-	}));
 }
 
 export function removeMarker(comment) {

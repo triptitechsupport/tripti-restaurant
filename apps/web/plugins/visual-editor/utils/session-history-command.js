@@ -1,6 +1,6 @@
 import { ParentMessage } from '../constants/messages.js';
-import { undo, redo } from '../state/history-state.js';
-import { notifyDraftStateChanged } from '../api/draft-snapshot.js';
+import { undo, redo, getEditState } from '../state/history-state.js';
+import { postToParent } from './parent-frame.js';
 
 /**
  * Applies one undo/redo step and notifies the parent frame when an action ran.
@@ -11,11 +11,12 @@ function applySessionHistoryStep(direction) {
 	const action = direction === 'undo' ? undo() : redo();
 	if (!action) return null;
 
-	notifyDraftStateChanged(
+	postToParent(
 		direction === 'undo' ? ParentMessage.EDIT_UNDO_APPLIED : ParentMessage.EDIT_REDO_APPLIED,
 		{
 			editId: action.editId,
 			value: direction === 'undo' ? action.instruction.beforeContent : action.instruction.afterContent,
+			...getEditState(),
 		},
 	);
 

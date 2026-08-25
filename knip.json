@@ -22,7 +22,6 @@
 				"plugins/site-pages/site-pages-server.js",
 				"plugins/utils/ast-utils.js",
 				"plugins/utils/same-origin.js",
-				"plugins/visual-editor/api/draft-snapshot.js",
 				"plugins/visual-editor/api/draft.js",
 				"plugins/visual-editor/constants/icons.js",
 				"plugins/visual-editor/constants/layout.js",

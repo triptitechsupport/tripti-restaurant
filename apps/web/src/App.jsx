@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Route, Routes, BrowserRouter as Router, Navigate } from 'react-router-dom';
+import { Route, Routes, BrowserRouter as Router, Navigate, useLocation } from 'react-router-dom';
 import { LanguageProvider } from '@/contexts/LanguageContext.jsx';
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext.jsx';
 import { SubscriptionAuthProvider } from '@/contexts/SubscriptionAuthContext.jsx';
@@ -9,6 +9,7 @@ import pb from '@/lib/pocketbaseClient.js';
 import { AlertCircle } from 'lucide-react';
 
 import Header from '@/components/Header.jsx';
+import WaiterHeader from '@/components/WaiterHeader.jsx';
 import Footer from '@/components/Footer.jsx';
 import ShoppingCart from '@/components/ShoppingCart.jsx';
 import MarqueeBar from '@/components/MarqueeBar.jsx';
@@ -29,13 +30,11 @@ import WaiterDashboard from '@/pages/WaiterDashboard.jsx';
 import AdminPlaceOrderPage from '@/pages/AdminPlaceOrderPage.jsx';
 import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage.jsx';
 import TermsOfServicePage from '@/pages/TermsOfServicePage.jsx';
-import KotPrintPage from '@/pages/KotPrintPage.jsx';
 
 // Dashboards & Admin
 import AdminMenuPage from '@/pages/AdminMenuPage.jsx';
 import AdminBookingDashboard from '@/pages/AdminBookingDashboard.jsx';
 import AdminReservationApprovalPage from '@/pages/AdminReservationApprovalPage.jsx';
-import AdminFiscalizationPage from '@/pages/AdminFiscalizationPage.jsx';
 import GuestDashboard from '@/pages/GuestDashboard.jsx';
 import ProtectedAdminRoute from '@/components/ProtectedAdminRoute.jsx';
 
@@ -82,10 +81,15 @@ function ConnectionMonitor() {
 
 function Layout() {
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const location = useLocation();
+  // Waiter Station pages get a minimal header (logo + language switcher
+  // only) instead of the full public restaurant header. All other routes
+  // keep the public Header with its full nav, phone, Order Now, and cart.
+  const isWaiterRoute = location.pathname.startsWith('/waiter-');
 
   return (
     <div className="flex flex-col min-h-screen">
-      <Header setIsCartOpen={setIsCartOpen} />
+      {isWaiterRoute ? <WaiterHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
       <MarqueeBar />
       <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />
       <GlobalReservationNotifications />
@@ -169,14 +173,6 @@ function Layout() {
               </ProtectedAdminRoute>
             } 
           />
-          <Route 
-            path="/admin/fiscalization" 
-            element={
-              <ProtectedAdminRoute>
-                <AdminFiscalizationPage />
-              </ProtectedAdminRoute>
-            } 
-          />
 
           {/* Subscription Routes */}
           <Route path={LOGIN_PATH} element={<Navigate to="/" replace />} />
@@ -198,8 +194,6 @@ function App() {
             <CartProvider>
               <ScrollToTop />
               <Routes>
-                {/* Standalone KOT print page - no site chrome */}
-                <Route path="/kot-print/:orderId" element={<KotPrintPage />} />
                 <Route
                   path="*"
                   element={

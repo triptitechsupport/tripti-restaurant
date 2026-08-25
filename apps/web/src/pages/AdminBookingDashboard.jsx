@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -200,6 +200,30 @@ export default function AdminBookingDashboard() {
             <p className="text-foreground font-medium max-w-2xl text-base md:text-lg">
               {t('adminDashboardDesc')}
             </p>
+          </div>
+
+          {/* Admin Quick Access — navigate to the operational dashboards using
+              the same authenticated admin session. No separate login, no
+              duplicate account; route guards recognize admin_users. */}
+          <div className="mb-8 md:mb-10 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+            <Button asChild variant="secondary" className="h-auto justify-start py-4 px-5 shadow-md">
+              <Link to="/waiter-dashboard">
+                <ConciergeBell className="h-6 w-6 mr-3 shrink-0" />
+                <span className="flex flex-col items-start text-left">
+                  <span className="font-bold text-base">Open Waiter Dashboard</span>
+                  <span className="text-xs font-medium opacity-80">Place orders & manage tables</span>
+                </span>
+              </Link>
+            </Button>
+            <Button asChild variant="secondary" className="h-auto justify-start py-4 px-5 shadow-md">
+              <Link to="/kds-dashboard">
+                <ChefHat className="h-6 w-6 mr-3 shrink-0" />
+                <span className="flex flex-col items-start text-left">
+                  <span className="font-bold text-base">Open KDS Dashboard</span>
+                  <span className="text-xs font-medium opacity-80">Kitchen order display</span>
+                </span>
+              </Link>
+            </Button>
           </div>
 
           {isMobile ? (

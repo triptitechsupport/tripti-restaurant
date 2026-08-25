@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { useNavigate } from 'react-router-dom';
-import { waiterPb as pb } from '@/lib/staffClients.js';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { waiterPb } from '@/lib/staffClients.js';
+import pbDefault from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
-import { ConciergeBell, LogOut, Zap, Clock, LogIn } from 'lucide-react';
+import { ConciergeBell, LogOut, Zap, Clock, LogIn, ArrowLeft } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import OrderPlacement from '@/components/OrderPlacement.jsx';
 import StaffChat from '@/components/StaffChat.jsx';
@@ -19,14 +20,26 @@ import { toast } from 'sonner';
 export default function WaiterDashboard() {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const authModel = pb.authStore.model || pb.authStore.record;
-  const authed = pb.authStore.isValid && authModel?.collectionName === 'waiter_users';
-  const displayName = authModel?.displayName || authModel?.username || 'Waiter';
+  // Authorization: a real waiter (waiter_users on the waiter auth store) OR
+  // an authenticated admin (admin_users on the default auth store). Admins
+  // reuse their own admin session/client — no duplicate waiter account or
+  // separate waiter session is created. The effective `pb` client is the
+  // waiter client for waiters and the default (admin) client for admins, so
+  // all data operations carry the correct authenticated token.
+  const waiterAuthModel = waiterPb.authStore.model || waiterPb.authStore.record;
+  const adminAuthModel = pbDefault.authStore.model || pbDefault.authStore.record;
+  const isWaiter = waiterPb.authStore.isValid && waiterAuthModel?.collectionName === 'waiter_users';
+  const isAdmin = pbDefault.authStore.isValid && adminAuthModel?.collectionName === 'admin_users';
+  const authed = isWaiter || isAdmin;
+  const pb = isWaiter ? waiterPb : pbDefault;
+  const authModel = isWaiter ? waiterAuthModel : adminAuthModel;
+  const displayName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Waiter';
   const waiterId = authModel?.id;
   const orderPlacementRef = React.useRef(null);
 
   const [activeTimesheet, setActiveTimesheet] = useState(null);
   const [timesheetLoading, setTimesheetLoading] = useState(false);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (!authed) {
@@ -43,7 +56,16 @@ export default function WaiterDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [authed, navigate, waiterId]);
+  }, [authed, navigate, waiterId, pb]);
+
+  // When the WaiterHeader logo is clicked it navigates to
+  // /waiter-dashboard?tab=place. Consume that here by switching
+  // OrderPlacement to the "New Order" tab via its exposed ref handle.
+  useEffect(() => {
+    if (searchParams.get('tab') === 'place' && orderPlacementRef.current?.setTabToPlace) {
+      orderPlacementRef.current.setTabToPlace();
+    }
+  }, [searchParams]);
 
   // Activate Waiter Mode: navigate to 'place' tab in OrderPlacement
   const handleWaiterMode = () => {
@@ -88,6 +110,13 @@ export default function WaiterDashboard() {
   // those events must not clear the waiter auth store (see Prompt 11
   // persistence). Only this function, wired to the Logout button, clears auth.
   const logout = async () => {
+    // An admin viewing the Waiter Dashboard returns to the Admin Dashboard
+    // without touching the admin's own auth session. Only real waiters go
+    // through the full waiter logout (clock-out + auth clear) below.
+    if (isAdmin) {
+      navigate('/admin-dashboard', { replace: true });
+      return;
+    }
     // Automatic clock-out: close the active timesheet before clearing auth.
     if (waiterId) {
       try {
@@ -151,6 +180,19 @@ export default function WaiterDashboard() {
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {isAdmin && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate('/admin-dashboard')}
+                className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90"
+                aria-label="Back to Admin Dashboard"
+                title="Back to Admin Dashboard"
+              >
+                <ArrowLeft className="h-4 w-4 sm:mr-1" />
+                <span className="hidden lg:inline">Admin</span>
+              </Button>
+            )}
             {/* Shift status + manual clock in/out (optional convenience) */}
             <div className="hidden md:flex items-center gap-2 mr-1 px-3 py-1.5 rounded-lg bg-primary-foreground/10 border border-primary-foreground/20">
               <Clock className="h-4 w-4" />

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate } from 'react-router-dom';
-import { kdsPb as pb } from '@/lib/staffClients.js';
+import { kdsPb } from '@/lib/staffClients.js';
+import pbDefault from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -13,13 +14,13 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from '@/components/ui/alert-dialog';
 import {
-  ChefHat, LogOut, Clock, CheckCircle2, Flame, RefreshCw, Settings, Volume2, VolumeX, Bell, Calendar, User, Layers, Printer,
+  ChefHat, LogOut, Clock, CheckCircle2, Flame, RefreshCw, Settings, Volume2, VolumeX, Bell, Calendar, User, Layers, Printer, ArrowLeft,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
 import KdsQuickMessage from '@/components/KdsQuickMessage.jsx';
 import { resolveOrderId, resolveBaseOrderId, printKOT } from '@/lib/kotPrint.js';
-import { buildGroupMap, tableDisplayForParent } from '@/lib/tableGroups.js';
+import { buildGroupMap, tableDisplayForParent, tableDisplayForKot } from '@/lib/tableGroups.js';
 import { isKotDelayed, countDelayedKots, DELAYED_CARD_CLS, DELAYED_BORDER_CLS } from '@/lib/kotDelayed.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint } from '@/hooks/usePrintSettings.js';
@@ -442,9 +443,20 @@ export default function KdsDashboard() {
   // order instead of just the parent's primary tableNumber.
   const [tableGroups, setTableGroups] = useState([]);
   const [tableGroupMembers, setTableGroupMembers] = useState([]);
-  const authModel = pb.authStore.model || pb.authStore.record;
-  const authed = pb.authStore.isValid && authModel?.collectionName === 'kds_users';
-  const chatName = authModel?.displayName || authModel?.username || 'Kitchen';
+  // Authorization: a real KDS user (kds_users on the kds auth store) OR an
+  // authenticated admin (admin_users on the default auth store). Admins reuse
+  // their own admin session/client — no duplicate KDS account or separate KDS
+  // session is created. The effective `pb` client is the kds client for KDS
+  // users and the default (admin) client for admins, so all data operations
+  // carry the correct authenticated token. Normal waiters are NOT authorized.
+  const kdsAuthModel = kdsPb.authStore.model || kdsPb.authStore.record;
+  const adminAuthModel = pbDefault.authStore.model || pbDefault.authStore.record;
+  const isKds = kdsPb.authStore.isValid && kdsAuthModel?.collectionName === 'kds_users';
+  const isAdmin = pbDefault.authStore.isValid && adminAuthModel?.collectionName === 'admin_users';
+  const authed = isKds || isAdmin;
+  const pb = isKds ? kdsPb : pbDefault;
+  const authModel = isKds ? kdsAuthModel : adminAuthModel;
+  const chatName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Kitchen';
   // Restaurant-wide printing master switch — same single print_settings
   // record the Admin Panel and Waiter (OrderPlacement) read. KDS print /
   // reprint / "Send Again" controls are hidden when this is OFF. Admins
@@ -483,7 +495,7 @@ export default function KdsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pb]);
 
   // Fetch every table_groups + table_group_members row so the KDS can
   // resolve the full table combination for a Shared Order from the
@@ -615,7 +627,12 @@ export default function KdsDashboard() {
   // Waiter workflow (which reads the same fields).
   const doReprint = async (order) => {
     if (!order) return;
-    printKOT(order);
+    // Resolve the full Shared/Linked table combination ("Tables 4 + 5 + 6")
+    // from the normalized table_group_members (the source of truth) so a
+    // multi-table KOT prints the complete table label, not just the KOT's
+    // copied tableNumber. Single-table orders are unaffected.
+    const tableDisplay = tableDisplayForKot(order, groupMap);
+    printKOT(tableDisplay ? { ...order, tableDisplay } : order);
     setReprintBusy(true);
     try {
       const nextCount = (Number(order.printCount) || 0) + 1;
@@ -660,6 +677,13 @@ export default function KdsDashboard() {
   // backgrounding, or visibility changes (those must not clear the KDS auth
   // store; see Prompt 11 persistence).
   const logout = () => {
+    // An admin viewing the KDS Dashboard returns to the Admin Dashboard
+    // without touching the admin's own auth session. Only real KDS users go
+    // through the full KDS logout (auth clear) below.
+    if (isAdmin) {
+      navigate('/admin-dashboard', { replace: true });
+      return;
+    }
     try { pb.collection('kitchen_orders').unsubscribe('*'); } catch (_) { /* ignore */ }
     pb.authStore.clear();
     navigate('/kds-login', { replace: true });
@@ -686,6 +710,12 @@ export default function KdsDashboard() {
             ) : null}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
+            {isAdmin && (
+              <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={() => navigate('/admin-dashboard')} aria-label="Back to Admin Dashboard" title="Back to Admin Dashboard">
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">Admin</span>
+              </Button>
+            )}
             {settings.soundEnabled ? <Volume2 className="h-4 w-4 opacity-80 shrink-0" /> : <VolumeX className="h-4 w-4 opacity-60 shrink-0" />}
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={() => setSettingsOpen(true)} aria-label={t('kds_settings')}>
               <Settings className="h-4 w-4" />

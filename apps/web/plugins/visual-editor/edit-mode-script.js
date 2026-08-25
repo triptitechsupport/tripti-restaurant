@@ -1,16 +1,15 @@
 import { startInlineEdit, commitCurrentEdit, placeCursorAtPoint } from "./ui/inline-edit/edit-action.js";
 import { getEditing } from "./state/editing-state.js";
 import { getElementType, isInFixedContext } from "./utils/dom-utils.js";
-import { postToParent, ALLOWED_PARENT_ORIGINS } from "./utils/parent-frame.js";
+import { postToParent } from "./utils/parent-frame.js";
 import { ParentMessage, ChildMessage } from "./constants/messages.js";
 import { isEditModeEnabled, isInsideEditorUi, ACTIONABLE_SELECTOR, EDIT_TARGET_SELECTOR, getEditId } from "./constants/selectors.js";
-import { recordEdit, reapplyCommittedEdits, getEditState } from "./state/history-state.js";
+import { recordEdit, getEditState, reapplyCommittedEdits } from "./state/history-state.js";
 import { applySessionUndo, applySessionRedo } from "./utils/session-history-command.js";
 import { handleDraftSave, handleDraftDiscard, discardAllEdits } from "./api/draft.js";
-import { applyDraftSnapshot, notifyDraftStateChanged } from "./api/draft-snapshot.js";
 import { patchReactDomMutations } from "./utils/html-utils.js";
 import { showTypeTooltip, hideTypeTooltip } from "./ui/overlays/type-tooltip.js";
-import { openOrCreateAnnotation, getAnnotationPanelEl, hideAnnotationPanel, openPanelForEdit } from "./ui/annotation-panel/panel.js";
+import { openOrCreateAnnotation, getAnnotationPanelEl, hideAnnotationPanel } from "./ui/annotation-panel/panel.js";
 import { clearAllAnnotationMarkers, refreshAnnotationMarkers } from "./ui/annotation-panel/annotation-markers.js";
 import { setEditorTranslations, setComments, getPendingElements } from "./state/annotation-state.js";
 import { captureElementMetadata } from "./utils/selection-mode-metadata.js";
@@ -116,7 +115,7 @@ function handleImageEditSave(newText) {
 		selectionMode,
 	});
 	clearImageEdit();
-	notifyDraftStateChanged();
+	postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
 }
 
 /* ------------------------------------------------------------------ *
@@ -709,8 +708,6 @@ function disableEditMode() {
  * ------------------------------------------------------------------ */
 
 window.addEventListener("message", function (event) {
-	if (!ALLOWED_PARENT_ORIGINS.includes(event.origin)) return;
-
 	if (event.data?.type === ChildMessage.ENABLE_EDIT_MODE) {
 		if (event.data?.translations) {
 			setEditorTranslations(event.data.translations);
@@ -738,15 +735,6 @@ window.addEventListener("message", function (event) {
 
 	if (event.data?.type === ChildMessage.DRAFT_DISCARD) {
 		handleDraftDiscard();
-	}
-
-	if (event.data?.type === ChildMessage.DRAFT_RESTORE) {
-		applyDraftSnapshot(event.data?.payload?.snapshot, { onMarkerClick: openPanelForEdit });
-		postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState(), isDraftRestored: true });
-	}
-
-	if (event.data?.type === ChildMessage.DRAFT_SNAPSHOT_REQUEST) {
-		notifyDraftStateChanged();
 	}
 
 	if (event.data?.type === ChildMessage.EDIT_UNDO) {

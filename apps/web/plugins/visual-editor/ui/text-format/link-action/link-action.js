@@ -1,7 +1,8 @@
 import { getEditing } from '../../../state/editing-state.js';
 import { registerPanel, PanelId, setPanelVisible, isPanelVisible } from '../../../state/panel-state.js';
-import { recordEdit } from '../../../state/history-state.js';
-import { notifyDraftStateChanged } from '../../../api/draft-snapshot.js';
+import { recordEdit, getEditState } from '../../../state/history-state.js';
+import { postToParent } from '../../../utils/parent-frame.js';
+import { ParentMessage } from '../../../constants/messages.js';
 import { escapeHtml } from '../../../utils/html-utils.js';
 import { createPanelElement, positionDropdownPanel, createOutsideDismiss, captureSelectionRange } from '../dropdown-panel.js';
 import { captureElementMetadata } from '../../../utils/selection-mode-metadata.js';
@@ -327,7 +328,7 @@ function saveLink() {
             const selectionMode = captureElementMetadata(sourceAnchor);
             sourceAnchor.setAttribute('href', url);
             recordEdit(editId, { beforeContent: oldUrl, afterContent: url }, { attribute: urlAttribute, element: sourceAnchor, selectionMode });
-            notifyDraftStateChanged();
+            postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
         }
         hideLinkAction();
         return;

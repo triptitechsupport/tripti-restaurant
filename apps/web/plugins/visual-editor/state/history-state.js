@@ -52,39 +52,16 @@ export function getActionKey(action) {
 }
 
 /**
- * Plain text from a stored HTML snapshot (beforeContent), for matching mapped
- * siblings that share one edit id.
- * @param {string|null|undefined} html
- * @returns {string|null}
- */
-function plainTextFromStoredHtml(html) {
-	if (typeof html !== "string" || !html) return null;
-	const text = html.replace(/<[^>]*>/g, "").trim();
-	return text || null;
-}
-
-/**
  * Resolves the DOM element for an action. Prefers the stored element reference
- * (survives HMR position shifts). When several nodes share one JSX edit id
- * (e.g. letter spans from `.map()`), disambiguates with selectionMode text /
- * beforeContent — same approach as annotation `resolveByEditId`. Never falls
- * back to the first querySelector match when duplicates exist.
+ * (survives HMR position shifts), falls back to querying by the current
+ * data-edit-id attribute.
  * @param {object} action
  * @returns {HTMLElement|null}
  */
 function resolveElement(action) {
 	if (action.element?.isConnected) return action.element;
-
-	const matches = Array.from(document.querySelectorAll(
-		`[data-edit-id="${action.editId}"], [data-edit-assisted-id="${action.editId}"]`,
-	));
-	if (matches.length <= 1) return matches[0] ?? null;
-
-	const text = action.selectionMode?.textContent?.trim()
-		|| plainTextFromStoredHtml(action.instruction?.beforeContent);
-	if (!text) return null;
-
-	return matches.find((match) => match.textContent?.trim() === text) ?? null;
+	return document.querySelector(`[data-edit-id="${action.editId}"]`)
+		|| document.querySelector(`[data-edit-assisted-id="${action.editId}"]`);
 }
 
 /**
@@ -345,11 +322,6 @@ export function getEditState() {
 	);
 
 	annotations.forEach((annotation, annotationIndex) => {
-		if (!annotation.elements.length) {
-			changedElementIds.add(`annotation-${annotationIndex}`);
-			return;
-		}
-
 		annotation.elements.forEach((element, elementIndex) => {
 			changedElementIds.add(getEditId(element) || `annotation-${annotationIndex}-${elementIndex}`);
 		});
@@ -361,79 +333,4 @@ export function getEditState() {
 		editedElementsCount: changedElementIds.size,
 		editTypes: getEditTypes(edits, annotations),
 	};
-}
-
-/**
- * Serializes the full undo/redo stack for persistence across reloads.
- * Strips non-serializable DOM element refs.
- * @returns {{ actionLog: object[], actionPointer: number, nextEditSessionId: number }}
- */
-export function exportDraftSnapshot() {
-	return {
-		actionLog: actionLog.map(({ element: _element, ...action }) => ({
-			...action,
-			instruction: { ...action.instruction },
-			style: action.style ? { ...action.style } : null,
-			oldStyle: action.oldStyle ? { ...action.oldStyle } : null,
-			selectionMode: action.selectionMode ? structuredClone(action.selectionMode) : null,
-		})),
-		actionPointer,
-		nextEditSessionId,
-	};
-}
-
-/**
- * Rebuilds the undo/redo stack from a persisted snapshot and re-applies committed
- * edits to the current DOM. Skips actions whose elements cannot be resolved.
- * @param {{ actionLog?: object[], actionPointer?: number, nextEditSessionId?: number }|null|undefined} snapshot
- * @returns {{ restoredCount: number, skippedCount: number }}
- */
-export function importDraftSnapshot(snapshot) {
-	clearHistory();
-
-	if (!snapshot || !Array.isArray(snapshot.actionLog)) {
-		return { restoredCount: 0, skippedCount: 0 };
-	}
-
-	let restoredCount = 0;
-	let skippedCount = 0;
-
-	for (const action of snapshot.actionLog) {
-		if (!action?.editId || !action?.instruction) {
-			skippedCount++;
-			continue;
-		}
-		actionLog.push({
-			editId: action.editId,
-			instruction: {
-				beforeContent: action.instruction.beforeContent ?? null,
-				afterContent: action.instruction.afterContent ?? null,
-			},
-			style: action.style ?? null,
-			oldStyle: action.oldStyle ?? null,
-			attribute: action.attribute ?? null,
-			element: null,
-			sessionId: action.sessionId ?? null,
-			isAssisted: !!action.isAssisted,
-			selectionMode: action.selectionMode ?? null,
-		});
-		restoredCount++;
-	}
-
-	const maxPointer = actionLog.length - 1;
-	const requestedPointer = typeof snapshot.actionPointer === 'number' ? snapshot.actionPointer : maxPointer;
-	actionPointer = Math.min(Math.max(requestedPointer, -1), maxPointer);
-	nextEditSessionId = typeof snapshot.nextEditSessionId === 'number' && snapshot.nextEditSessionId > 0
-		? snapshot.nextEditSessionId
-		: 1;
-
-	reapplyCommittedEdits();
-
-	for (let index = 0; index <= actionPointer; index++) {
-		if (!actionLog[index].element) {
-			skippedCount++;
-		}
-	}
-
-	return { restoredCount, skippedCount };
 }

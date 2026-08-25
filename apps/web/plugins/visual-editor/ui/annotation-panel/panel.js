@@ -17,7 +17,9 @@ import {
 } from '../../state/annotation-state.js';
 import { clearSelectedElements } from '../../state/multi-select-state.js';
 import { Z_OFFSET_PANEL } from '../../constants/theme.js';
-import { notifyDraftStateChanged } from '../../api/draft-snapshot.js';
+import { ParentMessage } from '../../constants/messages.js';
+import { postToParent } from '../../utils/parent-frame.js';
+import { getEditState } from '../../state/history-state.js';
 import { getEditing } from '../../state/editing-state.js';
 import { startInlineEdit, commitCurrentEdit } from '../inline-edit/edit-action.js';
 import { showTextFormatToolbar, hideTextFormatToolbar, getToolbarEl } from '../text-format/toolbar/toolbar.js';
@@ -93,7 +95,7 @@ function handleCommentClick() {
 		const editing = getEditingComment();
 		if (editing) {
 			editing.text = text;
-			notifyDraftStateChanged();
+			postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
 		}
 		hideAnnotationPanel();
 		return;
@@ -114,7 +116,7 @@ function handleCommentClick() {
 	};
 	setComments([...getComments(), comment]);
 	addAnnotationMarker(comment, openPanelForEdit);
-	notifyDraftStateChanged();
+	postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
 	hideAnnotationPanel();
 }
 
@@ -128,7 +130,7 @@ function handleDeleteClick() {
 
 	removeMarker(editing);
 	setComments(getComments().filter(c => c !== editing));
-	notifyDraftStateChanged();
+	postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
 	hideAnnotationPanel();
 }
 

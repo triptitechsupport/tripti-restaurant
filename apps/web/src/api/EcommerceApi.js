@@ -237,20 +237,7 @@ const getProductPrice = (product) => {
  * @property {{value: string}} type - Product type with value
  * @property {ProductCustomField[]} custom_fields - Custom product fields
  * @property {ProductRelatedProduct[]} related_products - Related/similar products
- * @property {ProductReviewsAnalytics|null} reviews_analytics - Aggregated review ratings, null when the product has none
  * @property {string} updated_at - Last update timestamp
- */
-
-/**
- * @typedef {Object} ProductReviewsAnalytics
- * @property {string} product_id - Product identifier
- * @property {number} total_reviews - Number of reviews left for the product
- * @property {number} average_rating - Mean rating, one decimal place (e.g. 3.33)
- * @property {number} rating_1_count - Number of one-star reviews
- * @property {number} rating_2_count - Number of two-star reviews
- * @property {number} rating_3_count - Number of three-star reviews
- * @property {number} rating_4_count - Number of four-star reviews
- * @property {number} rating_5_count - Number of five-star reviews
  */
 
 /**
@@ -499,7 +486,6 @@ export async function getProducts({
         },
         custom_fields: extractCustomFields(product.custom_fields),
         related_products: extractRelatedProducts(product.related_products),
-        reviews_analytics: product.reviewsAnalytics || null,
         updated_at: product.updated_at,
       };
     }),
@@ -577,7 +563,6 @@ export async function getProduct(id, { field } = {}) {
     },
     custom_fields: extractCustomFields(product.custom_fields),
     related_products: extractRelatedProducts(product.related_products),
-    reviews_analytics: product.reviewsAnalytics || null,
     updated_at: product.updated_at,
     created_at: product.created_at,
     deleted_at: product.deleted_at,

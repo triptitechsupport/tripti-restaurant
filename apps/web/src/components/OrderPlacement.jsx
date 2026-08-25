@@ -33,8 +33,6 @@ import {
 } from '@/components/ui/dialog';
 import { printKOT, openKOT, SPICE_LEVELS, resolveOrderId, resolveBaseOrderId } from '@/lib/kotPrint.js';
 import { buildGroupMap, tableDisplayForParent, isSharedParent } from '@/lib/tableGroups.js';
-import apiServerClient from '@/lib/apiServerClient.js';
-import { QRCodeSVG } from 'qrcode.react';
 import { isKotDelayed, DELAYED_CARD_CLS } from '@/lib/kotDelayed.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint, shouldAutoPrint } from '@/hooks/usePrintSettings.js';
@@ -438,19 +436,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const [payPickerOpen, setPayPickerOpen] = useState(false);
   // Parent waiter_orders records (for open/closed status + endedAt).
   const [waiterOrders, setWaiterOrders] = useState([]);
-
-  // ---- Phase 3: Generate Bill → Fiskaly SIGN AT ----
-  // fiscalReceipts maps a parent order id -> the stored fiscal receipt (or
-  // null when no receipt exists yet). It drives the Generate Bill state
-  // machine: DISABLED (order open) / READY (closed, no receipt) /
-  // GENERATING (request in flight) / SIGNED (receipt signed) / FAILED.
-  // fiscalGenerating is the set of parent ids with an in-flight Fiskaly
-  // request (double-click / concurrent-request guard on the client side;
-  // the server-side partial UNIQUE index is the hard duplicate backstop).
-  const [fiscalReceipts, setFiscalReceipts] = useState({});
-  const [fiscalGenerating, setFiscalGenerating] = useState(() => new Set());
-  // Bill/receipt dialog payload: { parent, kots, receipt, restaurant }.
-  const [billDialog, setBillDialog] = useState(null);
   // Per-item spice level selections on the New Order cards (used before an
   // item is added to the order; once in the order the order's spiceLevel wins).
   const [spiceSelections, setSpiceSelections] = useState({});
@@ -458,9 +443,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Accordion open state (controlled, multiple)
   const [openCats, setOpenCats] = useState([]);
 
-  // ---- Active tab filter controls (three distinct filters, AND-combined) ----
-  // Order Status filters on waiter_orders.orderStatus (all / open / closed).
-  const [filterOrderStatus, setFilterOrderStatus] = useState('all');
+  // ---- Active tab filter controls (AND-combined) ----
+  // The old Order Status dropdown was removed: Active Orders vs Order History
+  // is now controlled by the `activeSubTab` sub-tab below. Kitchen Status and
+  // Table filters remain and apply within whichever sub-tab is shown.
+  // 'active' = open orders (orderStatus !== 'closed'), 'history' = closed.
+  const [activeSubTab, setActiveSubTab] = useState('active');
   // Kitchen Status filters on kitchen_orders.status — a parent order matches
   // when AT LEAST ONE child KOT has the selected status (not all children).
   const [filterKitchenStatus, setFilterKitchenStatus] = useState('all');
@@ -684,64 +672,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     } catch (_) { /* ignore */ }
   }, []);
 
-  // ---- Phase 3: Fiskaly fiscal receipt helpers ----
-  // The fiscal_receipts collection is admin-only, so the waiter reads a
-  // receipt through the Express fiscalization route (server-side superuser
-  // lookup). The waiter's PocketBase JWT is forwarded as a Bearer token;
-  // authMiddleware accepts any valid auth-collection token.
-  const fiscalAuthHeaders = useCallback(() => ({
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${pb.authStore.token}`,
-  }), []);
-
-  // Fetch the stored fiscal receipt for one parent order. Returns the receipt
-  // object, or null when no receipt exists (404). Errors are swallowed into
-  // null so a transient backend issue never blocks the Active tab.
-  const fetchFiscalReceipt = useCallback(async (parentId) => {
-    try {
-      const res = await apiServerClient.fetch(
-        `/fiscalization/orders/${encodeURIComponent(parentId)}/fiscal-receipt`,
-        { headers: fiscalAuthHeaders() },
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data?.receipt || null;
-    } catch (_) {
-      return null;
-    }
-  }, [fiscalAuthHeaders]);
-
-  // Refresh fiscal receipt state for every CLOSED parent order. Open orders
-  // are pre-End-Order → Generate Bill is DISABLED → no receipt lookup needed.
-  const refreshFiscalReceipts = useCallback(async () => {
-    const closed = waiterOrders.filter((w) => w.orderStatus === 'closed');
-    if (closed.length === 0) {
-      setFiscalReceipts({});
-      return;
-    }
-    const entries = await Promise.all(
-      closed.map((w) => fetchFiscalReceipt(w.id).then((r) => [w.id, r])),
-    );
-    setFiscalReceipts(Object.fromEntries(entries));
-  }, [waiterOrders, fetchFiscalReceipt]);
-
-  // Compute the Generate Bill state for a parent order.
-  // DISABLED  — order still open (before End Order).
-  // GENERATING — a Fiskaly request is in flight for this order.
-  // SIGNED    — a signed fiscal receipt exists.
-  // FAILED    — a previous fiscalization attempt failed (retryable).
-  // READY     — order closed, no receipt yet → ready to generate.
-  const billStateFor = useCallback((parent) => {
-    if (!parent) return 'DISABLED';
-    if (parent.orderStatus !== 'closed') return 'DISABLED';
-    if (fiscalGenerating.has(parent.id)) return 'GENERATING';
-    const rec = fiscalReceipts[parent.id];
-    if (rec && rec.status === 'SIGNED') return 'SIGNED';
-    if (rec && rec.status === 'FAILED') return 'FAILED';
-    if (rec && rec.status === 'PENDING') return 'GENERATING';
-    return 'READY';
-  }, [fiscalGenerating, fiscalReceipts]);
-
   // All table_group_members rows (active AND inactive) — the source of truth
   // for which tables belong to which combination. Used for Shared Order
   // display ("Tables 4 + 5 + 6") in the Active tab, KDS, and printing.
@@ -808,15 +738,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     };
   }, [fetchOrders, fetchTables, fetchTableSettings, fetchWaiterOrders, fetchTableGroupMembers, fetchTableGroups, handleKitchenEvent]);
 
-  // Phase 3: refresh fiscal receipt state whenever the parent order list
-  // changes (initial load, End Order open→closed, realtime updates). Kept in
-  // its own effect so the realtime-subscription effect above does not
-  // re-subscribe every time waiterOrders changes. Only CLOSED orders are
-  // queried — open orders are pre-End-Order → Generate Bill is DISABLED.
-  useEffect(() => {
-    refreshFiscalReceipts();
-  }, [refreshFiscalReceipts]);
-
   // Extract a numeric table number from a table record's name (e.g. "5",
   // "Table 7"). Returns NaN when no number is found.
   const parseTableNum = useCallback((value) => {
@@ -842,82 +763,57 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       });
   }, [tables, maxTableNumber, parseTableNum]);
 
-  // ---- Phase 4: Free Table completion gating helpers ----
-  // A table may become FREE only when ALL THREE conditions hold for its
-  // order: End Order completed (orderStatus = "closed"), Payment completed
-  // (outstandingAmount <= 0), and Fiskaly fiscalization completed (a SIGNED
-  // fiscal receipt exists). These helpers compute that state on the client;
-  // the server-side backstop lives in pb_hooks/free-table-gating.pb.js.
-
-  // Payment-settled check inlined here (before computePayment is defined) so
-  // the occupancy memo can use it without reordering the payment helpers.
-  // A parent's payment is settled when every non-cancelled KOT item line is
-  // cleared (paid >= total). A zero-total order (no payable items) is settled.
-  const paymentSettled = (kots) => {
-    const valid = (kots || []).filter((k) => k.status !== 'cancelled');
-    let total = 0;
-    let paid = 0;
-    valid.forEach((k) => {
-      (k.items || []).forEach((it) => {
-        const lt = (Number(it.price) || 0) * (Number(it.quantity) || 0);
-        total += lt;
-        if (it && it.cleared === true) paid += lt;
-      });
-    });
-    return paid >= total;
-  };
-
-  // Map parent order id -> its KOTs (kitchen_orders), built from the
-  // realtime-subscribed `orders` list. Used to evaluate completion state per
-  // parent without re-fetching.
-  const kotsByParent = useMemo(() => {
-    const m = new Map();
-    (orders || []).forEach((k) => {
-      const pid = k.parentOrder || (k.expand && k.expand.parentOrder && k.expand.parentOrder.id);
-      if (!pid) return;
-      if (!m.has(pid)) m.set(pid, []);
-      m.get(pid).push(k);
-    });
-    return m;
-  }, [orders]);
-
-  // Whether a parent order is FULLY completed (End Order + Payment + SIGNED
-  // fiscal receipt). Accepts optional kots (the card's already-loaded KOTs);
-  // falls back to the kotsByParent map. Reads fiscalReceipts state, which is
-  // refreshed for closed orders whenever the parent list or a Fiskaly request
-  // settles — so this stays current in realtime.
-  const isOrderFullyCompleted = useCallback((parent, kots) => {
-    if (!parent) return false;
-    if (parent.orderStatus !== 'closed') return false;
-    const useKots = kots || kotsByParent.get(parent.id) || [];
-    if (!paymentSettled(useKots)) return false;
-    const rec = fiscalReceipts[parent.id];
-    return !!(rec && rec.status === 'SIGNED');
-  }, [kotsByParent, fiscalReceipts]);
-
   // Table occupancy — the SINGLE source of truth. A table is occupied when
-  // it has an existing waiter_orders record that is NOT fully completed
-  // (Phase 4): the table stays occupied through End Order and Payment until
-  // the Fiskaly bill is SIGNED. table_configurations.isReserved is NOT used.
-  // Derived live from the realtime-subscribed waiterOrders list (plus
-  // kotsByParent and fiscalReceipts) so the dropdown updates the moment an
-  // order is opened, ended, paid, or fiscalized by any waiter.
+  // its MOST RECENT waiter_orders record has NOT been freed (freed != true).
+  // This deliberately includes CLOSED-but-not-freed orders, so ending an
+  // order (End Order) does NOT release the table — only the explicit Free
+  // Table action (which sets freed = true) does. table_configurations.isReserved
+  // is NOT used. Derived live from the realtime-subscribed waiterOrders list so
+  // the dropdown updates the moment an order is opened, ended, or freed.
   const occupiedTableNumbers = useMemo(() => {
-    const s = new Set();
+    const latestByTable = new Map();
     waiterOrders.forEach((w) => {
       if (!w.tableNumber) return;
-      if (!isOrderFullyCompleted(w)) s.add(w.tableNumber);
+      const prev = latestByTable.get(w.tableNumber);
+      if (!prev || new Date(w.created) > new Date(prev.created)) {
+        latestByTable.set(w.tableNumber, w);
+      }
+    });
+    const s = new Set();
+    latestByTable.forEach((w) => {
+      if (w.freed !== true) s.add(w.tableNumber);
     });
     return s;
-  }, [waiterOrders, isOrderFullyCompleted]);
+  }, [waiterOrders]);
+
+  // Tables that currently have an OPEN, NOT-yet-ended order. These remain
+  // selectable in the single-table dropdown so the waiter can add another
+  // KOT to the existing order. End Order sets `endedAt` WITHOUT closing the
+  // order, so an ended-but-not-freed table is occupied but NOT open for new
+  // KOTs — it is blocked until Free Table is explicitly clicked (which sets
+  // orderStatus = "closed" + freed = true).
+  const openOrderTableNumbers = useMemo(() => {
+    const s = new Set();
+    waiterOrders.forEach((w) => {
+      if (w.orderStatus === 'open' && !w.endedAt && w.tableNumber) s.add(w.tableNumber);
+    });
+    return s;
+  }, [waiterOrders]);
 
   // Tables currently in an ACTIVE table_group_members combination. A table in
   // this set is unavailable for both a standalone order and a new combination.
   // Derived live from the realtime-subscribed tableGroupMembers list.
   const activeCombinationTableNumbers = useMemo(() => {
     const s = new Set();
+    // Only EXPLICITLY active members (isActive === true) mark a table as
+    // part of a combination. This matches the server-side occupancy hooks
+    // and the SDK filters (both use `isActive = true`). The previous
+    // `isActive !== false` check treated null/undefined as active, which
+    // falsely labelled a table "Combined" when a stale or never-set member
+    // row lingered (e.g. after the cleanup migration deactivated members
+    // but left orphaned rows, or when a bool field serialized as null).
     tableGroupMembers.forEach((m) => {
-      if (m.isActive !== false && m.tableNumber) s.add(m.tableNumber);
+      if (m.isActive === true && m.tableNumber) s.add(m.tableNumber);
     });
     return s;
   }, [tableGroupMembers]);
@@ -1064,32 +960,40 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Free Table — releases the table for a new Order. Governed by TWO
   // business rules, both enforced against live DB state (not only the
   // disabled button):
-  //   1. The parent Order must already be ended (orderStatus = "closed").
-  //      If an open order still exists, the waiter must End Order first.
+  //   1. The parent Order must already be ended (endedAt set by End Order).
+  //      End Order does NOT close the order — orderStatus stays "open" —
+  //      so if the order is not yet ended, the waiter must End Order first.
   //   2. All payment obligations for that order must be fully settled
   //      (outstandingAmount = 0), recomputed from the parent's KOTs so the
   //      check reflects live cleared flags.
-  // Occupancy is derived from open orders, so once the parent is closed the
-  // table is already available — this action confirms that and surfaces any
-  // blocking condition. It does NOT touch table_configurations.isReserved
-  // (admin-only, no longer the occupancy mechanism) and does NOT modify any
-  // historical Orders or KOTs. Legacy unparented KOTs (no parent order)
-  // skip both checks and simply confirm availability.
+  // This is the ONLY action that closes the order AND releases the table:
+  // it sets orderStatus = "closed" and freed = true on the parent order,
+  // which drops the table from occupiedTableNumbers. End Order only sets
+  // endedAt (the order stays "open" and freed = false), so the table stays
+  // occupied until this explicit action. It does NOT touch
+  // table_configurations.isReserved (admin-only, no longer the occupancy
+  // mechanism) and does NOT modify any historical Orders or KOTs. Legacy
+  // unparented KOTs (no parent order) skip both checks and simply confirm
+  // availability.
   // Release a freed table from its table combination so it immediately
   // becomes selectable again as a normal table. Without this, a freed
   // member stays in `activeCombinationTableNumbers` (its
   // table_group_members.isActive stays true) and the Select-a-Table
   // dropdown keeps marking it "Combined" / blocking standalone selection.
   //
-  // Shared Order: one parent spans every member table, so closing the
-  // table_groups record releases ALL members at once via the
-  // table-groups-sync hook (it flips every member's isActive to false).
+  // Shared Order: one parent spans every member table, so freeing it
+  // releases ALL members at once — every active member row is flipped to
+  // isActive=false directly, then the table_groups record is closed.
   //
   // Linked Orders: each table has its own parent order, so ONLY this
   // table's table_group_members row is flipped to isActive=false (dropping
   // it from idx_tgm_active_table). The group stays active for any still-
   // occupied members; when the last active member is released the group
   // record is closed for cleanliness. Other members are never touched.
+  //
+  // Member rows are deactivated directly via the SDK (not only via the
+  // table-groups-sync hook) so the dropdown updates immediately even if
+  // the hook bundle is stale or a hook errors out.
   const releaseTableFromCombination = useCallback(async (parent) => {
     if (!parent || !parent.tableGroup) return;
     const gid = parent.tableGroup;
@@ -1097,40 +1001,68 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     try {
       const grp = await pb.collection('table_groups').getOne(gid, { $autoCancel: false });
       if (!grp || grp.status !== 'active') return;
+
+      // Determine which member rows to deactivate. Shared Order: one parent
+      // spans every member table, so freeing it releases ALL members at once.
+      // Linked Orders: each table has its own parent, so ONLY this table's
+      // membership row is released (the group stays active for any still-
+      // occupied members).
+      //
+      // We deactivate the member rows DIRECTLY via the SDK rather than
+      // relying solely on the table-groups-sync hook to propagate the
+      // parent group's status change. The hook is a belt-and-suspenders
+      // mirror; doing it here too guarantees the tables drop out of
+      // activeCombinationTableNumbers (and the dropdown's "Combined" label)
+      // immediately, even if the hook bundle is stale or a hook errors out.
+      let membersToDeactivate = [];
       if (grp.mode === 'shared') {
-        await pb.collection('table_groups').update(
-          gid,
-          { status: 'closed' },
-          { $autoCancel: false, requestKey: `close-shared-${gid}` },
-        );
+        try {
+          membersToDeactivate = await pb.collection('table_group_members').getFullList({
+            filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+            $autoCancel: false,
+            requestKey: `free-shared-members-${gid}`,
+          });
+        } catch (_) { membersToDeactivate = []; }
       } else if (tn) {
-        // Linked: release only this table's membership row.
         try {
           const member = await pb.collection('table_group_members').getFirstListItem(
             pb.filter('tableGroup = {:gid} && tableNumber = {:tn}', { gid, tn }),
             { $autoCancel: false, requestKey: `free-linked-get-${gid}-${tn}` },
           );
-          await pb.collection('table_group_members').update(
-            member.id,
-            { isActive: false },
-            { $autoCancel: false, requestKey: `free-linked-upd-${member.id}` },
-          );
+          membersToDeactivate = [member];
         } catch (_) { /* member row already gone — non-fatal */ }
-        // Close the group when no active members remain.
-        try {
-          const remaining = await pb.collection('table_group_members').getFullList({
-            filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
-            $autoCancel: false,
-          });
-          if (!remaining || remaining.length === 0) {
-            await pb.collection('table_groups').update(
-              gid,
-              { status: 'closed' },
-              { $autoCancel: false, requestKey: `close-linked-${gid}` },
-            );
-          }
-        } catch (_) { /* non-fatal */ }
       }
+
+      // Deactivate each targeted member row. Unique requestKey per row so
+      // parallel updates don't auto-cancel each other.
+      await Promise.all(
+        membersToDeactivate.map((m) =>
+          pb.collection('table_group_members').update(
+            m.id,
+            { isActive: false },
+            { $autoCancel: false, requestKey: `free-member-${m.id}` },
+          ).catch(() => {}),
+        ),
+      );
+
+      // Close the group when no active members remain. For Shared Order this
+      // is always (we just deactivated every member); for Linked Orders only
+      // when the last active member was released.
+      try {
+        const remaining = await pb.collection('table_group_members').getFullList({
+          filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+          $autoCancel: false,
+          requestKey: `free-remaining-${gid}`,
+        });
+        if (!remaining || remaining.length === 0) {
+          await pb.collection('table_groups').update(
+            gid,
+            { status: 'closed' },
+            { $autoCancel: false, requestKey: `close-group-${gid}` },
+          );
+        }
+      } catch (_) { /* non-fatal */ }
+
       fetchTableGroupMembers();
       fetchTableGroups();
     } catch (_) { /* group already gone/closed — non-fatal */ }
@@ -1151,8 +1083,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       });
       const parent = res.items && res.items[0];
 
-      // Rule 1: parent Order must be ended before the table can be freed.
-      if (parent && parent.orderStatus === 'open') {
+      // Rule 1: parent Order must be ended (endedAt set) before the table
+      // can be freed. End Order sets endedAt but leaves orderStatus "open";
+      // orderStatus only becomes "closed" here, when the table is freed.
+      if (parent && !parent.endedAt) {
         toast.error('End the order before freeing the table.');
         return;
       }
@@ -1170,22 +1104,20 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           );
           return;
         }
-
-        // Rule 3 (Phase 4): a Fiskaly SIGNED fiscal receipt must exist. Live
-        // re-check via the Express fiscalization route (the fiscal_receipts
-        // collection is admin-only) so stale frontend state, page refresh, or
-        // a receipt signed by another waiter cannot bypass the rule. The
-        // server-side hook (free-table-gating.pb.js) is the hard backstop.
-        const receipt = await fetchFiscalReceipt(parent.id);
-        if (!receipt || receipt.status !== 'SIGNED') {
-          toast.error(
-            'Cannot free table — fiscal receipt not signed. Generate the bill first.',
-          );
-          return;
-        }
       }
 
-      // All three conditions satisfied (or no parent order — legacy KOT).
+      // Both conditions satisfied (or no parent order — legacy KOT).
+      // Free Table is the ONLY action that closes the order AND releases
+      // the table: it sets orderStatus = "closed" and freed = true. End
+      // Order only sets endedAt (the order stays "open" and the table stays
+      // occupied) until this explicit Free Table action.
+      if (parent) {
+        await pb.collection('waiter_orders').update(
+          parent.id,
+          { orderStatus: 'closed', freed: true },
+          { $autoCancel: false, requestKey: `free-wo-${parent.id}` },
+        );
+      }
       // Release the table from its combination so it is immediately
       // selectable again as a normal table. Handles both Shared Order
       // (closes the whole group, freeing every member) and Linked Orders
@@ -1278,6 +1210,17 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     if (matchedTable && matchedTable.isActive === false) {
       return {
         message: `Table ${selectedNum} is currently inactive. Please choose an active table.`,
+        focusTable: true,
+      };
+    }
+    // A table whose latest order is ended (endedAt set) but NOT freed is
+    // still occupied. The waiter must Free Table (which settles payment +
+    // sets orderStatus "closed" + freed) before a new standalone order can
+    // be opened on it. A table with an OPEN, not-yet-ended order is allowed
+    // through here so another KOT can be added to that order.
+    if (occupiedTableNumbers.has(tableNumber) && !openOrderTableNumbers.has(tableNumber)) {
+      return {
+        message: `Table ${selectedNum} has an ended order. Free the table before starting a new order.`,
         focusTable: true,
       };
     }
@@ -2184,7 +2127,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       // created KOT (initial order AND each subsequent child ticket, since
       // handleSubmit runs for each one). Then record the print event on the
       // kitchen_orders record so printedAt/printCount stay consistent with
-      // the manual print flow (KotPrintPage / KDS reprint) and the
+      // the manual print flow (openKOT / KDS reprint) and the
       // duplicate-protection guard works the same way. The browser may still
       // show its native print dialog — this is not guaranteed silent
       // printing. Reuses the existing kotPrint.js mechanism; no new printer
@@ -2290,17 +2233,14 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     return n;
   }, [groupedOrders]);
 
-  // Apply the three Active-tab filters to the grouped orders with AND logic.
-  // Order Status matches the parent's orderStatus; Kitchen Status matches if
-  // ANY child KOT has the selected status; Table matches the order's table
-  // number. Unparented (legacy) KOTs have no parent, so they are filtered by
-  // Kitchen Status and Table only.
+  // Apply the Active-tab filters (Kitchen Status + Table) to the grouped
+  // orders with AND logic. Order Status is NO LONGER a filter here — the
+  // Active Orders / Order History sub-tabs split the dataset by
+  // parent.orderStatus instead. Kitchen Status matches if ANY child KOT has
+  // the selected status; Table matches the order's table number. Unparented
+  // (legacy) KOTs have no parent, so they are filtered by Kitchen Status and
+  // Table only.
   const filteredGroupedOrders = useMemo(() => {
-    const matchOrderStatus = (parent) => {
-      if (filterOrderStatus === 'all') return true;
-      const status = (parent && parent.orderStatus) || 'open';
-      return status === filterOrderStatus;
-    };
     const matchKitchenStatus = (kots) => {
       if (filterKitchenStatus === 'all') return true;
       return kots.some((k) => k.status === filterKitchenStatus);
@@ -2312,7 +2252,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       return String(tn) === String(filterTable);
     };
     const groupArr = groupedOrders.groupArr.filter(({ parent, kots }) =>
-      matchOrderStatus(parent) && matchKitchenStatus(kots) && matchTable(parent, kots)
+      matchKitchenStatus(kots) && matchTable(parent, kots)
     );
     const unparented = groupedOrders.unparented.filter((o) => {
       if (filterKitchenStatus !== 'all' && o.status !== filterKitchenStatus) return false;
@@ -2320,21 +2260,52 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       return true;
     });
     return { groupArr, unparented };
-  }, [groupedOrders, filterOrderStatus, filterKitchenStatus, filterTable]);
+  }, [groupedOrders, filterKitchenStatus, filterTable]);
+
+  // ---- Active Orders vs Order History split ----
+  // An order is OPEN until Free Table sets orderStatus='closed'. End Order
+  // and payment do NOT close the order, so ended/paid-but-not-freed orders
+  // stay in Active Orders. Legacy unparented KOTs have no parent
+  // orderStatus; they are treated as active (never closed).
+  // Active Orders: open orders, latest → oldest (most recent KOT first —
+  //   reuses groupedOrders' existing ordering).
+  // Order History: closed orders, latest closed → oldest (by parent.updated,
+  //   which Free Table bumps when it sets orderStatus='closed').
+  const activeGroupedOrders = useMemo(() => {
+    const groupArr = filteredGroupedOrders.groupArr.filter(
+      ({ parent }) => (parent && parent.orderStatus) !== 'closed',
+    );
+    // unparented legacy KOTs are never closed → always active.
+    return { groupArr, unparented: filteredGroupedOrders.unparented };
+  }, [filteredGroupedOrders]);
+
+  const historyGroupedOrders = useMemo(() => {
+    const groupArr = filteredGroupedOrders.groupArr
+      .filter(({ parent }) => (parent && parent.orderStatus) === 'closed')
+      .slice()
+      .sort((a, b) => {
+        const aU = new Date((a.parent && a.parent.updated) || (a.parent && a.parent.created) || 0).getTime();
+        const bU = new Date((b.parent && b.parent.updated) || (b.parent && b.parent.created) || 0).getTime();
+        return bU - aU;
+      });
+    return { groupArr, unparented: [] };
+  }, [filteredGroupedOrders]);
 
   // ---- Linked Orders grouping for the Active tab ----
-  // Partition the filtered parent-order entries by their `tableGroup`
-  // relation. Entries sharing a non-null tableGroup are rendered under one
+  // Partition a filtered parent-order list by its `tableGroup` relation.
+  // Entries sharing a non-null tableGroup are rendered under one
   // "Combine Tables" heading; entries with no tableGroup keep the existing
   // standalone card rendering. Each table's individual Order ID, KOTs,
   // status, payment, and controls are fully preserved — only a visual
   // heading wrapper is added for linked groups. Financial totals are NOT
   // merged; per-Order payment behaviour is unchanged.
-  const linkedOrderGroups = useMemo(() => {
+  // Extracted as a pure helper so both Active Orders and Order History can
+  // reuse the exact same partitioning + sorting logic.
+  const buildLinkedGroups = useCallback((grouped) => {
     const linkedMap = new Map(); // tableGroupId -> { tableGroupId, group, entries: [] }
     const sharedMap = new Map(); // tableGroupId -> { tableGroupId, group, entry }
     const standalone = [];
-    filteredGroupedOrders.groupArr.forEach((entry) => {
+    grouped.groupArr.forEach((entry) => {
       const tg = entry.parent && entry.parent.tableGroup;
       if (tg) {
         const g = groupMap.get(tg);
@@ -2370,19 +2341,37 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       return new Date((bLast && bLast.created) || 0) - new Date((aLast && aLast.created) || 0);
     });
     return { linkedArr, sharedArr, standalone };
-  }, [filteredGroupedOrders, parseTableNum, groupMap]);
+  }, [groupMap, parseTableNum]);
+
+  const activeLinkedGroups = useMemo(
+    () => buildLinkedGroups(activeGroupedOrders),
+    [buildLinkedGroups, activeGroupedOrders],
+  );
+  const historyLinkedGroups = useMemo(
+    () => buildLinkedGroups(historyGroupedOrders),
+    [buildLinkedGroups, historyGroupedOrders],
+  );
 
   // Count of currently-active filters (for the Reset control + indicator).
   const activeFilterCount =
-    (filterOrderStatus !== 'all' ? 1 : 0) +
     (filterKitchenStatus !== 'all' ? 1 : 0) +
     (filterTable !== 'all' ? 1 : 0);
 
   const resetFilters = () => {
-    setFilterOrderStatus('all');
     setFilterKitchenStatus('all');
     setFilterTable('all');
   };
+
+  // The currently-visible linked/standalone groups + legacy unparented KOTs,
+  // selected by the Active Orders / Order History sub-tab. Both sub-tabs
+  // reuse the same Kitchen Status + Table filters above.
+  const currentLinkedGroups = activeSubTab === 'history' ? historyLinkedGroups : activeLinkedGroups;
+  const currentUnparented = activeSubTab === 'history' ? [] : activeGroupedOrders.unparented;
+  const currentHasOrders =
+    (currentLinkedGroups.sharedArr.length +
+      currentLinkedGroups.linkedArr.length +
+      currentLinkedGroups.standalone.length +
+      currentUnparented.length) > 0;
 
   // If the admin removes or renames the table currently selected as the
   // Table filter, fall back to "All Tables" so the dropdown never shows a
@@ -2424,19 +2413,23 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const allKotsResolved = (kots) =>
     (kots || []).every((k) => k.status === 'completed' || k.status === 'cancelled');
 
-  // Free Table eligibility (Phase 4): the parent Order must be FULLY
-  // completed — End Order (orderStatus = "closed") AND all payment
-  // obligations fully settled (outstandingAmount = 0) AND a Fiskaly SIGNED
-  // fiscal receipt exists. All three conditions are mandatory. This is the
-  // same isOrderFullyCompleted check used for occupancy, and it is re-checked
-  // inside markAvailable against live DB state (including a fresh fiscal
-  // receipt lookup), so the rule is backed by business/data state — not only
-  // by visually disabling the button.
-  const canFreeTable = (parent, kots) => isOrderFullyCompleted(parent, kots);
+  // Free Table eligibility: the parent Order must be ended (endedAt set —
+  // End Order marks this without closing the order) AND all payment
+  // obligations fully settled (outstandingAmount = 0). Both conditions are
+  // enforced here AND re-checked inside markAvailable against live DB state,
+  // so the rule is backed by the existing business/data state — not only by
+  // visually disabling the button. Free Table then sets orderStatus =
+  // "closed" + freed = true.
+  const canFreeTable = (parent, kots) => {
+    const isEnded = !!(parent && parent.endedAt);
+    const figures = computePayment(kots);
+    return isEnded && figures.outstandingAmount <= 0;
+  };
 
-  // End Order: closes the parent waiter_orders record (orderStatus = closed +
-  // endedAt) once every child KOT is completed (served). Does NOT free the
-  // table — that remains a separate, explicit Free Table action.
+  // End Order: marks the parent waiter_orders record as ended (endedAt only)
+  // once every child KOT is completed (served). It does NOT set orderStatus —
+  // the order stays "open" and the table stays occupied. orderStatus only
+  // becomes "closed" later, by the explicit Free Table action.
   const handleEndOrder = async () => {
     if (!endOrderTarget) return;
     const { parent, kots } = endOrderTarget;
@@ -2460,7 +2453,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     try {
       await pb.collection('waiter_orders').update(
         parentId,
-        { orderStatus: 'closed', endedAt: new Date().toISOString() },
+        { endedAt: new Date().toISOString() },
         { $autoCancel: false }
       );
       toast.success(`Order ${resolveBaseOrderId(kots[0] || { expand: { parentOrder: parent } })} ended. Free the table when ready.`);
@@ -2477,109 +2470,20 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
   };
 
-  // Generate Bill — Phase 3: connects the explicit Generate Bill action to
-  // Fiskaly SIGN AT. Triggered ONLY by this handler (the button press) —
-  // never by order creation, item changes, Send to Kitchen, or End Order
-  // completion itself. Uses the FINAL completed order state (live KOTs from
-  // the server, not a cart snapshot).
-  //
-  // State machine: DISABLED (open) → READY (closed) → GENERATING (in flight)
-  // → SIGNED | FAILED. A SIGNED receipt is never re-signed (idempotent): the
-  // button becomes "View Bill". FAILED is recoverable via the retry endpoint
-  // without charging the customer again. Payment status, order record, and
-  // table occupancy are NEVER mutated by Fiskaly — a failure leaves them
-  // exactly as they were.
-  const handleGenerateBill = async (parent, kots) => {
+  // Generate Bill — Phase 1: gated ONLY on the successful completion of the
+  // existing End Order workflow (parent.endedAt set). It does NOT call
+  // Fiskaly, does NOT generate a fiscal receipt, does NOT change payment
+  // processing, and does NOT free the table. The handler is a placeholder
+  // that confirms the gating; fiscal receipt generation is a later phase.
+  // Existing Pay / Free Table / pre-End-Order behavior is untouched.
+  const handleGenerateBill = (parent, kots) => {
     // Defensive re-check: bill generation is allowed only after End Order.
-    if (!parent || parent.orderStatus !== 'closed') {
+    if (!parent || !parent.endedAt) {
       toast.error('Generate Bill is available only after End Order is completed.');
       return;
     }
     const baseOrderId = resolveBaseOrderId({ expand: { parentOrder: parent } });
-
-    // Idempotent guard: if already SIGNED, do NOT call Fiskaly again — just
-    // show the existing receipt. Multiple clicks must not re-sign.
-    const current = fiscalReceipts[parent.id];
-    if (current && current.status === 'SIGNED') {
-      setBillDialog({ parent, kots, receipt: current, restaurant: { name: 'Tripti Genusswelt' } });
-      return;
-    }
-    // Double-click / concurrent-request guard (client side). The server-side
-    // partial UNIQUE index on (order_id WHERE status='SIGNED') is the hard
-    // backstop that guarantees exactly one SIGNED receipt regardless.
-    if (fiscalGenerating.has(parent.id)) return;
-
-    setFiscalGenerating((prev) => {
-      const next = new Set(prev);
-      next.add(parent.id);
-      return next;
-    });
-
-    const isRetry = current && current.status === 'FAILED';
-    const route = isRetry
-      ? `/fiscalization/orders/${encodeURIComponent(parent.id)}/fiscal-receipt/retry`
-      : `/fiscalization/orders/${encodeURIComponent(parent.id)}/fiscalize`;
-
-    try {
-      const res = await apiServerClient.fetch(route, {
-        method: 'POST',
-        headers: fiscalAuthHeaders(),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        // A 409 with a SIGNED receipt means another request already signed
-        // it — treat as success (idempotent) and show the receipt.
-        if (data?.receipt && data.receipt.status === 'SIGNED') {
-          setFiscalReceipts((prev) => ({ ...prev, [parent.id]: data.receipt }));
-          setBillDialog({
-            parent,
-            kots,
-            receipt: data.receipt,
-            restaurant: data.restaurant || { name: 'Tripti Genusswelt' },
-          });
-          toast.success(`Bill generated for order ${baseOrderId}.`);
-          return;
-        }
-        // Persist the FAILED receipt (if returned) so the button shows Retry.
-        if (data?.receipt) {
-          setFiscalReceipts((prev) => ({ ...prev, [parent.id]: data.receipt }));
-        }
-        const reason = data?.error || data?.message || `Fiscalization failed (${res.status})`;
-        toast.error(`Payment status remains unchanged. Fiscal receipt generation failed. Please retry. (${reason})`);
-        return;
-      }
-
-      const receipt = data?.receipt;
-      setFiscalReceipts((prev) => ({ ...prev, [parent.id]: receipt }));
-
-      if (receipt && receipt.status === 'SIGNED') {
-        setBillDialog({
-          parent,
-          kots,
-          receipt,
-          restaurant: data.restaurant || { name: 'Tripti Genusswelt' },
-        });
-        toast.success(`Bill generated for order ${baseOrderId}.`);
-      } else if (receipt && receipt.status === 'FAILED') {
-        toast.error('Payment status remains unchanged. Fiscal receipt generation failed. Please retry.');
-      } else {
-        toast.info(`Fiscalization for order ${baseOrderId} is processing.`);
-      }
-    } catch (err) {
-      console.error('[GenerateBill] Fiskaly request failed', err);
-      toast.error('Payment status remains unchanged. Fiscal receipt generation failed. Please retry.');
-    } finally {
-      setFiscalGenerating((prev) => {
-        const next = new Set(prev);
-        next.delete(parent.id);
-        return next;
-      });
-      // Re-sync the persisted receipt state after the request settles.
-      fetchFiscalReceipt(parent.id).then((r) => {
-        setFiscalReceipts((prev) => ({ ...prev, [parent.id]: r }));
-      });
-    }
+    toast.info(`Bill generation for order ${baseOrderId} will be available in a later phase.`);
   };
 
   // ---- Linked Orders group-level actions ----
@@ -2602,7 +2506,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     const blocked = [];
     for (const { parent, kots } of entries) {
       if (!parent || !parent.id) continue;
-      if ((parent.orderStatus) === 'closed') continue; // already ended
+      if (parent.endedAt) continue; // already ended
       if (!allKotsResolved(kots)) {
         blocked.push(parent.tableNumber || parent.orderId);
         continue;
@@ -2610,7 +2514,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       try {
         await pb.collection('waiter_orders').update(
           parent.id,
-          { orderStatus: 'closed', endedAt: new Date().toISOString() },
+          { endedAt: new Date().toISOString() },
           { $autoCancel: false, requestKey: `end-grp-${parent.id}` },
         );
         ended.push(parent.tableNumber || parent.orderId);
@@ -2633,13 +2537,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     setGroupEndTarget(null);
   };
 
-  // Group Free All: frees every member Order that is FULLY completed —
-  // ended (orderStatus = closed) AND fully settled (outstandingAmount = 0)
-  // AND Fiskaly SIGNED (Phase 4) — the same canFreeTable rule as the
-  // single-Order Free Table. Each member is re-validated against live DB
-  // state before freeing (matching markAvailable's live re-check, including a
-  // fresh fiscal receipt lookup), so an Order that became unpaid, was
-  // re-opened, or whose bill is not yet signed is never force-freed.
+  // Group Free All: frees every member Order that is ended (endedAt set)
+  // AND fully settled (outstandingAmount = 0) — the same
+  // canFreeTable rule as the single-Order Free Table. Each member is
+  // re-validated against live DB state before freeing (matching
+  // markAvailable's live re-check), so an Order that became unpaid or was
+  // re-opened mid-flow is never force-freed. This is the ONLY action that
+  // releases a member's table: it sets freed = true on the member's parent
+  // order (dropping it from occupiedTableNumbers) and releases its
+  // combination membership.
   const handleFreeTableGroup = async () => {
     if (!groupFreeTarget) return;
     const entries = groupFreeTarget.entries || [];
@@ -2657,7 +2563,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         });
         const live = res.items && res.items[0];
         if (!live) { blocked.push(tn || parent.orderId); continue; }
-        if (live.orderStatus !== 'closed') { blocked.push(tn); continue; }
+        if (!live.endedAt) { blocked.push(tn); continue; }
         // Live re-check: recompute outstanding from current KOTs.
         const liveKots = await pb.collection('kitchen_orders').getFullList({
           filter: pb.filter('parentOrder = {:pid}', { pid: live.id }),
@@ -2666,9 +2572,14 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         });
         const fig = computePayment(liveKots);
         if (fig.outstandingAmount > 0) { blocked.push(tn); continue; }
-        // Live re-check (Phase 4): a Fiskaly SIGNED fiscal receipt must exist.
-        const receipt = await fetchFiscalReceipt(live.id);
-        if (!receipt || receipt.status !== 'SIGNED') { blocked.push(tn); continue; }
+        // Mark the member's parent order as freed — the ONLY action that
+        // releases its table. End Order only closed the order; the table
+        // stayed occupied until this explicit Free Table action.
+        await pb.collection('waiter_orders').update(
+          live.id,
+          { orderStatus: 'closed', freed: true },
+          { $autoCancel: false, requestKey: `free-grp-wo-${live.id}` },
+        );
         // Release this table from its combination so it is immediately
         // selectable again as a normal table (Linked: drops only this
         // member's isActive; closes the group when the last member is
@@ -2840,6 +2751,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // differs (standalone vs. inside a linked-group wrapper).
   const renderGroupedCard = (parent, kots) => {
               const isOpen = (parent && parent.orderStatus) !== 'closed';
+              const isEnded = !!(parent && parent.endedAt);
               const orderTotal = kots.reduce((s, k) => s + (k.totalPrice || 0), 0);
               const firstKot = kots[0];
               const tableNumber = tableDisplayForParent(parent, groupMap) || (firstKot && firstKot.tableNumber) || (parent && parent.tableNumber) || '';
@@ -2861,7 +2773,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                         <p className="text-[10px] text-muted-foreground flex items-center gap-1 justify-end mt-0.5">
                           <Layers className="h-3 w-3" /> {kots.length} KOT{kots.length > 1 ? 's' : ''}
                         </p>
-                        {!isOpen && parent && parent.endedAt ? (
+                        {isEnded ? (
                           <p className="text-[10px] text-muted-foreground notranslate" translate="no">
                             Ended {new Date(parent.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
@@ -2980,11 +2892,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       const allResolved = allKotsResolved(kots);
                       const fig = computePayment(kots);
                       const freeable = canFreeTable(parent, kots);
+                      const isFreed = !!(parent && parent.freed === true);
                       const pendingCount = kots.filter((k) => k.status !== 'completed' && k.status !== 'cancelled').length;
                       return (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            {isOpen ? (
+                            {!isEnded ? (
                               <Button
                                 size="sm"
                                 variant="destructive"
@@ -2997,103 +2910,60 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                             ) : (
                               <span className="flex-1 text-xs text-muted-foreground italic text-center">Order ended</span>
                             )}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="flex-1 text-primary"
-                              disabled={!freeable}
-                              onClick={() => markAvailable(firstKot)}
-                            >
-                              <DoorOpen className="h-4 w-4 mr-1" /> Free Table
-                            </Button>
-                          </div>
-                          {/* Generate Bill — Phase 3: connected to Fiskaly SIGN AT.
-                              State machine driven by billStateFor(parent):
-                                DISABLED  — order open (before End Order).
-                                READY     — closed, no receipt → press to sign.
-                                GENERATING — Fiskaly request in flight.
-                                SIGNED    — receipt signed → press to view bill.
-                                FAILED    — signing failed → press to retry.
-                              Never calls Fiskaly before End Order, never
-                              re-signs a SIGNED receipt, never mutates payment
-                              status / order / table on failure. */}
-                          {(() => {
-                            const bs = billStateFor(parent);
-                            const busy = bs === 'GENERATING';
-                            const signed = bs === 'SIGNED';
-                            const failed = bs === 'FAILED';
-                            const label = busy
-                              ? 'Generating…'
-                              : signed
-                                ? 'View Bill'
-                                : failed
-                                  ? 'Retry Bill'
-                                  : 'Generate Bill';
-                            return (
+                            {isFreed ? (
+                              <span className="flex-1 text-xs text-emerald-700 italic text-center flex items-center justify-center gap-1">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Table Freed
+                              </span>
+                            ) : (
                               <Button
                                 size="sm"
-                                variant={signed ? 'secondary' : failed ? 'destructive' : 'outline'}
-                                className="w-full"
-                                disabled={bs === 'DISABLED' || busy}
-                                onClick={() => handleGenerateBill(parent, kots)}
-                                title={
-                                  bs === 'DISABLED'
-                                    ? 'Generate Bill is available only after End Order is completed.'
-                                    : signed
-                                      ? 'Fiscal receipt signed — view the bill'
-                                      : failed
-                                        ? 'Fiscalization failed — retry'
-                                        : 'Generate a fiscal receipt (Fiskaly SIGN AT)'
-                                }
+                                variant="ghost"
+                                className="flex-1 text-primary"
+                                disabled={!freeable}
+                                onClick={() => markAvailable(firstKot)}
                               >
-                                {busy ? (
-                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                ) : signed ? (
-                                  <CheckCircle2 className="h-4 w-4 mr-1" />
-                                ) : failed ? (
-                                  <AlertTriangle className="h-4 w-4 mr-1" />
-                                ) : (
-                                  <Receipt className="h-4 w-4 mr-1" />
-                                )}
-                                {label}
+                                <DoorOpen className="h-4 w-4 mr-1" /> Free Table
                               </Button>
-                            );
-                          })()}
-                          {isOpen && (
+                            )}
+                          </div>
+                          {/* Generate Bill — Phase 1: DISABLED until the existing
+                              End Order workflow has successfully completed
+                              (parent.orderStatus === 'closed'). Before End Order
+                              the button is visibly disabled; after End Order it
+                              becomes enabled. It does NOT call Fiskaly, does NOT
+                              generate a fiscal receipt, and does NOT free the
+                              table in this phase. */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full"
+                            disabled={!isEnded}
+                            onClick={() => handleGenerateBill(parent, kots)}
+                            title={!isEnded ? 'Generate Bill is available only after End Order is completed.' : 'Generate Bill'}
+                          >
+                            <Receipt className="h-4 w-4 mr-1" /> Generate Bill
+                          </Button>
+                          {!isEnded && (
                             <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
                               <Receipt className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                               <span>Generate Bill locked — complete End Order first.</span>
                             </p>
                           )}
-                          {billStateFor(parent) === 'FAILED' && (
-                            <p className="text-[11px] text-destructive flex items-start gap-1.5">
-                              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span>Fiscal receipt generation failed. Payment is unchanged — retry when ready.</span>
-                            </p>
-                          )}
-                          {billStateFor(parent) === 'SIGNED' && (
-                            <p className="text-[11px] text-emerald-700 flex items-start gap-1.5">
-                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span>Fiscal receipt signed (RKSV). Tap “View Bill” to display it.</span>
-                            </p>
-                          )}
-                          {isOpen && !allResolved && (
+                          {!isEnded && !allResolved && (
                             <p className="text-[11px] text-amber-700 flex items-start gap-1.5">
                               <CircleStop className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                               <span>End Order locked — {pendingCount} ticket{pendingCount > 1 ? 's' : ''} still pending or being prepared.</span>
                             </p>
                           )}
-                          {!freeable && (
+                          {!freeable && !isFreed && (
                             <p className="text-[11px] text-amber-700 flex items-start gap-1.5">
                               <DoorOpen className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                               <span>
-                                {isOpen
+                                {!isEnded
                                   ? 'Free Table locked — end the order first.'
                                   : fig.outstandingAmount > 0
-                                    ? `Free Table locked — €${fig.outstandingAmount.toFixed(2)} outstanding. Settle payment first.`
-                                    : billStateFor(parent) !== 'SIGNED'
-                                      ? 'Free Table locked — generate and sign the fiscal bill first.'
-                                      : ''}
+                                    ? 'Free Table locked — settle payment first.'
+                                    : ''}
                               </span>
                             </p>
                           )}
@@ -3462,29 +3332,36 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     </SelectTrigger>
                     <SelectContent>
                       {activeTables.map((t) => {
+                        const hasOpenOrder = openOrderTableNumbers.has(t.name);
                         const occupied = occupiedTableNumbers.has(t.name);
                         const combined = activeCombinationTableNumbers.has(t.name);
-                        // A table in an ACTIVE combination that has NO open
-                        // order is a non-primary member of a Shared/Linked
-                        // order — it cannot start a standalone order (the
-                        // server-side occupancy hook rejects it). The
-                        // PRIMARY table of a shared order is both occupied
-                        // and combined; it stays selectable so the waiter
-                        // can add items as another KOT to the existing
-                        // shared parent.
-                        const blocked = combined && !occupied;
+                        // A table is blocked from starting a NEW standalone
+                        // order when it has no open order to attach to AND
+                        // either (a) it is in an ACTIVE combination (a
+                        // non-primary Shared/Linked member — the server-side
+                        // hook rejects it), or (b) its latest order is
+                        // closed but NOT freed (End Order ≠ Free Table — the
+                        // waiter must Free Table first). The PRIMARY table of
+                        // a shared order has an open order, so it stays
+                        // selectable to add items as another KOT.
+                        const blocked = !hasOpenOrder && (occupied || combined);
                         return (
                           <SelectItem key={t.id} value={t.name} disabled={blocked}>
                             <span className="flex items-center justify-between w-full gap-2">
                               <span className="truncate">
                                 {t.name} {t.room ? `(${t.room})` : ''}
                               </span>
-                              {occupied && (
+                              {occupied && !hasOpenOrder && (
+                                <span className="text-[10px] font-bold uppercase tracking-wide text-destructive shrink-0">
+                                  Ended
+                                </span>
+                              )}
+                              {hasOpenOrder && (
                                 <span className="text-[10px] font-bold uppercase tracking-wide text-destructive shrink-0">
                                   Occupied
                                 </span>
                               )}
-                              {blocked && (
+                              {blocked && combined && !occupied && (
                                 <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700 shrink-0">
                                   Combined
                                 </span>
@@ -3512,10 +3389,16 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     Choose a table to begin building the order.
                   </p>
                 )}
-                {tableNumber && occupiedTableNumbers.has(tableNumber) && (
+                {tableNumber && openOrderTableNumbers.has(tableNumber) && (
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex items-center gap-1.5">
                     <DoorOpen className="h-3.5 w-3.5 shrink-0" />
                     <span>This table has an open order — new items will be added to it as another KOT, not a new order.</span>
+                  </p>
+                )}
+                {tableNumber && occupiedTableNumbers.has(tableNumber) && !openOrderTableNumbers.has(tableNumber) && (
+                  <p className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded px-2 py-1 flex items-center gap-1.5">
+                    <DoorOpen className="h-3.5 w-3.5 shrink-0" />
+                    <span>This table has an ended order — free the table before starting a new order.</span>
                   </p>
                 )}
               </>
@@ -3896,20 +3779,45 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       {/* ===== Active tab ===== */}
       {showActiveTab && (
       <TabsContent value="active" className="mt-4 pb-8">
-        {/* Filter controls (three distinct filters) + refresh */}
+        {/* Active Orders / Order History sub-tabs — replaces the old Order
+            Status dropdown. Active Orders = orderStatus !== 'closed' (open,
+            incl. ended/paid-but-not-freed); Order History = closed orders
+            (Free Table completed). Both sub-tabs share the Kitchen Status +
+            Table filters below. */}
+        <div className="mb-3">
+          <div role="tablist" aria-label="Order view" className="grid w-full grid-cols-2 gap-1 rounded-md border border-border bg-muted/40 p-0.5">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSubTab === 'active'}
+              onClick={() => setActiveSubTab('active')}
+              className={`flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] sm:text-xs font-bold uppercase tracking-wide transition-colors ${
+                activeSubTab === 'active'
+                  ? 'bg-primary text-primary-foreground shadow'
+                  : 'text-muted-foreground hover:bg-background'
+              }`}
+            >
+              <ListOrdered className="h-3.5 w-3.5 shrink-0" /> Active Orders
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSubTab === 'history'}
+              onClick={() => setActiveSubTab('history')}
+              className={`flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] sm:text-xs font-bold uppercase tracking-wide transition-colors ${
+                activeSubTab === 'history'
+                  ? 'bg-primary text-primary-foreground shadow'
+                  : 'text-muted-foreground hover:bg-background'
+              }`}
+            >
+              <Receipt className="h-3.5 w-3.5 shrink-0" /> Order History
+            </button>
+          </div>
+        </div>
+
+        {/* Filter controls (Kitchen Status + Table) + refresh */}
         <div className="space-y-2 mb-4">
           <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
-            <div className="flex-1 min-w-0">
-              <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Order Status</Label>
-              <Select value={filterOrderStatus} onValueChange={setFilterOrderStatus}>
-                <SelectTrigger className="bg-card h-9 mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <div className="flex-1 min-w-0">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Kitchen Status</Label>
               <Select value={filterKitchenStatus} onValueChange={setFilterKitchenStatus}>
@@ -3962,8 +3870,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         </div>
         {orders.length === 0 ? (
           <p className="text-center text-muted-foreground py-16">No orders yet.</p>
-        ) : filteredGroupedOrders.groupArr.length === 0 && filteredGroupedOrders.unparented.length === 0 ? (
-          <p className="text-center text-muted-foreground py-16">No orders match the selected filters.</p>
+        ) : !currentHasOrders ? (
+          <p className="text-center text-muted-foreground py-16">
+            {activeSubTab === 'history' ? 'No order history' : 'No active orders'}
+          </p>
         ) : (
           <div className="space-y-4">
             {/* Shared Order groups — one parent Order spanning all member
@@ -3972,7 +3882,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 table_group_members, the source of truth). Financial state,
                 End Order, Free Table, and payment operate on the single
                 parent — this is the real merged total, not informational. */}
-            {linkedOrderGroups.sharedArr.map((sg) => {
+            {currentLinkedGroups.sharedArr.map((sg) => {
               const { group, entry } = sg;
               const tablesLabel = (group && group.tables && group.tables.length > 1)
                 ? `Tables ${group.tables.join(' + ')}`
@@ -3992,7 +3902,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             {/* Linked order groups — Combine Tables heading wrapping each
                 member table's independent Order card. Financial totals are
                 NOT merged; per-Order payment behaviour is unchanged. */}
-            {linkedOrderGroups.linkedArr.map((lg) => {
+            {currentLinkedGroups.linkedArr.map((lg) => {
               // ---- Linked group summary (informational only) ----
               // Financial state stays per parent Order. These aggregates are
               // displayed for visibility only and are NEVER persisted as a
@@ -4000,28 +3910,40 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
               const members = lg.entries || [];
               let combinedTotal = 0;
               let combinedPaid = 0;
-              let unresolvedCount = 0; // open OR has unresolved KOTs
+              let unresolvedCount = 0; // not ended OR has unresolved KOTs
               let unpaidCount = 0;     // outstanding > 0
               let unclearedCount = 0;  // has any unpaid item line
-              let endableCount = 0;    // open AND all KOTs resolved
-              let freeableCount = 0;   // closed AND outstanding 0 AND SIGNED
+              let endableCount = 0;    // not ended AND all KOTs resolved
+              let freeableCount = 0;   // ended, not freed AND outstanding 0
+              let notFreedCount = 0;   // ended + paid but not freed (table still occupied)
               members.forEach(({ parent, kots }) => {
                 const fig = computePayment(kots);
                 combinedTotal += fig.totalAmount;
                 combinedPaid += fig.paidAmount;
-                const isOpen = (parent && parent.orderStatus) !== 'closed';
+                const isEnded = !!(parent && parent.endedAt);
+                const isFreed = !!(parent && parent.freed === true);
                 const resolved = allKotsResolved(kots);
-                if (isOpen || !resolved) unresolvedCount += 1;
+                if (!isEnded || !resolved) unresolvedCount += 1;
                 if (fig.outstandingAmount > 0) unpaidCount += 1;
                 if ((kots || []).some((k) => k.status !== 'cancelled' && (k.items || []).some((it) => !isCleared(it)))) unclearedCount += 1;
-                if (isOpen && resolved) endableCount += 1;
-                // Phase 4: Free All eligibility requires the Fiskaly bill to be SIGNED too.
-                if (!isOpen && fig.outstandingAmount <= 0 && billStateFor(parent) === 'SIGNED') freeableCount += 1;
+                if (!isEnded && resolved) endableCount += 1;
+                if (isEnded && !isFreed && fig.outstandingAmount <= 0) freeableCount += 1;
+                // Ended + fully settled but not yet freed: the table is still
+                // occupied, so Free All remains pending. Mirrors the
+                // single-table lifecycle where Free Table is a separate step
+                // after End Order + payment.
+                if (isEnded && !isFreed && fig.outstandingAmount <= 0) notFreedCount += 1;
               });
               combinedTotal = Math.round(combinedTotal * 100) / 100;
               combinedPaid = Math.round(combinedPaid * 100) / 100;
               const combinedOutstanding = Math.round((combinedTotal - combinedPaid) * 100) / 100;
-              const allDone = unresolvedCount === 0 && unpaidCount === 0;
+              // "All settled" requires every member to be ended, paid, AND
+              // freed — matching the single-table lifecycle where the table
+              // is only available after Free Table. Orders that are ended +
+              // paid but not yet freed still occupy their tables, so they
+              // count as pending until Free All runs.
+              const allDone = unresolvedCount === 0 && unpaidCount === 0 && notFreedCount === 0;
+              const pendingCount = unresolvedCount + unpaidCount + notFreedCount;
               return (
               <div key={lg.tableGroupId} className="space-y-3 rounded-xl border-2 border-secondary/50 bg-secondary/5 p-3 sm:p-4">
                 <div className="flex flex-wrap items-center gap-2 text-primary mb-1">
@@ -4034,7 +3956,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     variant="outline"
                     className={`ml-auto text-[10px] font-bold uppercase shrink-0 ${allDone ? 'bg-emerald-100 text-emerald-800 border-emerald-400' : 'bg-amber-100 text-amber-800 border-amber-400'}`}
                   >
-                    {allDone ? 'All settled' : `${unresolvedCount + unpaidCount} pending`}
+                    {allDone ? 'All settled' : `${pendingCount} pending`}
                   </Badge>
                 </div>
 
@@ -4074,9 +3996,14 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                         <AlertTriangle className="h-3 w-3" /> {unclearedCount} uncleared
                       </span>
                     )}
+                    {notFreedCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-300">
+                        <DoorOpen className="h-3 w-3" /> {notFreedCount} to free
+                      </span>
+                    )}
                     {allDone && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-emerald-50 text-emerald-800 border-emerald-300">
-                        <CheckCircle2 className="h-3 w-3" /> All orders resolved &amp; paid
+                        <CheckCircle2 className="h-3 w-3" /> All orders resolved, paid &amp; freed
                       </span>
                     )}
                   </div>
@@ -4101,7 +4028,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       className="flex-1 min-w-[8rem] touch-target text-primary"
                       disabled={freeableCount === 0}
                       onClick={() => setGroupFreeTarget(lg)}
-                      title={freeableCount === 0 ? 'No tables are ready to free (order ended, paid, and bill signed required)' : `Free ${freeableCount} eligible table(s)`}
+                      title={freeableCount === 0 ? 'No tables are ready to free' : `Free ${freeableCount} eligible table(s)`}
                     >
                       <DoorOpen className="h-4 w-4 mr-1" /> Free All ({freeableCount})
                     </Button>
@@ -4113,10 +4040,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
               );
             })}
             {/* Standalone orders (no combination) */}
-            {linkedOrderGroups.standalone.map(({ parent, kots }) => renderGroupedCard(parent, kots))}
+            {currentLinkedGroups.standalone.map(({ parent, kots }) => renderGroupedCard(parent, kots))}
 
             {/* Legacy unparented KOTs (created before grouping) */}
-            {filteredGroupedOrders.unparented.map((order) => {
+            {currentUnparented.map((order) => {
               const meta = STATUS_META[order.status] || STATUS_META.pending;
               const delayed = isKotDelayed(order, now);
               return (
@@ -4249,9 +4176,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           {groupEndTarget ? (
             <div className="max-h-[40vh] overflow-y-auto rounded-lg border border-border divide-y divide-border">
               {(groupEndTarget.entries || []).map(({ parent, kots }) => {
-                const isOpen = (parent && parent.orderStatus) !== 'closed';
+                const isEnded = !!(parent && parent.endedAt);
                 const resolved = allKotsResolved(kots);
-                const eligible = isOpen && resolved;
+                const eligible = !isEnded && resolved;
                 return (
                   <div key={parent.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
                     <span className="min-w-0 break-words">
@@ -4259,7 +4186,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       <span className="text-muted-foreground ml-1 notranslate" translate="no">{parent.orderId}</span>
                     </span>
                     <span className={`shrink-0 font-bold uppercase tracking-wide ${eligible ? 'text-emerald-700' : 'text-muted-foreground'}`}>
-                      {isOpen ? (resolved ? 'Will end' : 'Blocked') : 'Already ended'}
+                      {isEnded ? 'Already ended' : (resolved ? 'Will end' : 'Blocked')}
                     </span>
                   </div>
                 );
@@ -4285,21 +4212,17 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
               <DoorOpen className="h-5 w-5 text-primary shrink-0" /> Free all tables in this group?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-left">
-              Frees every member table whose order is ended, fully settled, AND has a signed fiscal bill. Tables with open orders, outstanding balances, or unsigned bills are skipped — they are never force-freed. Each order keeps its own payment state; payments are not merged.
+              Frees every member table whose order is ended and fully settled. Tables with open orders or outstanding balances are skipped — they are never force-freed. Each order keeps its own payment state; payments are not merged.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {groupFreeTarget ? (
             <div className="max-h-[40vh] overflow-y-auto rounded-lg border border-border divide-y divide-border">
               {(groupFreeTarget.entries || []).map(({ parent, kots }) => {
-                const isOpen = (parent && parent.orderStatus) !== 'closed';
+                const isEnded = !!(parent && parent.endedAt);
+                const isFreed = !!(parent && parent.freed === true);
                 const fig = computePayment(kots);
-                const signed = billStateFor(parent) === 'SIGNED';
-                const eligible = !isOpen && fig.outstandingAmount <= 0 && signed;
-                const reason = isOpen
-                  ? 'Order open'
-                  : (fig.outstandingAmount > 0
-                      ? `€${fig.outstandingAmount.toFixed(2)} due`
-                      : (signed ? 'Will free' : 'Bill not signed'));
+                const eligible = isEnded && !isFreed && fig.outstandingAmount <= 0;
+                const reason = !isEnded ? 'Order open' : isFreed ? 'Already freed' : (fig.outstandingAmount > 0 ? `€${fig.outstandingAmount.toFixed(2)} due` : 'Will free');
                 return (
                   <div key={parent.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
                     <span className="min-w-0 break-words">
@@ -4583,146 +4506,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* ---- Phase 3: Fiscal Bill / Receipt dialog ----
-          Shown after a successful Fiskaly signing (or when "View Bill" is
-          pressed on an already-SIGNED order). Renders the FINAL completed
-          order data plus the Fiskaly RKSV QR code returned by the signing
-          response (never a manually fabricated payload). */}
-      <Dialog open={!!billDialog} onOpenChange={(o) => { if (!o) setBillDialog(null); }}>
-        <DialogContent className="max-w-md w-[92vw] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-secondary" /> Fiscal Receipt
-            </DialogTitle>
-            <DialogDescription>
-              Fiskaly SIGN AT (RKSV) — {billDialog?.receipt?.status === 'SIGNED' ? 'signed' : 'pending'} receipt.
-            </DialogDescription>
-          </DialogHeader>
-          {billDialog && billDialog.receipt && (() => {
-            const { parent, kots, receipt, restaurant } = billDialog;
-            const tableLabel = tableDisplayForParent(parent, groupMap) || parent.tableNumber || '—';
-            const orderNo = receipt.orderNumber || resolveBaseOrderId({ expand: { parentOrder: parent } });
-            const fig = computePayment(kots);
-            // Final line items from the completed order (cancelled KOTs and
-            // zero-quantity lines excluded — matches the fiscalized schema).
-            const lines = [];
-            for (const k of kots) {
-              if (!k || k.status === 'cancelled') continue;
-              for (const it of (k.items || [])) {
-                const qty = Number(it.quantity) || 0;
-                if (qty <= 0) continue;
-                lines.push({
-                  name: it.name || 'Item',
-                  qty,
-                  price: Number(it.price) || 0,
-                  table: it.tableNumber || null,
-                });
-              }
-            }
-            const signedDate = receipt.timeSignature
-              ? new Date(receipt.timeSignature * 1000).toLocaleString()
-              : (receipt.updated ? new Date(receipt.updated).toLocaleString() : '—');
-            return (
-              <div className="space-y-3 text-sm">
-                {/* Restaurant / legal entity */}
-                <div className="text-center border-b border-dashed border-border pb-2">
-                  <p className="font-serif font-bold text-base text-primary">{restaurant?.name || 'Tripti Genusswelt'}</p>
-                  {restaurant?.vatId ? <p className="text-[11px] text-muted-foreground">UID/VAT: {restaurant.vatId}</p> : null}
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                    {restaurant?.environment || 'TEST'} · Fiskaly SIGN AT
-                  </p>
-                </div>
-
-                {/* Order + table + fiscal metadata */}
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Order</span><span className="font-mono font-semibold">{orderNo}</span></div>
-                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Table</span><span className="font-semibold">{tableLabel}</span></div>
-                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Receipt №</span><span className="font-mono font-semibold">{receipt.receiptNumber || '—'}</span></div>
-                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Cash Register</span><span className="font-mono">{receipt.cashRegisterSerialNumber || '—'}</span></div>
-                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Date / Time</span><span className="font-semibold">{signedDate}</span></div>
-                  <div className="flex justify-between gap-2"><span className="text-muted-foreground">Payment Type</span><span className="font-semibold">{receipt.paymentType || '—'}</span></div>
-                </div>
-
-                {/* Line items */}
-                <div className="border-t border-border pt-2">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-muted-foreground">
-                        <th className="text-left font-semibold pb-1">Item</th>
-                        <th className="text-center font-semibold pb-1 w-8">Qty</th>
-                        <th className="text-right font-semibold pb-1 w-16">Price</th>
-                        <th className="text-right font-semibold pb-1 w-16">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((l, i) => (
-                        <tr key={i} className="align-top">
-                          <td className="py-0.5 break-words">
-                            {l.name}
-                            {l.table ? <span className="ml-1 text-[10px] text-muted-foreground">(T{l.table})</span> : null}
-                          </td>
-                          <td className="text-center py-0.5">{l.qty}</td>
-                          <td className="text-right py-0.5">€{l.price.toFixed(2)}</td>
-                          <td className="text-right py-0.5">€{(l.qty * l.price).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Totals + VAT */}
-                <div className="border-t border-border pt-2 space-y-1 text-xs">
-                  <div className="flex justify-between font-bold text-base">
-                    <span>Total</span>
-                    <span>€{Number(receipt.totalAmount || 0).toFixed(2)}</span>
-                  </div>
-                  {Array.isArray(receipt.vatData) && receipt.vatData.length > 0 && (
-                    <div className="pt-1 border-t border-dashed border-border">
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">VAT breakdown</p>
-                      {receipt.vatData.map((v, i) => (
-                        <div key={i} className="flex justify-between">
-                          <span className="text-muted-foreground">{v.vat_rate || 'STANDARD'}</span>
-                          <span>€{Number(v.amount || 0).toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="pt-1 border-t border-dashed border-border">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Paid</span><span className="text-emerald-700 font-semibold">€{fig.paidAmount.toFixed(2)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Outstanding</span><span className={fig.outstandingAmount > 0 ? 'text-red-700 font-semibold' : 'text-emerald-700 font-semibold'}>€{fig.outstandingAmount.toFixed(2)}</span></div>
-                  </div>
-                </div>
-
-                {/* RKSV QR code (from Fiskaly response) */}
-                {receipt.qrCodeData ? (
-                  <div className="flex flex-col items-center gap-1 border-t border-border pt-3">
-                    <div className="bg-white p-2 rounded">
-                      <QRCodeSVG value={receipt.qrCodeData} size={140} level="M" />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground text-center">RKSV QR-Code (Fiskaly SIGN AT)</p>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground text-center border-t border-border pt-2">
-                    {receipt.status === 'SIGNED'
-                      ? 'No QR-code payload was returned with this receipt.'
-                      : 'Receipt not yet signed — no QR code available.'}
-                  </p>
-                )}
-
-                {receipt.errorMessage ? (
-                  <p className="text-[11px] text-destructive border-t border-border pt-2">
-                    Error: {receipt.errorMessage}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })()}
-          <DialogFooter className="sm:justify-center">
-            <Button variant="outline" onClick={() => setBillDialog(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Tabs>
     </>
   );
