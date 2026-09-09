@@ -263,7 +263,7 @@ export default function WaiterDashboard() {
           />
         </main>
       </div>
-      {authed && <StaffChat role="waiter" pbClient={pb} displayName={displayName} />}
+      {authed && <StaffChat role="waiter" userId={waiterId} pbClient={pb} displayName={displayName} />}
     </>
   );
 }

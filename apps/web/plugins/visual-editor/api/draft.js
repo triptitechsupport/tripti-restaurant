@@ -87,10 +87,16 @@ export async function handleDraftSave() {
 				instruction: edit.instruction,
 				isAssisted: edit.isAssisted,
 			})),
-			...getComments().map(({ text, elements, selections }) => ({
+			...getComments().map(({ text, elements, selections, attachments }) => ({
 				editId: elements.length === 1 ? getEditId(elements[0]) || undefined : undefined,
 				selectionModes: selections,
-				instruction: { changes: [], annotation: text },
+				instruction: {
+					changes: [],
+					annotation: text,
+					...(attachments?.length && {
+						attachments: attachments.map(({ url }) => ({ type: 'image', image: url })),
+					}),
+				},
 				isAssisted: true,
 			})),
 		];

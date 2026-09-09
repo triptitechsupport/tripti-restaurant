@@ -89,6 +89,8 @@ export default function ContactKitchenButton({ pbClient, displayName }) {
             {
               senderRole: 'waiter',
               recipientRole,
+              senderId: pbClient.authStore.record?.id || pbClient.authStore.model?.id || '',
+              recipientId: '',
               senderName: displayName || 'Waiter',
               content,
               read: false,

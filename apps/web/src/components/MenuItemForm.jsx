@@ -9,11 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
 import MobileFormField from '@/components/MobileFormField.jsx';
-
-const CATEGORIES = [
-  'Breakfast', 'Appetizers', 'Main Courses', 'Sides & Accompaniments', 
-  'Snacks', 'Desserts', 'Beverages', 'Kids Menu'
-];
+import { useLanguage } from '@/contexts/LanguageContext.jsx';
 
 const ALLERGENS_LIST = [
   { id: 'A', label: 'Cereals containing gluten' },
@@ -33,7 +29,10 @@ const ALLERGENS_LIST = [
 ];
 
 export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
+  const { language } = useLanguage();
   const [isLoading, setIsLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [formData, setFormData] = useState({
     nameEN: '',
     nameDE: '',
@@ -42,11 +41,35 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
     allergens: [],
     price: '',
     category: '',
+    vat_Rate: 'REDUCED_1',
     availability: true,
     isVegetarian: false,
   });
   const [imageFile, setImageFile] = useState(null);
   const [errors, setErrors] = useState({});
+
+  // Fetch dynamic categories from the `categories` collection (sorted by
+  // display_order, then name). Falls back to a sensible default list if the
+  // collection is empty or unreachable so the form always remains usable.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const records = await pb.collection('categories').getFullList({
+          sort: 'display_order,name',
+          $autoCancel: false,
+        });
+        if (!alive) return;
+        setCategories(records.length > 0 ? records : []);
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+        if (alive) setCategories([]);
+      } finally {
+        if (alive) setCategoriesLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     if (initialData) {
@@ -58,6 +81,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
         allergens: initialData.allergens || [],
         price: initialData.price?.toString() || '',
         category: initialData.category || '',
+        vat_Rate: initialData.vat_Rate || (/beverages|getränke|getraenke/i.test(initialData.category || '') ? 'STANDARD' : 'REDUCED_1'),
         availability: initialData.availability ?? true,
         isVegetarian: initialData.isVegetarian ?? false,
       });
@@ -66,7 +90,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
     } else {
       setFormData({
         nameEN: '', nameDE: '', descriptionEN: '', descriptionDE: '', allergens: [],
-        price: '', category: '', availability: true, isVegetarian: false,
+        price: '', category: '', vat_Rate: 'REDUCED_1', availability: true, isVegetarian: false,
       });
       setImageFile(null);
       setErrors({});
@@ -114,6 +138,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
 
       submitData.append('price', parseFloat(formData.price));
       submitData.append('category', formData.category);
+      submitData.append('vat_Rate', formData.vat_Rate);
       submitData.append('availability', formData.availability);
       submitData.append('isVegetarian', formData.isVegetarian);
       
@@ -175,18 +200,32 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <MobileFormField label={<>Category <span className="text-destructive">*</span></>} id="menuItemCategory" error={errors.category}>
-            <Select value={formData.category} onValueChange={(val) => setFormData(prev => ({ ...prev, category: val }))}>
+            <Select value={formData.category} onValueChange={(val) => setFormData(prev => ({ ...prev, category: val, vat_Rate: /beverages|getränke|getraenke/i.test(val) ? 'STANDARD' : 'REDUCED_1' }))}>
               <SelectTrigger id="menuItemCategory" className={errors.category ? "border-destructive focus-visible:ring-destructive" : ""}>
-                <SelectValue placeholder="Select a category" />
+                <SelectValue placeholder={categoriesLoading ? 'Loading categories…' : 'Select a category'} />
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
-                {CATEGORIES.map(cat => (
-                  <SelectItem key={cat} value={cat} className="min-h-[44px]">{cat}</SelectItem>
+                {categories.map(cat => (
+                  <SelectItem key={cat.id} value={cat.name} className="min-h-[44px]">
+                    {language === 'de' ? (cat.name_de || cat.name) : cat.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </MobileFormField>
 
+          <MobileFormField label="VAT rate" id="menuItemVatRate">
+            <Select value={formData.vat_Rate} onValueChange={value => setFormData(prev => ({...prev, vat_Rate: value}))}>
+              <SelectTrigger id="menuItemVatRate"><SelectValue/></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="STANDARD">Standard — 20%</SelectItem>
+                <SelectItem value="REDUCED_1">Reduced 1 — 10%</SelectItem>
+                <SelectItem value="REDUCED_2">Reduced 2 — 13%</SelectItem>
+                <SelectItem value="SPECIAL">Special — 19%</SelectItem>
+                <SelectItem value="ZERO">Zero — 0%</SelectItem>
+              </SelectContent>
+            </Select>
+          </MobileFormField>
           <MobileFormField label={<>Price (€) <span className="text-destructive">*</span></>} id="menuItemPrice" error={errors.price}>
             <Input
               id="menuItemPrice"

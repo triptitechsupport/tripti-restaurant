@@ -1,0 +1,28 @@
+.fiscal-receipt { width: 100%; max-width: 80mm; margin: 0 auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5; color: #111; background: white; padding: 18px 16px; border: 1px solid #ddd; box-shadow: 0 3px 12px #0000000a; overflow-wrap: anywhere; }
+.fiscal-company { text-align: center; margin: 14px 0; }
+.fiscal-company h2 { font-size: 18px; line-height: 1.3; font-weight: bold; margin-bottom: 8px; }
+.fiscal-address { white-space: pre-line; }
+.fiscal-title { text-align: center; font-size: 13px; letter-spacing: 1px; font-weight: bold; border-block: 1px dashed #555; padding: 10px 0; margin-bottom: 12px; }
+.fiscal-test-notice { text-align: center; font-size: 10px; font-weight: bold; border: 1px solid #111; padding: 6px; letter-spacing: .5px; }
+.fiscal-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 3px 0; }
+.fiscal-row > :last-child { text-align: right; }
+.fiscal-caption { font-size: 10px; font-weight: bold; }
+.fiscal-item { margin: 10px 0; break-inside: avoid; }
+.fiscal-item-name { font-weight: bold; }
+.fiscal-item .fiscal-row { font-size: 11px; }
+.fiscal-item .fiscal-row > :last-child, .fiscal-total > :last-child { white-space: nowrap; }
+.fiscal-total { display: flex; justify-content: space-between; gap: 10px; font-size: 16px; font-weight: bold; border-top: 2px solid #111; padding-top: 10px; margin: 14px 0 8px; }
+.fiscal-vat { margin-top: 14px; padding-top: 8px; border-top: 1px dashed #555; }
+.fiscal-notice { font-weight: bold; margin: 12px 0; }
+.fiscal-receipt hr { border: 0; border-top: 1px dashed #555; margin: 12px 0; }
+.fiscal-qr { display: flex; justify-content: center; margin: 14px 0; break-inside: avoid; }
+.fiscal-qr svg { max-width: 100%; height: auto; }
+.fiscal-footer { text-align: center; border-top: 1px dashed #555; padding-top: 10px; font-size: 10px; break-inside: avoid; }
+.fiscal-footer strong { display: block; margin-top: 4px; letter-spacing: 1px; }
+@media print {
+  body.printing-fiscal-receipt * { visibility: hidden !important; }
+  body.printing-fiscal-receipt .fiscal-receipt, body.printing-fiscal-receipt .fiscal-receipt * { visibility: visible !important; }
+  body.printing-fiscal-receipt [role="dialog"] { position: absolute !important; inset: 0 auto auto 0 !important; transform: none !important; width: 80mm !important; max-height: none !important; overflow: visible !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; display: block !important; }
+  body.printing-fiscal-receipt .fiscal-receipt { width: 80mm; max-width: 80mm; margin: 0; padding: 4mm; box-sizing: border-box; border: 0; box-shadow: none; }
+  body.printing-fiscal-receipt .fiscal-no-print { display: none !important; }
+}

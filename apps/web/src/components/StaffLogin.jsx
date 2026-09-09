@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import defaultPb from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, Loader2 } from 'lucide-react';
@@ -83,9 +84,8 @@ export default function StaffLogin({ collection, title, description, redirectTo,
                 </div>
                 <div className="space-y-3">
                   <Label htmlFor="password" className="font-bold text-primary">{t('password')}</Label>
-                  <Input
+                  <PasswordInput
                     id="password"
-                    type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required

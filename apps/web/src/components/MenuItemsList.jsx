@@ -136,6 +136,7 @@ export default function MenuItemsList({ refreshTrigger, onEdit }) {
               sideContent={
                 <>
                   <div className="font-bold text-primary text-lg tabular-nums">€{item.price.toFixed(2)}</div>
+                  <p className="text-xs text-muted-foreground">VAT: {({STANDARD: '20%', REDUCED_1: '10%', REDUCED_2: '13%', SPECIAL: '19%', ZERO: '0%'})[item.vat_Rate] || 'Not configured'}</p>
                   {item.isVegetarian && <span className="text-[10px] font-bold uppercase text-green-600 bg-green-100 px-1.5 py-0.5 rounded-sm">Veg</span>}
                 </>
               }
@@ -195,6 +196,7 @@ export default function MenuItemsList({ refreshTrigger, onEdit }) {
                 <TableHead className="font-medium text-muted-foreground min-w-[200px]">Name (EN / DE)</TableHead>
                 <TableHead className="font-medium text-muted-foreground">Category</TableHead>
                 <TableHead className="font-medium text-muted-foreground">Price</TableHead>
+                <TableHead className="font-medium text-muted-foreground">VAT</TableHead>
                 <TableHead className="font-medium text-muted-foreground min-w-[150px]">Allergens</TableHead>
                 <TableHead className="font-medium text-muted-foreground">Status</TableHead>
                 <TableHead className="text-right font-medium text-muted-foreground pr-6">Actions</TableHead>
@@ -239,6 +241,9 @@ export default function MenuItemsList({ refreshTrigger, onEdit }) {
                   </TableCell>
                   <TableCell className="font-medium tabular-nums">
                     €{item.price.toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {({STANDARD: '20%', REDUCED_1: '10%', REDUCED_2: '13%', SPECIAL: '19%', ZERO: '0%'})[item.vat_Rate] || '—'}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {item.allergens && item.allergens.length > 0 ? (

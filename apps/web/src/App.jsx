@@ -10,6 +10,7 @@ import { AlertCircle } from 'lucide-react';
 
 import Header from '@/components/Header.jsx';
 import WaiterHeader from '@/components/WaiterHeader.jsx';
+import KdsHeader from '@/components/KdsHeader.jsx';
 import Footer from '@/components/Footer.jsx';
 import ShoppingCart from '@/components/ShoppingCart.jsx';
 import MarqueeBar from '@/components/MarqueeBar.jsx';
@@ -86,10 +87,16 @@ function Layout() {
   // only) instead of the full public restaurant header. All other routes
   // keep the public Header with its full nav, phone, Order Now, and cart.
   const isWaiterRoute = location.pathname.startsWith('/waiter-');
+  const isKdsRoute = location.pathname.startsWith('/kds-');
+  const isAdminDashboardRoute = location.pathname === '/admin-dashboard'
+    || location.pathname === '/admin-booking-dashboard'
+    || location.pathname === '/admin'
+    || location.pathname.startsWith('/admin/');
+  const showFooter = !isWaiterRoute && !isKdsRoute && !isAdminDashboardRoute;
 
   return (
     <div className="flex flex-col min-h-screen">
-      {isWaiterRoute ? <WaiterHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
+      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
       <MarqueeBar />
       <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />
       <GlobalReservationNotifications />
@@ -180,7 +187,7 @@ function Layout() {
         </Routes>
       </div>
       
-      <Footer />
+      {showFooter ? <Footer /> : null}
     </div>
   );
 }

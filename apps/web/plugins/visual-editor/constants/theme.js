@@ -33,19 +33,12 @@ export const ANNOTATION_COLOR_HOVER = '#5025D1';
 /** Placeholder text color in panel inputs. */
 export const PLACEHOLDER_COLOR = '#D1D5DC';
 
-/** Annotation marker: above the element it highlights */
-export const Z_OFFSET_MARKER = 1;
-/** Element-type tooltip: above the element and marker it accompanies. */
-export const Z_OFFSET_TOOLTIP = 2;
-/** Text-format toolbar. */
-export const Z_OFFSET_TOOLBAR = 3;
-/** Annotation panel: above the toolbar it can be anchored to. */
-export const Z_OFFSET_PANEL = 4;
-/** Toolbar dropdown panels (size, font, link, color): above everything else. */
-export const Z_OFFSET_DROPDOWN = 5;
-
-/** Drag-select band: no anchor element, so it sits flat above page content rather than on the offset ladder. */
-export const SELECTION_RECT_Z_INDEX = 999999;
+/** Browser int32 max; toolbar, dropdowns, and annotation panel. */
+export const Z_INDEX_EDITOR_PANEL = 2147483647;
+/** Overlays: element-type tooltip and drag-select band. */
+export const Z_INDEX_EDITOR_OVERLAY = Z_INDEX_EDITOR_PANEL - 1;
+/** Annotation markers. */
+export const Z_INDEX_EDITOR_MARKER = Z_INDEX_EDITOR_PANEL - 2;
 
 /** Box shadow for dropdown panels. */
 export const BOX_SHADOW_DROPDOWN = '0 4px 16px 0 rgba(0, 0, 0, 0.30)';

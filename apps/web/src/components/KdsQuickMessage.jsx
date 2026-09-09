@@ -49,6 +49,8 @@ export default function KdsQuickMessage({ pbClient, displayName }) {
         {
           senderRole: 'kds',
           recipientRole: recipient,
+          senderId: pbClient.authStore.record?.id || pbClient.authStore.model?.id || '',
+          recipientId: '',
           senderName: displayName || 'Kitchen',
           content,
           read: false,

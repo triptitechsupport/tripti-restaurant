@@ -2,7 +2,8 @@ import { getEditing, setEditing, clearEditing } from "../../state/editing-state.
 import { normalizeContentEditableHtml, patchRemoveChild, serializeContentEditableHtml } from "../../utils/html-utils.js";
 import { postToParent } from "../../utils/parent-frame.js";
 import { ParentMessage } from "../../constants/messages.js";
-import { beginEditSession, recordEdit, getEditState } from "../../state/history-state.js";
+import { beginEditSession, recordEdit } from "../../state/history-state.js";
+import { notifyDraftStateChanged } from "../../api/draft-snapshot.js";
 import { showTextFormatToolbar, hideTextFormatToolbar, scheduleRepositionEditOverlays } from "../text-format/toolbar/toolbar.js";
 import { onSelectionChange } from "./cursor-styles.js";
 import { captureElementMetadata } from "../../utils/selection-mode-metadata.js";
@@ -273,7 +274,7 @@ export function saveCurrentEdit() {
 
     if (newHTML !== originalContent || style) {
         recordEdit(editId, { beforeContent: originalContent, afterContent: newHTML }, { style, oldStyle, element: targetElement, sessionId, isAssisted, selectionMode });
-        postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
+        notifyDraftStateChanged();
         editing.originalContent = newHTML;
         editing.hasSoftSaved = true;
         refreshStyleSnapshots(editing);
@@ -308,7 +309,7 @@ export function commitCurrentEdit() {
 
     if (newHTML !== originalContent || style) {
         recordEdit(editId, { beforeContent: originalContent, afterContent: newHTML }, { style, oldStyle, element: targetElement, sessionId, isAssisted, selectionMode });
-        postToParent(ParentMessage.EDIT_STATE_CHANGED, { ...getEditState() });
+        notifyDraftStateChanged();
     } else if (!hasSoftSaved) {
         postToParent(ParentMessage.EDIT_CANCEL, {});
     }

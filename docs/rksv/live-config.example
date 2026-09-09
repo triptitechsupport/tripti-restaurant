@@ -1,0 +1,25 @@
+# Copy these settings into apps/api/.env (or production server secrets).
+# This template is not loaded automatically. Never commit a filled-in copy.
+# Keep disabled until merchant setup, initial receipt validation and acceptance checks finish.
+FISKALY_ENABLED=false
+FISKALY_ENVIRONMENT=LIVE
+FISKALY_LIVE_CONFIRMED=false
+
+FISKALY_API_KEY=
+FISKALY_API_SECRET=
+FISKALY_CASH_REGISTER_ID=
+FISKALY_SCU_ID=
+FISKALY_VAT_ID=
+FISCAL_COMPANY_NAME=
+FISCAL_COMPANY_ADDRESS=
+
+# FinanzOnline RKSV webservice credentials for initial authentication / replacement.
+FON_PARTICIPANT_ID=
+FON_USER_ID=
+FON_PIN=
+
+# After reviewing real merchant values, enable and confirm LIVE to perform onboarding.
+# Provision the LIVE SCU/register using the documented maintenance endpoints.
+# Verify initialization receipt validation before accepting production payments.
+# Restart the API after changing environment variables. Use one API worker.
+# Keep TEST records separate; do not relabel TEST receipts as LIVE.

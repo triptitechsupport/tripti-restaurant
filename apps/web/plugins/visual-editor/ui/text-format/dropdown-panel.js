@@ -4,7 +4,6 @@
  * toolbar, and outside-interaction dismissal.
  */
 import { PANEL_GAP, PANEL_MARGIN, PARENT_TOOLBAR_HEIGHT } from '../../constants/layout.js';
-import { Z_OFFSET_DROPDOWN, Z_OFFSET_TOOLBAR } from '../../constants/theme.js';
 import { getToolbarEl } from './toolbar/toolbar.js';
 
 /**
@@ -53,10 +52,6 @@ export function positionDropdownPanel(element, { buttonAction = null, matchToolb
 
 	element.style.left = `${left}px`;
 	element.style.top = `${top}px`;
-	// Stacked from the toolbar's own level so the dropdown follows the toolbar
-	// under (or above) the site's chrome instead of escaping to a top layer.
-	const toolbarZIndex = parseInt(toolbarElement.style.zIndex, 10);
-	element.style.zIndex = (Number.isNaN(toolbarZIndex) ? Z_OFFSET_TOOLBAR : toolbarZIndex) - Z_OFFSET_TOOLBAR + Z_OFFSET_DROPDOWN;
 }
 
 /**

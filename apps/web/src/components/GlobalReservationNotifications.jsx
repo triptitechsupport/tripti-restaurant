@@ -1,14 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { Check, X, BellRing, CalendarClock, Users, ArrowRight } from 'lucide-react';
+import { BellRing, CalendarClock, Users, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
-import { useTableReservationConfirmation } from '@/hooks/useTableReservationConfirmation.js';
 
 // Play a short attention-grabbing chime using the Web Audio API (no asset needed).
 function playNotificationChime() {
@@ -40,9 +46,7 @@ function playNotificationChime() {
 export default function GlobalReservationNotifications() {
   const { isAdminAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const { sendConfirmationEmail } = useTableReservationConfirmation();
 
-  const [pendingReservations, setPendingReservations] = useState([]);
   const [newReservationAlert, setNewReservationAlert] = useState(null);
 
   // IDs we have already shown a popup for — persists for the whole admin
@@ -66,7 +70,6 @@ export default function GlobalReservationNotifications() {
       });
 
       const pending = data.filter((r) => !r.status || r.status === 'Pending');
-      setPendingReservations(pending);
 
       if (!initialLoadDoneRef.current) {
         // Seed: mark everything currently pending as already known.
@@ -105,7 +108,6 @@ export default function GlobalReservationNotifications() {
 
   useEffect(() => {
     if (!isAdminAuthenticated) {
-      setPendingReservations([]);
       setNewReservationAlert(null);
       alertedIdsRef.current = new Set();
       initialLoadDoneRef.current = false;
@@ -137,100 +139,67 @@ export default function GlobalReservationNotifications() {
     setNewReservationAlert(null);
   };
 
-  const goToReservations = () => {
-    // Close the dialog first, then navigate on the next tick. Navigating while
-    // a Radix Dialog is still mounted can leave `pointer-events: none` on the
-    // body, which freezes the destination page. Deferring the navigation lets
-    // the dialog fully unmount and clean up before the route changes.
+  // "View Notification" navigates directly to the reservation's date in the
+  // Admin reservation calendar (Gantt timeline), focusing that reservation so
+  // the admin sees its full details and can Auto/Manual fit it.
+  const viewNotification = () => {
+    const res = newReservationAlert;
     alertOpenRef.current = false;
     setNewReservationAlert(null);
-    // Safety: clear any lingering scroll/pointer lock Radix may have left behind.
+    // Safety: clear any lingering scroll/pointer lock Radix may have left behind
+    // after the Dialog unmounts (pointer-events:none on body blocks clicks).
     if (typeof document !== 'undefined') {
       document.body.style.pointerEvents = '';
       document.body.style.overflow = '';
+      document.body.removeAttribute('data-scroll-locked');
     }
+    if (!res) return;
+
+    // PocketBase date fields arrive as "YYYY-MM-DD ..." or ISO strings.
+    const rawDate = (res.reservationDate || '').toString();
+    const dateMatch = rawDate.match(/(\d{4}-\d{2}-\d{2})/);
+    const dateStr = dateMatch ? dateMatch[1] : '';
+
+    const params = new URLSearchParams();
+    params.set('tab', 'reservations');
+    if (dateStr) params.set('date', dateStr);
+    params.set('focus', res.id);
+    const target = `/admin-dashboard?${params.toString()}`;
+
+    // Defer past Dialog close animation so body locks are fully cleared and
+    // the dashboard's searchParams effect can pick up the deep-link even when
+    // the admin is already sitting on /admin-dashboard.
     setTimeout(() => {
-      navigate('/admin/reservations');
-    }, 50);
-  };
-
-  const updateStatus = async (id, newStatus, reservation) => {
-    // Close popup immediately and drop from pending list for snappy UX.
-    if (newReservationAlert?.id === id) closeAlert();
-    setPendingReservations((prev) => prev.filter((r) => r.id !== id));
-    try {
-      const payload = { status: newStatus };
-      // The collection requires a reservationCode; older records may have a
-      // blank one which makes a status-only PATCH fail validation. Backfill it.
-      if (reservation && !reservation.reservationCode) {
-        payload.reservationCode = `RSV-${(reservation.id || '').slice(-6).toUpperCase() || Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      if (typeof document !== 'undefined') {
+        document.body.style.pointerEvents = '';
+        document.body.style.overflow = '';
       }
-      await pb.collection('table_reservations').update(id, payload, { $autoCancel: false });
-      if (newStatus === 'Approved') {
-        try {
-          await sendConfirmationEmail(reservation);
-          toast.success('Reservation approved! Confirmation email will be sent.');
-        } catch {
-          toast.error('Approved, but failed to trigger confirmation email.');
-        }
-      } else {
-        toast.success(`Reservation marked as ${newStatus}`);
-      }
-    } catch {
-      toast.error('Failed to update reservation status');
-      fetchReservations();
-    }
+      navigate(target, { replace: false });
+    }, 100);
   };
-
-  const firstPending = useMemo(() => pendingReservations[0], [pendingReservations]);
 
   if (!isAdminAuthenticated) return null;
 
   return (
     <>
-      {/* Persistent ribbon banner — visible on every admin page until addressed */}
-      {pendingReservations.length > 0 && firstPending && (
-        <div className="fixed top-0 left-0 right-0 z-[95] bg-primary text-primary-foreground shadow-lg border-b-4 border-secondary animate-in slide-in-from-top-full duration-300">
-          <div className="mx-auto max-w-7xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
-                <BellRing className="h-5 w-5" />
-                <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[11px] font-bold text-destructive-foreground">
-                  {pendingReservations.length}
-                </span>
-              </span>
-              <div className="min-w-0">
-                <p className="font-bold text-sm leading-tight">
-                  {pendingReservations.length} pending reservation{pendingReservations.length > 1 ? 's' : ''}
-                </p>
-                <p className="text-xs text-primary-foreground/80 truncate">
-                  {firstPending.guestName} • {firstPending.reservationDate ? format(new Date(firstPending.reservationDate), 'MMM d') : ''} at <span className="notranslate" translate="no" data-time={firstPending.reservationTime}>{firstPending.reservationTime}</span> • {firstPending.partySize || firstPending.numberOfGuests} guests
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button size="sm" variant="secondary" className="h-9 font-bold" onClick={goToReservations}>
-                <ArrowRight className="h-4 w-4 mr-1.5" /> View
-              </Button>
-              <Button size="sm" className="h-9 bg-emerald-600 hover:bg-emerald-700 text-white font-bold" onClick={() => updateStatus(firstPending.id, 'Approved', firstPending)}>
-                <Check className="h-4 w-4 mr-1.5" /> Approve
-              </Button>
-              <Button size="sm" variant="destructive" className="h-9 font-bold" onClick={() => updateStatus(firstPending.id, 'Declined', firstPending)}>
-                <X className="h-4 w-4 mr-1.5" /> Decline
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Popup modal — appears once per new reservation */}
-      <Dialog open={!!newReservationAlert} onOpenChange={(open) => { if (!open) closeAlert(); }}>
+      {/* Centered popup modal — appears once per new reservation, in the
+          middle of the admin screen (not at the top). No Approve action here:
+          the admin reviews full details and fits the reservation on the
+          calendar instead. */}
+      <Dialog
+        open={!!newReservationAlert}
+        onOpenChange={(open) => {
+          if (!open) closeAlert();
+        }}
+      >
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-secondary/20 text-primary animate-pulse-glow">
               <BellRing className="h-7 w-7" />
             </div>
-            <DialogTitle className="text-center text-2xl">New Reservation Request</DialogTitle>
+            <DialogTitle className="text-center text-2xl">
+              New Reservation Request
+            </DialogTitle>
             <DialogDescription className="text-center">
               A new booking request just came in and needs your attention.
             </DialogDescription>
@@ -239,12 +208,22 @@ export default function GlobalReservationNotifications() {
           {newReservationAlert && (
             <div className="space-y-3 rounded-xl border bg-muted/20 p-4 my-2">
               <div className="flex items-center justify-between">
-                <span className="text-lg font-semibold text-foreground">{newReservationAlert.guestName}</span>
-                <Badge variant="outline" className="font-mono bg-muted/50">{newReservationAlert.reservationCode || 'N/A'}</Badge>
+                <span className="text-lg font-semibold text-foreground">
+                  {newReservationAlert.guestName}
+                </span>
+                <Badge variant="outline" className="font-mono bg-muted/50">
+                  {newReservationAlert.reservationCode || 'N/A'}
+                </Badge>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <CalendarClock className="h-4 w-4 shrink-0" />
-                {newReservationAlert.reservationDate ? format(new Date(newReservationAlert.reservationDate), 'MMM d, yyyy') : 'N/A'} at <span className="notranslate" translate="no" data-time={newReservationAlert.reservationTime}>{newReservationAlert.reservationTime}</span>
+                {newReservationAlert.reservationDate
+                  ? format(new Date(newReservationAlert.reservationDate), 'MMM d, yyyy')
+                  : 'N/A'}{' '}
+                at{' '}
+                <span className="notranslate" translate="no" data-time={newReservationAlert.reservationTime}>
+                  {newReservationAlert.reservationTime}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Users className="h-4 w-4 shrink-0" />
@@ -254,19 +233,11 @@ export default function GlobalReservationNotifications() {
           )}
 
           <DialogFooter className="sm:justify-center gap-2">
-            {newReservationAlert && (
-              <Button
-                className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white"
-                onClick={() => updateStatus(newReservationAlert.id, 'Approved', newReservationAlert)}
-              >
-                <Check className="h-4 w-4 mr-1.5" /> Approve
-              </Button>
-            )}
             <Button variant="outline" onClick={closeAlert} className="w-full sm:w-auto">
               Dismiss
             </Button>
-            <Button onClick={goToReservations} className="w-full sm:w-auto">
-              View Reservation
+            <Button onClick={viewNotification} className="w-full sm:w-auto">
+              View Notification <ArrowRight className="h-4 w-4 ml-1.5" />
             </Button>
           </DialogFooter>
         </DialogContent>

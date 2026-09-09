@@ -5,6 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { 
   Card, 
@@ -95,9 +96,8 @@ export default function AdminLoginPage() {
 
                 <div className="space-y-3">
                   <Label htmlFor="password" className="font-bold text-primary">{t('password') || 'Password'}</Label>
-                  <Input
+                  <PasswordInput
                     id="password"
-                    type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required

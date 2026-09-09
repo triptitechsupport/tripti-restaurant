@@ -43,22 +43,3 @@ export function getAppRoot() {
 export function isInFixedContext(element) {
 	return !!element.closest(FIXED_CONTEXT_SELECTOR);
 }
-
-/**
- * Nearest explicit numeric z-index on the element or its ancestors, or `0` when
- * there is none; callers add a `Z_OFFSET_*` to stack editor surfaces on top.
- * @param {HTMLElement} element
- * @returns {number}
- */
-export function elementZIndex(element) {
-	let node = element;
-	while (node && node !== document.body && node !== document.documentElement) {
-		const zIndex = getComputedStyle(node).zIndex;
-		if (zIndex && zIndex !== 'auto') {
-			const parsed = parseInt(zIndex, 10);
-			if (!Number.isNaN(parsed)) return parsed;
-		}
-		node = node.parentElement;
-	}
-	return 0;
-}

@@ -427,13 +427,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Payment settlement modal state.
   // paymentTarget: { parent, kots } | null — the parent order being settled.
   const [paymentTarget, setPaymentTarget] = useState(null);
+  const settlementAttempt = useRef(null);
   // paymentSelections: { [kotId]: { [itemIndex]: true } } — which unpaid line
   // entries the waiter has ticked for settlement in the payment modal.
   const [paymentSelections, setPaymentSelections] = useState({});
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
-  // Open parent orders with outstanding balances, listed in the Pay picker.
-  const [payableOrders, setPayableOrders] = useState([]);
-  const [payPickerOpen, setPayPickerOpen] = useState(false);
   // Parent waiter_orders records (for open/closed status + endedAt).
   const [waiterOrders, setWaiterOrders] = useState([]);
   // Per-item spice level selections on the New Order cards (used before an
@@ -464,10 +462,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const { settings: printSettings } = usePrintSettings(pb);
   // Role + waiter id for permission checks. admin_users always pass.
   const printRole = placedByRole || 'waiter';
+  const isWaiterRole = printRole === 'waiter';
   const authRecord = pb.authStore.record || pb.authStore.model;
   const waiterId = authRecord && authRecord.id ? authRecord.id : '';
-  const printAllowed = canPrint(printSettings, printRole, waiterId);
-  const autoPrintEnabled = shouldAutoPrint(printSettings, printRole, waiterId);
+  // Waiters only send orders to the kitchen. Printing remains available to
+  // admins, subject to the existing print settings and permissions.
+  const printAllowed = !isWaiterRole && canPrint(printSettings, printRole, waiterId);
+  const autoPrintEnabled = !isWaiterRole && shouldAutoPrint(printSettings, printRole, waiterId);
 
   // ---- Screen persistence (lock / sleep / app-switch) ----
   // The waiter's in-progress draft is mirrored to localStorage so it
@@ -1306,38 +1307,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
   }, [pb]);
 
-  // Fetch open parent orders that have an outstanding balance, for the Pay
-  // picker. Each entry carries its live KOTs so the modal can render items.
-  const fetchPayableOrders = useCallback(async () => {
-    try {
-      const res = await pb.collection('waiter_orders').getList(1, 50, {
-        filter: 'orderStatus = "open"',
-        sort: '-created',
-        $autoCancel: false,
-      });
-      const withKots = await Promise.all(
-        res.items.map(async (w) => {
-          try {
-            const kots = await pb.collection('kitchen_orders').getFullList({
-              filter: pb.filter('parentOrder = {:pid}', { pid: w.id }),
-              $autoCancel: false,
-            });
-            return { parent: w, kots };
-          } catch (_) {
-            return { parent: w, kots: [] };
-          }
-        }),
-      );
-      // Only keep orders that have at least one payable (non-cancelled) KOT.
-      const list = withKots.filter((g) => g.kots.some((k) => k.status !== 'cancelled'));
-      setPayableOrders(list);
-      return list;
-    } catch (err) {
-      console.error('Failed to load payable orders:', err);
-      return [];
-    }
-  }, [pb]);
-
   // Cancel a child KOT ticket. Only allowed while status = pending; once the
   // kitchen has started preparing it (preparing/ready/completed) or it was
   // already cancelled, the action is blocked. Cancelling sets status =
@@ -1496,6 +1465,62 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     setPendingParent(null);
   }, []);
 
+  // Exit the Linked Orders active phase when the waiter turns off Combine
+  // Tables or clicks "Done — Exit Combine Tables". The persisted
+  // table_groups + table_group_members rows are created up-front (before any
+  // order is sent) to reserve the tables for the combination. If NO
+  // waiter_orders were ever created for the group, those rows are just a
+  // stale placeholder — deactivate the members and close the group so the
+  // tables immediately drop out of `activeCombinationTableNumbers` and
+  // become selectable again (no more stale "Combined" label). If orders
+  // WERE sent, the group is a real persisted Linked Order and is left
+  // intact (managed via the Active tab End All / Free All). Shared Order is
+  // untouched here.
+  const exitLinkedCombineMode = useCallback(async () => {
+    const gid = linkedGroupId;
+    if (linkedGroupCreated && gid) {
+      try {
+        const orders = await pb.collection('waiter_orders').getFullList({
+          filter: pb.filter('tableGroup = {:gid}', { gid }),
+          $autoCancel: false,
+          requestKey: `exit-linked-check-${gid}`,
+        });
+        if (!orders || orders.length === 0) {
+          // No real order was ever sent — clean up the placeholder group so
+          // the tables are selectable again. Mirrors releaseTableFromCombination
+          // but deactivates every active member of the placeholder at once.
+          const members = await pb.collection('table_group_members').getFullList({
+            filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+            $autoCancel: false,
+            requestKey: `exit-linked-members-${gid}`,
+          });
+          await Promise.all(
+            (members || []).map((m) =>
+              pb.collection('table_group_members').update(
+                m.id,
+                { isActive: false },
+                { $autoCancel: false, requestKey: `exit-linked-free-${m.id}` },
+              ).catch(() => {}),
+            ),
+          );
+          await pb.collection('table_groups').update(
+            gid,
+            { status: 'closed' },
+            { $autoCancel: false, requestKey: `exit-linked-close-${gid}` },
+          ).catch(() => {});
+          fetchTableGroupMembers();
+          fetchTableGroups();
+        }
+      } catch (_) { /* non-fatal — UI state still resets below */ }
+    }
+    resetLinkedState();
+    setSelectedTables([]);
+    setPendingCombined(null);
+    setPendingShared(null);
+    setCombineModeType('linked');
+    setOrder({}); setNotes(''); setSpiceSelections({});
+  }, [linkedGroupId, linkedGroupCreated, resetLinkedState, fetchTableGroupMembers, fetchTableGroups]);
+
   // Start the linked group: create table_groups + table_group_members for
   // the selected tables, then enter the active-table phase with the first
   // selected table active and an empty cart per table.
@@ -1592,6 +1617,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       const items = orderEntries.map((e) => ({
         id: e.item.id,
         name: e.item.nameEN || e.item.name,
+        category: e.item.category,
         quantity: e.qty,
         price: e.item.price || 0,
         spiceLevel: e.spiceLevel || 'None',
@@ -1756,6 +1782,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     const items = orderEntries.map((e) => ({
       id: e.item.id,
       name: e.item.nameEN || e.item.name,
+      category: e.item.category,
       quantity: e.qty,
       price: e.item.price || 0,
       spiceLevel: e.spiceLevel || 'None',
@@ -1991,6 +2018,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       const items = orderEntries.map((e) => ({
         id: e.item.id,
         name: e.item.nameEN || e.item.name,
+        category: e.item.category,
         quantity: e.qty,
         price: e.item.price || 0,
         spiceLevel: e.spiceLevel || 'None',
@@ -2127,7 +2155,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       // created KOT (initial order AND each subsequent child ticket, since
       // handleSubmit runs for each one). Then record the print event on the
       // kitchen_orders record so printedAt/printCount stay consistent with
-      // the manual print flow (openKOT / KDS reprint) and the
+      // the manual print flow (KotPrintPage / KDS reprint) and the
       // duplicate-protection guard works the same way. The browser may still
       // show its native print dialog — this is not guaranteed silent
       // printing. Reuses the existing kotPrint.js mechanism; no new printer
@@ -2606,34 +2634,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   };
 
   // ---- Payment settlement ----
-  // Open the Pay picker: lists open orders with payable KOTs. If a table is
-  // already selected in the Order, auto-open that table's order directly.
-  const openPayFlow = async () => {
-    // Use the freshly returned list (state updates are async, so reading
-    // payableOrders here would be stale on the first open).
-    const list = await fetchPayableOrders();
-    if (!list || list.length === 0) {
-      toast.error('No open orders to settle');
-      return;
-    }
-    // If a table is selected, jump straight into that table's open order.
-    if (tableNumber) {
-      const match = list.find((g) => (g.parent.tableNumber || '') === tableNumber);
-      if (match) {
-        startPaymentSettlement(match);
-        return;
-      }
-    }
-    setPayPickerOpen(true);
-  };
-
   // Begin settling a specific parent order. Loads its KOTs fresh and seeds
   // the selection map empty (nothing pre-selected — settlement is an
   // explicit payment event, not a toggle).
   const startPaymentSettlement = async (group) => {
+    settlementAttempt.current = null;
     setPaymentTarget(group);
     setPaymentSelections({});
-    setPayPickerOpen(false);
   };
 
   // Toggle a single unpaid line entry in the payment selection. Already-
@@ -2702,6 +2709,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
     setPaymentSubmitting(true);
     try {
+      if (parent.fiscalLocked) {
       // Update each KOT that has selected lines. Use a distinct requestKey
       // per KOT so parallel updates don't auto-cancel each other.
       await Promise.all(
@@ -2726,6 +2734,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       );
       // Recalc & persist the parent's aggregate payment fields.
       await recalcAndUpdateParent(parent.id);
+
+      } else {
+        const selections = kots.filter(k => k.status !== 'cancelled').map(k => ({kot: k.id,
+          lines: Object.keys(paymentSelections[k.id] || {}).map(index => ({index: Number(index), expected: k.items[Number(index)]}))
+        })).filter(selection => selection.lines.length);
+        const signature = JSON.stringify({order: parent.id, selections});
+        if (settlementAttempt.current?.signature !== signature) settlementAttempt.current = {signature, key: crypto.randomUUID()};
+        await pb.send('/api/payment-settlements/confirm', {method: 'POST', body: {order: parent.id, selections, requestKey: settlementAttempt.current.key}});
+      }
       toast.success(
         `Payment settled: €${selectedSettleAmount.toFixed(2)} cleared`,
       );
@@ -2752,6 +2769,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const renderGroupedCard = (parent, kots) => {
               const isOpen = (parent && parent.orderStatus) !== 'closed';
               const isEnded = !!(parent && parent.endedAt);
+              const printDisabled = isEnded || !isOpen;
               const orderTotal = kots.reduce((s, k) => s + (k.totalPrice || 0), 0);
               const firstKot = kots[0];
               const tableNumber = tableDisplayForParent(parent, groupMap) || (firstKot && firstKot.tableNumber) || (parent && parent.tableNumber) || '';
@@ -2855,13 +2873,19 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                 {order.status === 'ready' && (
                                   <Button size="sm" className="h-7" onClick={() => markServed(order)}>{t('waiter_markServed')}</Button>
                                 )}
-                                {printAllowed ? (
-                                  <Button size="sm" variant="outline" className="h-7" onClick={() => handlePrintKOT(order)}>
+                                {!isWaiterRole && (printAllowed ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7"
+                                    onClick={() => handlePrintKOT(order)}
+                                    disabled={printDisabled}
+                                  >
                                     <Printer className="h-3.5 w-3.5 mr-1" /> KOT
                                   </Button>
                                 ) : (
                                   <span className="text-[10px] text-destructive font-medium">Printing disabled</span>
-                                )}
+                                ))}
                               </div>
                             </div>
                             {order.status === 'pending' ? (
@@ -3108,7 +3132,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   {new Date(lastOrder.created).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                 </span>
               </div>
-              {printAllowed ? (
+              {!isWaiterRole && (printAllowed ? (
                 <Button variant="outline" size="sm" onClick={() => handlePrintKOT(lastOrder)}>
                   <Printer className="h-4 w-4 mr-1" /> Print KOT
                 </Button>
@@ -3116,7 +3140,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 <span className="text-xs text-destructive font-medium flex items-center gap-1.5">
                   <Printer className="h-4 w-4" /> Printing is currently disabled
                 </span>
-              )}
+              ))}
             </CardContent>
           </Card>
         )}
@@ -3138,12 +3162,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     setCombineMode(v);
                     if (v) { setTableNumber(''); setRoom(''); setPendingParent(null); }
                     else {
-                      setSelectedTables([]);
-                      setPendingCombined(null);
-                      setPendingShared(null);
-                      setCombineModeType('linked');
-                      resetLinkedState();
-                      setOrder({}); setNotes(''); setSpiceSelections({});
+                      // Clear temporary UI state AND clean up any persisted
+                      // placeholder linked group that never received an order,
+                      // so the selected tables become selectable again.
+                      exitLinkedCombineMode();
                     }
                   }}
                 />
@@ -3199,8 +3221,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     className="w-full touch-target"
                     onClick={() => {
                       setCombineMode(false);
-                      resetLinkedState();
-                      setOrder({}); setNotes(''); setSpiceSelections({});
+                      // Clean up placeholder linked group (if any) and reset
+                      // UI state so the tables become selectable again.
+                      exitLinkedCombineMode();
                     }}
                   >
                     <XCircle className="h-4 w-4 mr-1" /> Done — Exit Combine Tables
@@ -3636,7 +3659,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     }`}
                   >
                     <DoorOpen className="h-4 w-4" /> Walk-in
-                  </button>
+                        </button>
+                  {/*
                   <button
                     type="button"
                     onClick={() => setOrderType('preorder')}
@@ -3647,7 +3671,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     }`}
                   >
                     <ListOrdered className="h-4 w-4" /> Pre-order
-                  </button>
+                        </button>
+                  */}
                 </div>
                 {pendingParent ? (
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
@@ -3671,18 +3696,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   </p>
                 </div>
               </div>
-
-              {/* Pay button — opens the payment settlement flow for the
-                  selected table's open order (or a picker of all open
-                  orders if no table is selected). */}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full border-2 border-secondary text-secondary-foreground bg-secondary/15 hover:bg-secondary/25 touch-target"
-                onClick={openPayFlow}
-              >
-                <CreditCard className="h-4 w-4 mr-2" /> Pay / Settle Order
-              </Button>
 
               <div className="space-y-2 max-h-[45vh] overflow-y-auto">
                 {orderEntries.map((e) => (
@@ -3733,7 +3746,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 />
               </div>
 
-              {!printAllowed && (
+              {!isWaiterRole && !printAllowed && (
                 <div className="flex items-start gap-2 rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-2">
                   <Printer className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
                   <p className="text-xs text-destructive font-medium">
@@ -4104,13 +4117,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {printAllowed ? (
+                      {!isWaiterRole && (printAllowed ? (
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => handlePrintKOT(order)}>
                           <Printer className="h-4 w-4 mr-1" /> Print KOT
                         </Button>
                       ) : (
                         <span className="flex-1 text-xs text-destructive font-medium text-center">Printing is currently disabled</span>
-                      )}
+                      ))}
                       <Button size="sm" variant="ghost" className="flex-1 text-primary" onClick={() => markAvailable(order)}>
                         <DoorOpen className="h-4 w-4 mr-1" /> Free Table
                       </Button>
@@ -4243,57 +4256,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Pay picker — choose which open order to settle */}
-      <Dialog open={payPickerOpen} onOpenChange={setPayPickerOpen}>
-        <DialogContent className="max-w-lg w-[95vw] modal-mobile-safe">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5" /> Select an order to settle
-            </DialogTitle>
-            <DialogDescription>
-              Open orders with items awaiting payment.
-            </DialogDescription>
-          </DialogHeader>
-          {payableOrders.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              No open orders to settle.
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-[55vh] overflow-y-auto">
-              {payableOrders.map((g) => {
-                const fig = computePayment(g.kots);
-                return (
-                  <button
-                    key={g.parent.id}
-                    type="button"
-                    onClick={() => startPaymentSettlement(g)}
-                    className="w-full text-left rounded-lg border-2 border-border hover:border-primary/60 bg-card p-3 transition-colors touch-target"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-bold text-sm">{tableDisplayForParent(g.parent, groupMap) || `Table ${g.parent.tableNumber}`}</p>
-                        <p className="text-[11px] font-mono text-primary">{g.parent.orderId}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className={`text-sm font-bold ${fig.outstandingAmount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                          €{fig.outstandingAmount.toFixed(2)} due
-                        </p>
-                        <p className="text-[10px] text-muted-foreground uppercase">{fig.paymentStatus}</p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPayPickerOpen(false)} className="w-full sm:w-auto">
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Payment settlement view — select unpaid items or settle in full */}
       <Dialog

@@ -1,5 +1,5 @@
 import { LINK_ACTION_ID } from './template.js';
-import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_FOCUS, BOX_SHADOW_DROPDOWN, COLOR_WHITE, PLACEHOLDER_COLOR } from '../../../constants/theme.js';
+import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_FOCUS, BOX_SHADOW_DROPDOWN, COLOR_WHITE, PLACEHOLDER_COLOR, Z_INDEX_EDITOR_PANEL } from '../../../constants/theme.js';
 
 /** Injected CSS for the link insertion panel. */
 export const LINK_ACTION_STYLES = `
@@ -15,6 +15,7 @@ export const LINK_ACTION_STYLES = `
   box-shadow: ${BOX_SHADOW_DROPDOWN};
   user-select: none;
   font-family: DM Sans, sans-serif;
+  z-index: ${Z_INDEX_EDITOR_PANEL};
 }
 
 #${LINK_ACTION_ID}.tla-visible {

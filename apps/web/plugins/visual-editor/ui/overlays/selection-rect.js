@@ -1,5 +1,5 @@
 import { SELECTION_RECT_ID, isInsideEditorUi, getEditId } from '../../constants/selectors.js';
-import { EDIT_BACKGROUND_COLOR, SELECTION_RECT_Z_INDEX, EDIT_BORDER_COLOR } from '../../constants/theme.js';
+import { EDIT_BACKGROUND_COLOR, Z_INDEX_EDITOR_OVERLAY, EDIT_BORDER_COLOR } from '../../constants/theme.js';
 import { MIN_SELECTION_CANDIDATE_SIZE, MAX_SELECTED_ELEMENTS } from '../../constants/layout.js';
 import { getAppRoot } from '../../utils/dom-utils.js';
 import { orderSelection } from '../../state/multi-select-state.js';
@@ -14,7 +14,7 @@ const SELECTION_RECT_STYLES = `
 	pointer-events: none;
 	background: ${EDIT_BACKGROUND_COLOR};
 	border: 1px solid ${EDIT_BORDER_COLOR};
-	z-index: ${SELECTION_RECT_Z_INDEX};
+	z-index: ${Z_INDEX_EDITOR_OVERLAY};
 }
 
 body.${NO_TEXT_SELECT_CLASS}, body.${NO_TEXT_SELECT_CLASS} * {

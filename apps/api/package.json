@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --trace-deprecation --env-file=.env src/main.js",
     "start": "node --env-file=.env src/main.js",
-    "lint": "eslint . --quiet"
+    "lint": "eslint . --quiet",
+    "test:rksv": "node --test tests/fiscal.test.js tests/lifecycle.test.js tests/periodic.test.js tests/billing-rate-limit.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -22,6 +23,7 @@
     "globals": "^15.14.0",
     "@eslint/js": "^9.39.4",
     "eslint": "^9.39.4",
-    "eslint-plugin-import": "^2.32.0"
+    "eslint-plugin-import": "^2.32.0",
+    "ajv": "^6.12.6"
   }
 }

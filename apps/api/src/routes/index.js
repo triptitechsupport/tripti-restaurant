@@ -6,11 +6,13 @@ import reservationsRouter from './reservations.js';
 import subscriptionsRouter from './ecommerce/subscriptions.js';
 import otpRouter from './otp.js';
 import authMiddleware from '../middleware/auth.js';
+import billingRouter from './billing.js';
 
 const router = Router();
 
 export default () => {
 	router.get('/health', healthCheck);
+	router.use('/billing', billingRouter);
 	router.use('/stripe', stripeRouter);
 	router.use('/orders', ordersRouter);
 	router.use('/reservations', authMiddleware, reservationsRouter);

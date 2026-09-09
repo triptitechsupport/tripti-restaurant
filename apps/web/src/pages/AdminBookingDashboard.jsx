@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
-import { Link, Navigate } from 'react-router-dom';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import OrderManagementTable from '@/components/OrderManagementTable.jsx';
 import AdminTableReservations from '@/components/AdminTableReservations.jsx';
 import MenuItemsList from '@/components/MenuItemsList.jsx';
 import MenuItemForm from '@/components/MenuItemForm.jsx';
 import LogsManagement from '@/components/LogsManagement.jsx';
 import TableCapacitySettings from '@/components/TableCapacitySettings.jsx';
-import ClosedDatesManagement from '@/components/ClosedDatesManagement.jsx';
 import TimeSlotConfiguration from '@/components/TimeSlotConfiguration.jsx';
 import AdminTranslationsEditor from '@/components/AdminTranslationsEditor.jsx';
 import AdminTableSettings from '@/components/AdminTableSettings.jsx';
@@ -27,6 +27,11 @@ import AdminFeedbackManagement from '@/components/AdminFeedbackManagement.jsx';
 import AdminPrintSettings from '@/components/AdminPrintSettings.jsx';
 import AdminTimesheetView from '@/components/AdminTimesheetView.jsx';
 import AdminKotsView from '@/components/AdminKotsView.jsx';
+import SettlementBillingView from '@/components/SettlementBillingView.jsx';
+import AdminRksvDiagnostics from '@/components/AdminRksvDiagnostics.jsx';
+import AdminWaiterManagement from '@/components/AdminWaiterManagement.jsx';
+import CategoryFormModal from '@/components/CategoryFormModal.jsx';
+import GanttChart from '@/components/GanttChart.jsx';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
 import StaffChat from '@/components/StaffChat.jsx';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
@@ -40,11 +45,53 @@ export default function AdminBookingDashboard() {
   const isMobile = useIsMobile();
   
   const [activeTab, setActiveTab] = useState('orders');
+  const [reservationView, setReservationView] = useState('gantt');
+
+  // When a reservation notification sends the admin here with
+  // ?tab=reservations&date=YYYY-MM-DD&focus=<id>, jump straight to the
+  // reservation calendar on that date and focus the reservation.
+  // Must re-run whenever searchParams change — admin is often already on
+  // /admin-dashboard when they click "View Notification", so mount-only
+  // handling would silently ignore the deep-link.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [ganttInitialDate, setGanttInitialDate] = useState(null);
+  const [ganttFocusId, setGanttFocusId] = useState(null);
+  // Keep a focus generation counter so GanttChart can remount cleanly when
+  // the same focus id is requested again (e.g. second notification).
+  const [ganttFocusGen, setGanttFocusGen] = useState(0);
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    const date = searchParams.get('date');
+    const focus = searchParams.get('focus');
+    if (!(tab === 'reservations' || date || focus)) return undefined;
+
+    setActiveTab('reservations');
+    setReservationView('gantt');
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setGanttInitialDate(date);
+    }
+    if (focus) {
+      setGanttFocusId(focus);
+      setGanttFocusGen((g) => g + 1);
+    }
+    // Consume the params so a later in-app tab switch doesn't re-focus,
+    // and so this effect doesn't loop after clearing.
+    setSearchParams({}, { replace: true });
+    return undefined;
+  }, [searchParams, setSearchParams]);
   
   const [menuItems, setMenuItems] = useState([]);
   const [isMenuLoading, setIsMenuLoading] = useState(true);
   const [showMenuForm, setShowMenuForm] = useState(false);
   const [editingMenuItem, setEditingMenuItem] = useState(null);
+
+  // Dynamic menu categories (sourced from the `categories` collection).
+  const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [categoryToDelete, setCategoryToDelete] = useState(null);
+  const [isDeletingCategory, setIsDeletingCategory] = useState(false);
 
   const fetchMenuItems = async () => {
     setIsMenuLoading(true);
@@ -58,9 +105,22 @@ export default function AdminBookingDashboard() {
     }
   };
 
+  const fetchCategories = async () => {
+    setCategoriesLoading(true);
+    try {
+      const records = await pb.collection('categories').getFullList({ sort: 'display_order,name', $autoCancel: false });
+      setCategories(records);
+    } catch (err) {
+      toast.error('Failed to load categories');
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isAdminAuthenticated) {
       fetchMenuItems();
+      fetchCategories();
     }
   }, [isAdminAuthenticated]);
 
@@ -74,6 +134,25 @@ export default function AdminBookingDashboard() {
   const handleMenuFormSuccess = () => { setShowMenuForm(false); setEditingMenuItem(null); fetchMenuItems(); };
   const handleMenuFormCancel = () => { setShowMenuForm(false); setEditingMenuItem(null); };
 
+  const handleAddCategory = () => { setEditingCategory(null); setShowCategoryForm(true); };
+  const handleEditCategory = (cat) => { setEditingCategory(cat); setShowCategoryForm(true); };
+  const handleCategoryFormClose = () => { setShowCategoryForm(false); setEditingCategory(null); };
+  const handleCategoryFormSuccess = () => { setShowCategoryForm(false); setEditingCategory(null); fetchCategories(); };
+  const handleDeleteCategoryConfirm = async () => {
+    if (!categoryToDelete) return;
+    setIsDeletingCategory(true);
+    try {
+      await pb.collection('categories').delete(categoryToDelete.id, { $autoCancel: false });
+      setCategories(prev => prev.filter(c => c.id !== categoryToDelete.id));
+      toast.success('Category deleted successfully');
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete category.');
+    } finally {
+      setIsDeletingCategory(false);
+      setCategoryToDelete(null);
+    }
+  };
+
   const renderOrdersSection = () => <OrderManagementTable />;
   
   const renderReservationsSection = () => (
@@ -81,15 +160,40 @@ export default function AdminBookingDashboard() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-card p-5 rounded-2xl border-2 border-border shadow-md">
         <div>
           <h2 className="text-xl font-serif font-bold tracking-tight text-primary">Reservations Overview</h2>
-          <p className="text-muted-foreground font-medium text-sm mt-1">Quick view of recent table bookings.</p>
+          <p className="text-muted-foreground font-medium text-sm mt-1">Manage today's bookings on the timeline or browse the full list.</p>
         </div>
-        <Button asChild className="w-full sm:w-auto shadow-md">
-          <Link to="/admin/reservations">
-            Advanced Approval Dashboard <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="inline-flex rounded-lg border-2 border-border bg-muted/30 p-1 w-full sm:w-auto">
+            <button
+              onClick={() => setReservationView('gantt')}
+              className={`flex-1 sm:flex-none px-4 py-2 text-sm font-bold rounded-md transition-all ${reservationView === 'gantt' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}
+            >
+              Timeline
+            </button>
+            <button
+              onClick={() => setReservationView('list')}
+              className={`flex-1 sm:flex-none px-4 py-2 text-sm font-bold rounded-md transition-all ${reservationView === 'list' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}
+            >
+              List
+            </button>
+          </div>
+          <Button asChild className="w-full sm:w-auto shadow-md">
+            <Link to="/admin/reservations">
+              Approval Dashboard <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       </div>
-      <AdminTableReservations authToken={authToken} />
+      {reservationView === 'gantt' ? (
+        <GanttChart
+          key={`gantt-${ganttFocusGen}-${ganttInitialDate || 'today'}`}
+          initialDate={ganttInitialDate}
+          focusReservationId={ganttFocusId}
+          onFocusConsumed={() => setGanttFocusId(null)}
+        />
+      ) : (
+        <AdminTableReservations authToken={authToken} />
+      )}
     </div>
   );
   
@@ -101,11 +205,50 @@ export default function AdminBookingDashboard() {
           <p className="text-muted-foreground font-medium text-sm mt-1">Manage your digital menu offerings.</p>
         </div>
         {!showMenuForm && (
-          <Button onClick={() => setShowMenuForm(true)} className="w-full sm:w-auto min-h-touch shadow-md">
-            <Plus className="h-4 w-4 mr-2" /> {t('addNewItem')}
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <Button onClick={handleAddCategory} variant="outline" className="w-full sm:w-auto min-h-touch shadow-sm">
+              <Tag className="h-4 w-4 mr-2" /> Add Category
+            </Button>
+            <Button onClick={() => setShowMenuForm(true)} className="w-full sm:w-auto min-h-touch shadow-md">
+              <Plus className="h-4 w-4 mr-2" /> {t('addNewItem')}
+            </Button>
+          </div>
         )}
       </div>
+
+      {/* Dynamic categories management */}
+      {!showMenuForm && (
+        <div className="bg-card border-2 border-border rounded-2xl p-mobile shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <Tag className="w-4 h-4 text-primary" />
+            <h3 className="text-sm font-serif font-bold tracking-tight text-primary">Menu Categories</h3>
+            <span className="text-xs text-muted-foreground font-medium">({categories.length})</span>
+          </div>
+          {categoriesLoading ? (
+            <p className="text-sm text-muted-foreground italic">Loading categories…</p>
+          ) : categories.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic">No categories yet. Click “Add Category” to create one.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {categories.map(cat => (
+                <div key={cat.id} className="flex items-center gap-2 bg-muted/40 border border-border/60 rounded-lg pl-3 pr-1.5 py-1.5">
+                  <span className="text-sm font-medium text-foreground">{cat.name}</span>
+                  {cat.name_de && <span className="text-xs text-muted-foreground">/ {cat.name_de}</span>}
+                  {cat.display_order != null && (
+                    <span className="text-[10px] font-bold text-muted-foreground bg-muted rounded px-1.5 py-0.5">#{cat.display_order}</span>
+                  )}
+                  <button onClick={() => handleEditCategory(cat)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded p-1" aria-label={`Edit ${cat.name}`}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => setCategoryToDelete(cat)} className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded p-1" aria-label={`Delete ${cat.name}`}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {showMenuForm ? (
         <Card className="border-2 border-primary shadow-xl animate-in fade-in duration-300 rounded-2xl overflow-hidden">
@@ -125,6 +268,34 @@ export default function AdminBookingDashboard() {
       ) : (
         <MenuItemsList items={menuItems} onEdit={handleEditMenu} onDelete={fetchMenuItems} />
       )}
+
+      <CategoryFormModal
+        isOpen={showCategoryForm}
+        onClose={handleCategoryFormClose}
+        onSuccess={handleCategoryFormSuccess}
+        editingCategory={editingCategory}
+      />
+
+      <AlertDialog open={!!categoryToDelete} onOpenChange={(open) => !open && !isDeletingCategory && setCategoryToDelete(null)}>
+        <AlertDialogContent className="modal-mobile-safe">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes <strong>{categoryToDelete?.name}</strong> from the category list. Existing menu items keep their current category value — reassign them individually if needed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 mt-4">
+            <AlertDialogCancel disabled={isDeletingCategory} className="h-12 sm:h-10 mt-0">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteCategoryConfirm(); }}
+              disabled={isDeletingCategory}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-12 sm:h-10"
+            >
+              {isDeletingCategory ? 'Deleting...' : 'Delete Category'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 
@@ -177,7 +348,6 @@ export default function AdminBookingDashboard() {
 
       <TableCapacitySettings />
       <TimeSlotConfiguration />
-      <ClosedDatesManagement />
     </div>
   );
 
@@ -186,6 +356,8 @@ export default function AdminBookingDashboard() {
   const renderFeedbackSection = () => <AdminFeedbackManagement />;
   const renderTimesheetsSection = () => <AdminTimesheetView />;
   const renderKotsSection = () => <AdminKotsView />;
+  const renderBillingSection = () => <SettlementBillingView />;
+  const renderWaitersSection = () => <AdminWaiterManagement />;
 
   return (
     <>
@@ -227,7 +399,13 @@ export default function AdminBookingDashboard() {
           </div>
 
           {isMobile ? (
-            <Accordion type="single" collapsible defaultValue="orders" className="space-y-4 pb-12">
+            <Accordion
+              type="single"
+              collapsible
+              value={activeTab}
+              onValueChange={(v) => { if (v) setActiveTab(v); }}
+              className="space-y-4 pb-12"
+            >
               <AccordionItem value="orders" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
                   <div className="flex items-center font-bold text-lg"><ShoppingBag className="w-5 h-5 mr-4 text-primary"/> {t('tab_orders')}</div>
@@ -240,6 +418,20 @@ export default function AdminBookingDashboard() {
                   <div className="flex items-center font-bold text-lg"><ChefHat className="w-5 h-5 mr-4 text-primary"/> {t('tab_kots')}</div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderKotsSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="billing" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Receipt className="w-5 h-5 mr-4 text-primary"/> Billing</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderBillingSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="rksv-diagnostics" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Settings className="w-5 h-5 mr-4 text-primary"/> RKSV Diagnostics</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50"><AdminRksvDiagnostics/></AccordionContent>
               </AccordionItem>
 
               <AccordionItem value="reservations" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
@@ -297,6 +489,13 @@ export default function AdminBookingDashboard() {
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderTimesheetsSection()}</AccordionContent>
               </AccordionItem>
+
+              <AccordionItem value="waiters" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><ConciergeBell className="w-5 h-5 mr-4 text-primary"/> {t('tab_waiters')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderWaitersSection()}</AccordionContent>
+              </AccordionItem>
             </Accordion>
           ) : (
             <>
@@ -306,6 +505,12 @@ export default function AdminBookingDashboard() {
                 </button>
                 <button onClick={() => setActiveTab('kots')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'kots' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <ChefHat className="h-4 w-4 mr-2" /> {t('tab_kots')}
+                </button>
+                <button onClick={() => setActiveTab('billing')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'billing' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Receipt className="h-4 w-4 mr-2" /> Billing
+                </button>
+                <button onClick={() => setActiveTab('rksv-diagnostics')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'rksv-diagnostics' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Settings className="h-4 w-4 mr-2" /> RKSV Diagnostics
                 </button>
                 <button onClick={() => setActiveTab('reservations')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'reservations' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <CalendarDays className="h-4 w-4 mr-2" /> {t('tab_reservations')}
@@ -331,11 +536,16 @@ export default function AdminBookingDashboard() {
                 <button onClick={() => setActiveTab('timesheets')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'timesheets' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <Clock className="h-4 w-4 mr-2" /> {t('tab_timesheets')}
                 </button>
+                <button onClick={() => setActiveTab('waiters')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'waiters' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <ConciergeBell className="h-4 w-4 mr-2" /> {t('tab_waiters')}
+                </button>
               </div>
 
               <div className="bg-card border-2 border-border rounded-3xl p-2 shadow-xl min-h-[600px] animate-in fade-in duration-300">
                 {activeTab === 'orders' && renderOrdersSection()}
                 {activeTab === 'kots' && renderKotsSection()}
+                {activeTab === 'billing' && renderBillingSection()}
+                {activeTab === 'rksv-diagnostics' && <AdminRksvDiagnostics/>}
                 {activeTab === 'reservations' && renderReservationsSection()}
                 {activeTab === 'tables' && renderTablesSection()}
                 {activeTab === 'menu' && renderMenuSection()}
@@ -344,12 +554,13 @@ export default function AdminBookingDashboard() {
                 {activeTab === 'settings' && renderSettingsSection()}
                 {activeTab === 'logs' && renderLogsSection()}
                 {activeTab === 'timesheets' && renderTimesheetsSection()}
+                {activeTab === 'waiters' && renderWaitersSection()}
               </div>
             </>
           )}
         </div>
       </main>
-      <StaffChat role="admin" pbClient={pb} displayName={currentAdmin?.name || currentAdmin?.email || t('adminDisplayName')} />
+      <StaffChat role="admin" userId={currentAdmin?.id} pbClient={pb} displayName={currentAdmin?.name || currentAdmin?.email || t('adminDisplayName')} />
     </>
   );
 }

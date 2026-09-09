@@ -1,0 +1,71 @@
+// Synthetic recovery tests against the isolated PocketBase copy only. No Fiskaly calls.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import PocketBase from 'pocketbase';
+import {createBillingService} from '../../apps/api/src/services/billingService.js';
+import {FiscalError, fiscalConfig} from '../../apps/api/src/services/fiskalyClient.js';
+async function main() {
+const pb = new PocketBase('http://127.0.0.1:8091');
+pb.autoCancellation(false);
+await pb.collection('_superusers').authWithPassword(process.env.PB_SUPERUSER_EMAIL,process.env.PB_SUPERUSER_PASSWORD);
+assert.equal(fiscalConfig().environment,'TEST');
+const schema = await pb.collections.getOne('fiskaly_transactions');
+assert(schema.fields.find(f=>f.name==='status').values.includes('superseded'));
+assert(schema.fields.some(f=>f.name==='recoveryDetails'));
+const order = await pb.collection('waiter_orders').create({orderId:`RECOVERY-${Date.now()}`,orderType:'walkin',tableNumber:'T1',orderStatus:'closed'});
+const kot = await pb.collection('kitchen_orders').create({parentOrder:order.id,tableNumber:'T1',status:'completed',items:[{name:'Synthetic recovery food',quantity:1,price:10,vat_Rate:'REDUCED_1'}]});
+let reject = true; const receipts = new Map();
+const error = (path,method,status,code)=>Object.assign(new FiscalError(code,status),{remotePath:path,remoteMethod:method,code});
+const signedResponse = () => ({_env:'TEST',signed:true,receipt_number:`SYNTHETIC-${receipts.size+1}`,time_signature:Math.floor(Date.now()/1000),cash_register_serial_number:'SYNTHETIC',qr_code_data:'SYNTHETIC RECOVERY TEST QR'});
+const remote = async (path, options) => {
+  if (!path.includes('/receipt/')) return {_env:'TEST',state:'INITIALIZED'};
+  if (!options) {if(receipts.has(path)) return receipts.get(path);throw error(path,'GET',404,'E_RECEIPT_NOT_FOUND');}
+  if (reject) throw error(path,'PUT',400,'E_BAD_REQUEST');
+  const response = signedResponse(); receipts.set(path,response); return response;
+};
+const service = createBillingService({db:pb,remote});
+const prepared = await service.generate(order.id,'CASH','synthetic-admin');
+const failed = await service.process(prepared);
+assert.equal(failed.failureDetails.recoverable,true);
+assert.equal((await pb.collection('waiter_orders').getOne(order.id)).fiscalLocked,true);
+await assert.rejects(pb.collection('kitchen_orders').update(kot.id,{items:[{name:'Changed',quantity:1,price:12,vat_Rate:'REDUCED_1'}]}));
+const register = await pb.collection('cash_registers').getOne(failed.cashRegister);
+await assert.rejects(pb.send('/api/fiscal/recover',{method:'POST',body:{id:failed.id,actor:'test',reason:'Stale proof',expectedFailureAt:failed.failureDetails.occurredAt,
+  proof:{code:'E_RECEIPT_NOT_FOUND',checkedAt:'2000-01-01T00:00:00Z',environment:'TEST',receiptId:failed.fiskalyReceiptId,registerId:register.fiskalyCashRegisterId}}}));
+assert.equal((await pb.collection('waiter_orders').getOne(order.id)).fiscalLocked,true);
+const released = await service.recover(failed.id,'synthetic-admin','Correct synthetic amount');
+assert.equal(released.outcome,'released'); assert.equal(released.transaction.status,'superseded');
+assert.deepEqual(released.transaction.requestPayload,prepared.requestPayload);
+assert.equal(released.transaction.recoveryDetails.previousBusinessKey,prepared.businessReceiptKey);
+assert.equal((await pb.collection('waiter_orders').getOne(order.id)).fiscalLocked,false);
+await assert.rejects(pb.collection('fiskaly_transactions').update(failed.id,{status:'queued'}));
+await assert.rejects(pb.collection('fiskaly_transactions').delete(failed.id));
+await pb.collection('kitchen_orders').update(kot.id,{items:[{name:'Corrected synthetic amount',quantity:1,price:12,vat_Rate:'REDUCED_1'}]});
+const replacement = await service.generate(order.id,'CARD','synthetic-admin');
+assert.notEqual(replacement.fiskalyReceiptId,prepared.fiskalyReceiptId);
+assert.equal(replacement.amount,12);
+assert.equal((await service.generate(order.id,'CASH','synthetic-admin')).id,replacement.id);
+reject = false; const signed = await service.process(replacement);
+assert.equal(signed.status,'signed');
+await service.recover(failed.id,'synthetic-admin','Duplicate recovery');
+assert.equal((await pb.collection('waiter_orders').getOne(order.id)).fiscalLocked,true);
+assert.equal((await service.process({...failed,status:'pending'})).status,'superseded');
+await assert.rejects(service.retry(failed.id));
+console.log('Atomic release, stale-proof rejection, retained history, corrected replacement and stale-worker guards passed.');
+reject = true;
+const cancellation = await service.cancel(signed.id,'synthetic-admin','Synthetic cancellation');
+const failedCancellation = await service.process(cancellation);
+await service.recover(failedCancellation.id,'synthetic-admin','Correct cancellation');
+assert.equal((await pb.collection('waiter_orders').getOne(order.id)).fiscalLocked,true);
+const replacementCancellation = await service.cancel(signed.id,'synthetic-admin','Corrected cancellation');
+assert.notEqual(replacementCancellation.id,cancellation.id);
+const rejectedAgain = await service.process(replacementCancellation);
+const path = `/cash-register/${register.fiskalyCashRegisterId}/receipt/${rejectedAgain.fiskalyReceiptId}`;
+receipts.set(path,signedResponse());
+const reconciled = await service.recover(rejectedAgain.id,'synthetic-admin','Check existing remote receipt');
+assert.equal(reconciled.outcome,'reconciled');
+assert.equal((await pb.collection('waiter_orders').getOne(order.id)).fiscalLocked,true);
+console.log('Cancellation recovery preserves sale lock; remote receipt discovery reconciles without releasing.');
+fs.writeFileSync('.rksv-test/recovery-preview.json',JSON.stringify({failed,released:released.transaction,signed},null,2));
+}
+main().catch(error => { console.error('Recovery verification failed:', error.message, error.response?.data || ''); process.exitCode = 1; });

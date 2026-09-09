@@ -1,0 +1,3815 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "fiskaly SIGN AT",
+    "description": "Imprint: [fiskaly.com/impressum](https://fiskaly.com/impressum) | Privacy Policy: [fiskaly.com/datenschutz](https://fiskaly.com/datenschutz)\n\n# Introduction\n\nThe fiskaly SIGN AT is a [RESTful](https://wikipedia.org/wiki/Representational_state_transfer) API.\nThe fiskaly SIGN AT is compliant with the Austrian **RKSV** (Registrierkassensicherheitsverordnung).\n\nThe fiskaly SIGN AT is a platform-independent and software-only solution.\nThe only thing you need to integrate the fiskaly SIGN AT is a stable Internet connection.\n\nThe fiskaly SIGN AT:\n\n- has resource-oriented URLs,\n- accepts [JSON](https://wikipedia.org/wiki/JSON)-encoded request bodies,\n- returns [JSON](https://wikipedia.org/wiki/JSON)-encoded responses,\n- uses standard HTTP status codes and verbs,\n- is easy to integrate with your system.\n\n## Background\n\nThe fiskaly SIGN AT implements a set of legal requirements and technical guidelines.\nThe current version `1.2.6` of this API is based on the following regulations:\n\n- [Gesamte Rechtsvorschrift für Registrierkassensicherheitsverordnung (RKSV)](https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20009390) (2021-12)\n- [Festlegungen des BMF zu Detailfragen der Registrierkassensicherheitsverordnung](https://github.com/a-sit-plus/at-registrierkassen-mustercode/files/137544/2016-02-18-Detailfragen-RKSV-V1.0.pdf) (2016-02)\n- [Erlass zur Einzelaufzeichnungs-, Registrierkassen- und Belegerteilungspflicht](https://findok.bmf.gv.at/findok?execution=e100000s1&dokumentId=4b9801d0-c0c1-4d0a-b3ef-60a20743732f) (2016-08)\n- [Gesamte Rechtsvorschrift für Barumsatzverordnung 2015](https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20009267) (2021-12)\n- [Kassenrichtlinie 2012](https://findok.bmf.gv.at/findok?execution=e100000s1&dokumentId=83986511-557b-455c-963b-7daa33f8320b) (2012-01)\n- [Cash Register Security Regulation (English translation RKSV)](https://www.wko.at/oe/information-consulting/unternehmensberatung-buchhaltung-informationstechnologie/it-dienstleistung/bgbla-2015-ii-410-en.pdf)\n- [Detailed Specification Cash Register Security Regulation](https://www.wko.at/oe/information-consulting/unternehmensberatung-buchhaltung-informationstechnologie/it-dienstleistung/bgbla-2015-ii-410-anlage-en.pdf)\n\n## Versioning\n\nThe fiskaly SIGN AT follows [Semantic Versioning](https://semver.org).\n\nThe version number has a pattern of `MAJOR.MINOR.PATCH`. We increment the\n\n- `MAJOR` version when we make incompatible API changes,\n- `MINOR` version when we add functionality in a backwards-compatible manner, and\n- `PATCH` version when we make backwards-compatible bug fixes.\n\nThe current `MAJOR` version `1` is reflected in the API's base URL: `https://rksv.fiskaly.com/api/v1`.\n\n## Idempotent Requests\n\nThe fiskaly SIGN AT is idempotent. [Idempotence](https://wikipedia.org/wiki/Idempotence) means you can send the same request several times safely. The result will be the same as if you have sent it only once.\n\nFor example, if you request to [sign a Receipt](#operation/signReceipt) but don't receive a response, you can send the request again with the same request body. The receipt is guaranteed to be signed only once.\n\n## UUIDv4\n\nThis API uses [UUIDv4](https://datatracker.ietf.org/doc/html/rfc4122). Requests like [Create a Cash Register](#operation/createCashRegister) and [Create a Signature Creation Unit](#operation/createSignatureCreationUnit) create new resources. To run such requests, generate a random UUIDv4. Then pass the UUIDv4 in the request body. This UUIDv4 will be assigned to the newly created resource.\n\nA good way to generate a UUIDv4 is to use a library in your programming language of choice (like [this](https://www.npmjs.com/package/uuid)) or an online generator (like [this](https://www.uuidgenerator.net/version4)). A UUIDv4 created this way will be random and unique throughout the system.\n\n## Request IDs\n\nThe fiskaly SIGN AT associates a unique identifier with each request. You will find this request identifier in the response headers, under `request-id`.\nIf you need help with a request you have issued, please provide the request identifier. We will find your request and help you faster.\n\n## Metadata\n\nMost resources in the API (e.g. Cash Registers) have a `metadata` property. You can store any additional information in the `metadata`.\n\nFor example, in the `metadata` of a [Receipt](#tag/Receipts) you can store an ID of a receipt or invoice from your system.\n\nYou can specify up to 20 key-value pairs in the `metadata` object. A key can be up to 40 characters long. A value can be up to 500 characters long.\n\n## Meta Properties\n\nEach response contains the following meta properties:\n\n- `_id` is the ID of the resource.\n- `_type` is the type of the resource (e.g. `RECEIPT`).\n- `_env` is either `LIVE` or `TEST`.\n- `_version` is the API version.\n\n# Changes\n\n## MINOR and PATCH changes\n\n### v1.2.6\n\n#### Changes added\n\n- Improved performance of `listReceipt` endpoint\n\n### v1.2.5\n\n#### Changes added\n\n- `CREATED` SCUs can now be directly transitioned to the `DECOMMISSIONNED` state using the [updateSignatureCreationUnit](#operation/updateSignatureCreationUnit) endpoint.\n\n### v1.2.4\n\n#### Changes added\n\n- Error with code `B13` from FON is now being handled. This error means that the resource being patched is already in the desired status. e.g. the transition/synchronisation of a cash register to a state in which it is already in FON.\n\n  - When reporting ending of `OUTAGE` for a Cash Register, if this error happens the API will try to synchronize the Cash Register state to `INITIALIZED`\n  - Any other scenario will throw an error with code `E_FON_REQUEST_FAILED` as it previously did, with a more specific message instead\n\n- Please take into account that desynchronizations between resources in our end and FON should be fixed automatically by the changes provided in [v.1.2.2](#v122)\n\n### v1.2.3\n\n#### Breaking changes\n\n- `(POST) /api/v1/auth` endpoint has been refactored:\n  - From now on, `refresh_token` value will be validated accordingly to JSON Web Token (JWT) standards before being sent to the authorization service. If validation fails, API will respond with a `401 Unauthorized` error with a descriptive error with code `E_AUTHENTICATION_ERROR` instead of the previous `E_CLIENT_ERROR`\n\n#### Changed added\n\n- `(POST) /api/v1/auth`:\n  - From now on, if `refresh_token` value is expired or invalid in the authorization service's side, API will respond with a `401 Unauthorized` error with a descriptive error message from the authorization service. The error code provided will be `E_CLIENT_ERROR`.\n\n### v1.2.2\n\n- The response from patching SignatureCreationUnits (SCU) in the endpoint [updateSignatureCreationUnit](#operation/updateSignatureCreationUnit) and Cash Registers in the endpoint [updateCashRegister](#operation/updateCashRegister) has been changed.\n  - From now on, all `state` changes that involve an interaction within FinanzOnline (FON) may return a new `504 Gateway Timeout` response instead of the usual `408 Request Timeout`\n  - This `504 Gateway Timeout` response is triggered when the request against FON fails due to a timeout error on their side. In this case, the request may or may not be processed by FON\n  - For more information about the HTTP `504 Gateway Timeout` code, please [refer to this page](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/504)\n\n#### Features added\n\n- To address the FON timeout issue explained above, a new synchronization flow has been developed to synchronize SCUs and cash registers.\n\n  - Once a FON timeout is detected, a background process to synchronize the resource is started\n  - This process follows these steps:\n\n    - Fetches the resource against FON\n    - Compares the state of the resource in the FON service and in the fiskaly system\n    - When an inconsistency is detected, the resource is automatically patched in the fiskaly system to ensure that the state of the resource is the same as it is in FON\n\n  - The state of the resources can then be retrieved via the endpoints [retrieveSignatureCreationUnit](#operation/retrieveSignatureCreationUnit) for SCUs and [retrieveCashRegister](#operation/retrieveCashRegister) for cash registers\n\n### v1.2.1\n\n- Bug fixing: negative `offset` and `limit` query parameters now throw a `400 Bad Request` validation error to the client\n\n### v1.2.0\n\n- Added Organization Configuration resource. In this version this Configuration will be responsible of enabling/disabling monthly and yearly receipt validations. By default these options are enabled, just as how it previously worked\n- Added [Update Configuration](#operation/updateConfiguration) route in order to update current Organization's configuration\n- Added [Retrieve Configuration](#operation/retrieveConfiguration) route in order to retrieve current Organization's configuration\n\n### v1.1.1\n\n- the version `3.0.3` of OpenAPI is used now instead of `3.1.0`\n- the incorrect usage of the `allOf` property in the OpenAPI specification is replaced with inline schema definitions\n- the `404` errors are now referenced by `NotFoundErrorResponse` in the OpenAPI schema\n\n### v1.1.0\n\n- Added [Validate receipt](#operation/validateReceipt) route in order to validate a single Cash Register's Receipt\n\n### v1.0.3\n\n- OpenAPI specification now uses the `Environment` schema consistently instead of the `Env` schema\n- The `TurnoverCounter` property is now accessible on the `CashRegisterResponse`\n\n### v1.0.2\n\n- The [Export a Cash Register](#operation/exportCashRegister) route now has a more specific response schema.\n- Schema for errors has been added and endpoints have been extended by possible error status codes.\n- Introduced schemas for request / response objects in various endpoints and referenced them from there.\n- Unused schemas were removed.\n\n### v1.0.1\n\n- Made schema compliant to the [FON Web Service specification](https://finanzonline.bmf.gv.at/fonws/ws/session.xsd)\n  - the minimum length of `fon_user_pin` is now 5 characters\n  - the `fon_participant_id` should now be between 8 and 12 characters long and adhere to the defined pattern\n  - the `fon_user_id` should now be between 5 and 12 characters long\n\n### v1.0.0\n\n- Feature-complete and stable API specification.\n\n### v0.0.1-draft\n\n- First draft version.\n\n# Processes\n\n![Overall Flow](https://rksv.fiskaly.com/api/v1/_diagrams/sequences/overall-flow.png)\n\n## Set up Resources\n\nBefore you can fiscalize receipts, a few steps have to be performed.\n\n### Create Organizations\n\nMake sure that each taxpayer (= your customers) has set up at least one managed organization through the Management API. Then you can create a Signature Creation Unit and all the needed Cash Registers for the managed organization.\n\n### Before You Create Resources\n\nEach Signature Creation Unit and Cash Register has to be reported to the fiscal authorities through FinanzOnline. During the\ninitialization of a Cash Register, a zero-valued receipt is created. This receipt is then validated through FinanzOnline. This is done to make sure that the financial authorities can verify the signatures created during the fiscalization process.\n\nThe interactions with the fiscal authorities happen automatically when the states of the Signature Creation Unit and Cash Register resources change. All you need to do is create the resources through our API and perform the state transitions in the correct order.\n\nWe need you to collect and provide a set of credentials from your customers. Your customers can generate those credentials through FinanzOnline as the users of RKSV (= \"Registrierkassen Web-Service Benutzer\"). You can provide the credentials to us through the [Authenticate FON](#operation/authenticateFon) endpoint. If the credentials are correct, the endpoint will return with the `200` status code and the `authentication_status` of `AUTHENTICATED`. We will then securely store the credentials.\n\n### Creating The Resources\n\nAfter the interactions with FinanzOnline are done, you will have to create a Signature Creation Unit. To do that, use the [Create Signature Creation Unit Operation](#operation/createSignatureCreationUnit). A Signature Creation Unit is responsible for signing receipts.\n\n![SCU Flow](https://rksv.fiskaly.com/api/v1/_diagrams/sequences/scu-flow.png)\n\nWhen your Signature Creation Unit is set up, you can create Cash Registers. They represent physical cash registers and are responsible for managing the DEP7 and recording of receipts. The recording of the receipts includes the creation of machine readable codes, signing, and cryptographic chaining. The Cash Registers have to be reported to FinanzOnline. You should only create as many Cash Registers as there are in a given store. Otherwise, problems could arise during an audit.\n\n![Cash Register Flow](https://rksv.fiskaly.com/api/v1/_diagrams/sequences/cash-register-flow.png)\n\n## Daily Operations\n\n### Fiscalizing receipts\n\nAfter the setup has been completed, the daily operations start. The key operation for that is the [Sign Receipt Operation](#operation/signReceipt). It is used to fiscalize a receipt and retrieve the QR Code Data. The QR Code Data has to be printed on the receipt given to a customer.\n\n![Receipt Flow](https://rksv.fiskaly.com/api/v1/_diagrams/sequences/receipt-flow.png)\n\n### Decommissioning Cash Registers\n\nA Cash Register needs to be decommissioned in two cases:\n\n- Planned decommissioning: A cash register has reached its planned end of life. Transition the Cash Register to state `DECOMMISSIONED`.\n- Decommissioning due to non-repairable defect. Transition the Cash Register to state `DEFECTIVE`.\n\nBoth state transitions will trigger a report to the financial authorities through FinanzOnline.\n\n### Decommissioning Signature Creation Units\n\nA Signature Creation Unit needs to be decommissioned in two cases:\n\n- You no longer want to use the fiskaly system. Transition the Signature Creation Unit to state `DECOMMISSIONED`.\n- Decommissioning due to non-repairable defect. Transition the Signature Creation Unit to state `DEFECTIVE`.\n\nBoth state transitions will trigger a report to the financial authorities through FinanzOnline.\n\n### Outage & Failure Handling\n\nWe handle the outage of SCUs ourselves. This involves detecting outages, reporting them to FinanzOnline, and creating the neccessary zero-valued receipts. The zero-valued receipts signal to the fiscal authorities that the outage is over.\n\nWe cannot monitor the state of Cash Registers. Handling outages of the Cash Registers is a shared responsibility of the API integrator and the taxpayer (= operator of ERS / PoS). If a Cash Register is temporarily not usable, it has to be transitioned into the state `OUTAGE`. It has to be done at most 48 hours after the defect was detected. This gets reported to FinanzOnline. When the cash register is usable again, transition it back into `INITIALIZED`. This reports a fault clearance to the fiscal authorities.\n\n### Special Cases During Signing Receipts\n\nThe RKSV has two subsystems:\n\n- Security System (\"Sicherheitseinrichtung\")\n- Signature Creation Unit (\"Siegelerstellungseinheit\")\n\nThe Signature Creation Unit provides the signatures.\n\nThe Security System includes the Signature Creation Unit and has additional functions. It manages the DEP, creates the machine readable codes signed by the SCU, and performs cryptographic chaining.\n\nWe handle an outage of the Signature Creation Unit ourselves. We detect outages, report them (including state changes for the affected API resource) and try to bring the SCU into normal operations again. If an outage has occured, the `hints` field of the receipt will contain `Sicherheitseinrichtung ausgefallen` (German from \"SCU unavailable\").\n\nIf the Security System is unavailable, you have to queue the receipts on your end. They will be signed once SIGN AT is available again.\n\n## Audit (DEP7)\n\nAn auditor can ask you to provide an export of all your fiscalization activities. This export is called DEP7 (pursuant to paragraph 7 of the RKSV). To retrieve this export run the [Export a Cash Register](#operation/exportCashRegister) endpoint with the relevant `cash_register_id`.\n\nThe auditor can also request an export for a specific time period or a range of receipt numbers. You can retrieve an export adjusted to the required parameters. To do this, set filters as query parameters in the [Export a Cash Register](#operation/exportCashRegister) request.\n\n![DEP7 Flow](https://rksv.fiskaly.com/api/v1/_diagrams/sequences/dep-flow.png)\n\n## Offboarding\n\nAs part of the offboarding process, there are a few essential actions we would kindly ask you to undertake.\nThese actions are intended to align with FinanzOnline and to prevent billing for unused fiskaly SIGN AT products.\n\n1. The first step is to set all the cash registers from the state `INITIALIZED` to the state `DECOMMISSIONED`.<br>\n   To do this, you need to use the [updateCashRegister](#operation/updateCashRegister) endpoint and specify in the request body that the state should be set to `DECOMMISSIONED`.<br>\n   When a cash register is decommissioned, a decommissioning receipt is created on our side and validated by FinanzOnline.\n   We also report to FinanzOnline the `DECOMMISSIONED` state of the cash register. <br>\n   Please note that a cash register can only be `DECOMMISSIONED` from the `INITIALIZED` or `OUTAGE` state.\n\n2. The second step is to set the Signature Creation Unit in state `INITIALIZED` to the `DECOMMISSIONED` state. <br>\n   To do this, you need to use the [updateSignatureCreationUnit](#operation/updateSignatureCreationUnit) endpoint and specify in the request body that the state should be set to `DECOMMISSIONED`.<br>\n   We report to FinanzOnline the `DECOMMISSIONED` state of the Signature Creation Unit.\n\n![Offboarding](https://rksv.fiskaly.com/api/v1/_diagrams/sequences/offboarding.png)\n\n# Resources\n\n## Cash Register\n\nThe Cash Register resource is a representation of a physical cash register.\n\nThis resource manages the lifecycle of a cash register in RKSV and fiscalizes the receipts.\n\nIt reports the changes in its lifecycle states to FinanzOnline.\n\nTo start fiscalizing receipts with a Cash Register, you have to go through the following steps.\n\n1. Create a Cash Register with the [Create Cash Register Operation](#operation/createCashRegister). The Cash Register gets assigned the state `CREATED`.\n2. Run [Update Cash Register Operation](#operation/updateCashRegister) with the `state` field of the payload set to `REGISTERED`.\n   It reports the new Cash Register to FinanzOnline. The `state` of the Cash Register is now `REGISTERED`.\n3. Run the [Update Cash Register Operation](#operation/updateCashRegister) with a `state` of `INITIALIZED`. It fiscalizes and validates the initial receipt with FinanzOnline.\n   The Cash Register moves into the `state` `INITIALIZED`. Now it can fiscalize receipts.\n\nThe third step requires at least one Signature Creation Unit (SCU) to be in the `state` `INITIALIZED`.\n\n## Signature Creation Unit (SCU)\n\nA Signature Creation Unit provides the signatures, which are required to fiscalize the receipts.\nDuring fiscalization, every receipt is brought into a special format and gets signed using the SCU.\n\nBefore a Signature Creation Unit can provide signatures, two steps have to be performed:\n\n- Certificate & Key Pair creation: This is done internally by creating the resource on our side (= `CREATED`).\n- FinanzOnline registration: Every SCU has to be registered with FinanzOnline. This can be done by running [Update Signature Creation Unit Operation](#operation/updateSignatureCreationUnit) with the `state` field of the payload set to `INITIALIZED`.\n\n## FinanzOnline (FON)\n\nFinanzOnline is a web application of the Austrian Ministry of Finance.\nOur API interacts with FinanzOnline during the fiscalization process.\nFinanzOnline provides a service called \"Registrierkassenwebservice\" (cash register web service).\nYour customers (= the taxpayers) have to create a user with this service and give you their credentials. Then you have to perform the [Authenticate FON Operation](#operation/authenticateFon) with these credentials.\n\nThis operation **usually** **only has to be performed once**.\n\nThis operation has to be redone when:\n\n- the taxpayer deletes their FON web service user. In that case, another user has to be created and you will have to authenticate with the new credentials.\n\n## Receipt\n\nThe Receipt resource represents a fiscalized receipt within the RKSV. It includes\nthe machine-readable code and the schema you provided\nwhen fiscalizing the receipt. The machine-readable code gets printed on the physical receipt. Some receipts (e.g. a yearly receipt) also include the result of the FinanzOnline validation.\n\nValidation and reporting of such receipts will be performed automatically by fiskaly SIGN AT whenever required (e.g. at the beginning of a new year).\n\n# Errors and Status Codes\n\nThe fiskaly SIGN AT uses standard [HTTP status codes](https://http.cat/) to indicate the success or failure of requests:\n\n## Status 2xx\n\nStatus codes in the `200-299` range indicate success.\n\n## Status 4xx\n\nStatus codes in the `400-499` range indicate errors that have been caused by the requesting application (e.g., a malformed request body has been sent).  \n Retrying such requests with the same request body is pointless and _will_ result in the same status code again.\nSome `4xx` errors can be handled programmatically. The error response is in JSON format and is structured like this:\n\n```\n{\n\"status_code\": 400,\n\"error\": \"Bad Request\",\n\"code\": \"E_SOME_ERROR\",\n\"message\": \"Something bad happened\"\n}\n```\n\nThe response will contain an error code or other information that reveals the reason of the error. Change the request accordingly before retrying. Below you can find the most frequent errors and how to fix them.\n\n### How to handle 4xx errors\n\n<details>\n  <summary>\n  <code>400</code> Bad Request\n  </summary>\n\n- <details>\n    <summary>\n    <code>\n    E_FAILED_SCHEMA_VALIDATION\n    </code>\n    </summary>\n\n  Your request doesn't comply with the defined schema. Fix you request body and parameters according to the error message and run the endpoint again.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_SCU_ALREADY_EXISTS\n    </code>\n    </summary>\n\n  There already exists an `SCU` with the `scu_id` you passed with the request. Run the [Retrieve SCU](https://rksv.fiskaly.com/api/v1/_docs/#operation/retrieveSignatureCreationUnit) endpoint with the `scu_id` you tried to use. If you tried to make an [idempotent](https://rksv.fiskaly.com/api/v1/_docs/#section/Introduction/Idempotent-Requests) request, make sure that the `SCU` has the same `legal_entity_name` and `legal_entity_id` as you passed in the oridinal request payload and its `state` is either `PENDING` or `CREATED`.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_SCU_LIMIT_REACHED\n    </code>\n    </summary>\n\n  You are only allowed to have one active `SCU`. An active `SCU` is an `SCU` in the states of `INITIALIZED` or `OUTAGE`. Run the [List SCUs](https://rksv.fiskaly.com/api/v1/_docs/#operation/listSignatureCreationUnits) endpoint. Check how many `SCUs` are active. If you want to replace an `SCU`, run the [Update SCU](https://rksv.fiskaly.com/api/v1/_docs/#operation/updateSignatureCreationUnit) endpoint for this `SCU` with the `state` property of the payload set to `DECOMMISSIONED`. Then create a new SCU with the [Create SCU](https://rksv.fiskaly.com/api/v1/_docs/#operation/createSignatureCreationUnit) endpoint.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_INVALID_VAT_ID\n    </code>\n    </summary>\n\n  The `VatId` you tried to use as the `legal_entity_id` has an incorrect format. Follow the instructions in the error message and retry the request with a valid `VatId`.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_INVALID_AUSTRIAN_TAX_ID,\n    </code>\n    </summary>\n\n  The `TaxId` you tried to use as the `legal_entity_id` has an incorrect format. Follow the instructions in the error message and retry the request with a valid `TaxId`.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_INVALID_GLN\n    </code>\n    </summary>\n\n  The `Gln` you tried to use as the `legal_entity_id` has an incorrect format. Follow the instructions in the error message and retry the request with a valid `Gln`.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_INVALID_LEGAL_ENTITY_ID\n    </code>\n    </summary>\n\n  The `legal_entity_id` you provided has an incorrect format. Follow the instructions in the error message and retry the request with a valid `legal_entity_id`.\n  </details>\n\n- <details>\n      <summary>\n      <code>\n      E_ILLEGAL_SCU_STATE_TRANSITION\n      </code>\n      </summary>\n\n  The `SCU` state transition you are trying to make is not allowed. The error message explains why this state transition is invalid. The [SCU part](<https://rksv.fiskaly.com/api/v1/_docs/#section/Resources/Signature-Creation-Unit-(SCU)>) of the [Resources](https://rksv.fiskaly.com/api/v1/_docs/#section/Resources) section describes the correct lifecycle of an `SCU`.\n  </details>\n\n- <details>\n      <summary>\n      <code>\n      E_CASH_REGISTER_ALREADY_EXISTS\n      </code>\n      </summary>\n\n  There already exists a Cash Register with the `cash_register_id` you passed. This error is returned if the state of the Cash Register with this `cash_register_id` is not `CREATED`. Run the [Retrieve a Cash Register](https://rksv.fiskaly.com/api/v1/_docs/#operation/retrieveCashRegister) endpoint with the `cash_register_id` and check the state of the returned Cash Register.\n  </details>\n\n- <details>\n      <summary>\n      <code>\n      E_ILLEGAL_CASH_REGISTER_STATE_TRANSITION\n      </code>\n      </summary>\n\n  The `Cash Register` state transition you are trying to make is not allowed. The error message explains why this state transition is invalid. The [Cash Register part](https://rksv.fiskaly.com/api/v1/_docs/#section/Resources/Cash-Register) of the [Resources](https://rksv.fiskaly.com/api/v1/_docs/#section/Resources) section describes the correct lifecycle of a `Cash Register`.\n  </details>\n\n- <details>\n      <summary>\n      <code>\n      E_INITIAL_RECEIPT_MISSING\n      </code>\n      </summary>\n\n  You tried to sign receipts with a `Cash Register` that is not in a state of `INITIALIZED`. Run the [Retrieve a Cash Register](https://rksv.fiskaly.com/api/v1/_docs/#operation/retrieveCashRegister) endpoint with the `cash_register_id` of the Cash Register you are using. Check that the `state` field of the Cash Register is `INITIALIZED`. If it is in the state `CREATED` follow the instructions for the [Initialize Cash Register](https://rksv.fiskaly.com/api/v1/_docs/#section/Resources/Cash-Register) endpoint to initialize it.\n  </details>\n\n- <details>\n          <summary>\n          <code>\n          E_FILTER_LIMIT_EXCEEDED\n          </code>\n          </summary>\n\n  The limit for the number of `Cash Registers` to fetch you set is too high. Set a limit below **100** and retry the request.\n    </details>\n  </details>\n\n<details>\n  <summary>\n  <code>401</code> Unauthorized \n  </summary>\n\n- <details>\n    <summary>\n    <code>\n    E_MISSING_FON_CREDENTIALS\n    </code>\n    </summary>\n\n  You need to authenticate the taxpayer with FON with before using this endpoint. Run the [Authenticate FON](https://rksv.fiskaly.com/api/v1/_docs/#operation/authenticateFon) with the taxpayer credentials and retry the request.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_FON_AUTH_FAILED\n    </code>\n    </summary>\n\n  The [FON authentication](https://rksv.fiskaly.com/api/v1/_docs/#operation/authenticateFon) request failed. The error message contains the response and reason for failure returned by FON. Fix the FON authentication request payload according to the response and retry the request.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_AUTHENTICATION\n    </code>\n    </summary>\n\n  The JWT token authentication failed for your request. The error message explains what went wrong. Run the [Authenticate API](https://rksv.fiskaly.com/api/v1/_docs/#operation/authenticateApi) enpoint to get a new token and retry your original request.\n    </details>\n  </details>\n\n<details>\n  <summary>\n  <code>404</code> Not Found\n  </summary>\n\n- <details>\n    <summary>\n    <code>\n    E_SCU_NOT_FOUND\n    </code>\n    </summary>\n\n  No `SCU` with the `scu_id` you provided was found. Run the [Retrieve SCU](https://rksv.fiskaly.com/api/v1/_docs/#operation/retrieveSignatureCreationUnit) endpoint with the `scu_id` you used to see if this `SCU` exists.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_NO_INITIALIZED_SCU\n    </code>\n    </summary>\n\n  You need to have an `SCU` in the state `INITIALIZED` to use this endpoint. Run the [List SCU](https://rksv.fiskaly.com/api/v1/_docs/#operation/listSignatureCreationUnits) request to see which `SCUs` you have. Then use the [Update SCU](https://rksv.fiskaly.com/api/v1/_docs/#operation/updateSignatureCreationUnit) endpoint to initialize one of your `SCUs`.\n  </details>\n\n- <details>\n    <summary>\n    <code>\n    E_RECEIPT_NOT_FOUND\n    </code>\n    </summary>\n\n  No `Receipt` was found for the `receipt_id_or_number` you provided. Run the [Retrieve a Receipt](https://rksv.fiskaly.com/api/v1/_docs/#operation/retrieveReceipt) request with the `receipt_id_or_number` you used to see if such a `Receipt` exists.\n  </details>\n\n- <details>\n      <summary>\n      <code>\n      E_CASH_REGISTER_NOT_FOUND\n      </code>\n      </summary>\n\n  No `Cash Register` with the `cash_register_id` you provided was found. Run the [Retrieve a Cash Register](https://rksv.fiskaly.com/api/v1/_docs/#operation/retrieveCashRegister) endpoint with the `cash_register_id` you used to see if this `Cash Register` exists.\n    </details>\n  </details>\n\n<details>\n  <summary>\n  <code>408</code> Request Timeout \n  </summary>\n\n- <details>\n      <summary>\n      <code>\n      E_FON_REQUEST_TIMEOUT\n      </code>\n      </summary>\n    \n    The FON request timed out. Run your request again.\n    </details>\n  </details>\n\n## Status 5xx\n\nStatus codes in the `500-599` range indicate errors on the server side.\nThese errors are temporary.\nYou can **safely retry** (see [Idempotent Requests](#section/Introduction/Idempotent-Requests)) the same request after a delay.\nWe recommend an [exponential backoff](https://wikipedia.org/wiki/Exponential_backoff) for your retry logic.\nOtherwise you might run into a [`429 (Too Many Requests)`](https://http.cat/429) error.\n\n# Known issues\n\n- If you're experiencing any problems with the fiskaly SIGN AT, please check [the fiskaly SIGN AT status page](https://status.fiskaly.com) or forward to [Developer Support](mailto:dev-support@fiskaly.com).\n\n# Quick Start\n\n  <!--\n  TODO: Build Version 2 Postman collection and upload here!\n  -->\n\nFor a quick first demo, you may use [Postman](https://www.getpostman.com/). We prepared a [Postman collection](https://www.getpostman.com/collection) that allows you to step through the most important functions of this API.\n\n1. Download the [Postman](https://www.getpostman.com/downloads/) application.\n\n2. Create an API key and secret via the [fiskaly HUB](https://hub.fiskaly.com):\n   <video controls preload=\"metadata\" style=\"width: 100%; max-width: 720px; border-radius: 12px\"><source src=\"/videos/creating-api-key.mp4\" type=\"video/mp4\" /></video>\n\n3. Insert your API key and secret to get your personalized Postman environment:\n\n  <form action=\"https://rksv.fiskaly.com/api/v1/_postman/environment\" method=\"post\">\n    <input type=\"text\" name=\"api_key\" placeholder=\"api_key\" required>\n    <input type=\"password\" name=\"api_secret\" placeholder=\"api_secret\" required>\n    <input type=\"submit\" value=\"Download Postman environment\">\n  </form>\n\n4. Download the [Postman collection](https://rksv.fiskaly.com/api/v1/_postman/collection).\n\n5. Start Postman and select Upload Files from the Import dialog:\n\n   `File > Import (Ctrl+O)`\n\n   [![postman upload files](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-0-small.png)](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-0.png)\n\n6. Select the collection and environment files that you downloaded:\n\n   [![postman select files](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-1-small.png)](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-1.png)\n\n7. The Postman screen should now look like this:\n\n   [![postman screen](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-2-small.png)](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-2.png)\n\n8. Select the SIGN AT environment:\n\n   [![postman select environment](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-3-small.png)](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-3.png)\n\n9. Run the demo:\n\n   [![postman run demo](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-4-small.png)](https://rksv.fiskaly.com/api/v1/_postman/assets/postman-4.png)\n\n# FAQ\n\nThe FAQs have been migrated to a new location: [support.fiskaly.com](https://support.fiskaly.com/hc/en-001/categories/4886372076306-fiskaly-SIGN-AT)\n",
+    "version": "1.2.6",
+    "contact": {
+      "name": "fiskaly GmbH",
+      "url": "https://fiskaly.com",
+      "email": "info@fiskaly.com"
+    },
+    "x-logo": {
+      "url": "https://www.fiskaly.com/fiskaly_logo.svg",
+      "altText": "fiskaly Logo"
+    }
+  },
+  "components": {
+    "schemas": {
+      "EkabsAddress": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "description": "Street name and house number",
+            "type": "string",
+            "maxLength": 60
+          },
+          "postal_code": {
+            "description": "Postal code",
+            "type": "string",
+            "maxLength": 10
+          },
+          "city": {
+            "description": "City name",
+            "type": "string",
+            "maxLength": 62
+          },
+          "country_code": {
+            "$ref": "#/components/schemas/EkabsCountryCode"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EkabsCountryCode": {
+        "description": "ISO 3166 alpha-3 country code",
+        "enum": [
+          "ALA",
+          "AFG",
+          "ALB",
+          "DZA",
+          "ASM",
+          "AND",
+          "AGO",
+          "AIA",
+          "ATA",
+          "ATG",
+          "ARG",
+          "ARM",
+          "ABW",
+          "AUS",
+          "AUT",
+          "AZE",
+          "BHS",
+          "BHR",
+          "BGD",
+          "BRB",
+          "BLR",
+          "BEL",
+          "BLZ",
+          "BEN",
+          "BMU",
+          "BTN",
+          "BOL",
+          "BIH",
+          "BWA",
+          "BVT",
+          "BRA",
+          "IOT",
+          "BRN",
+          "BGR",
+          "BFA",
+          "BDI",
+          "KHM",
+          "CMR",
+          "CAN",
+          "CPV",
+          "CYM",
+          "CAF",
+          "TCD",
+          "CHL",
+          "CHN",
+          "CXR",
+          "CCK",
+          "COL",
+          "COM",
+          "COD",
+          "COG",
+          "COK",
+          "CRI",
+          "CIV",
+          "HRV",
+          "CUB",
+          "CYP",
+          "CZE",
+          "DNK",
+          "DJI",
+          "DMA",
+          "DOM",
+          "ECU",
+          "EGY",
+          "SLV",
+          "GNQ",
+          "ERI",
+          "EST",
+          "ETH",
+          "FLK",
+          "FRO",
+          "FJI",
+          "FIN",
+          "FRA",
+          "GUF",
+          "PYF",
+          "ATF",
+          "GAB",
+          "GMB",
+          "GEO",
+          "DEU",
+          "GHA",
+          "GIB",
+          "GRC",
+          "GRL",
+          "GRD",
+          "GLP",
+          "GUM",
+          "GTM",
+          "GIN",
+          "GNB",
+          "GUY",
+          "HTI",
+          "HMD",
+          "HND",
+          "HKG",
+          "HUN",
+          "ISL",
+          "IND",
+          "IDN",
+          "IRN",
+          "IRQ",
+          "IRL",
+          "ISR",
+          "ITA",
+          "JAM",
+          "JPN",
+          "JOR",
+          "KAZ",
+          "KEN",
+          "KIR",
+          "PRK",
+          "KOR",
+          "KWT",
+          "KGZ",
+          "LAO",
+          "LVA",
+          "LBN",
+          "LSO",
+          "LBR",
+          "LBY",
+          "LIE",
+          "LTU",
+          "LUX",
+          "MAC",
+          "MKD",
+          "MDG",
+          "MWI",
+          "MYS",
+          "MDV",
+          "MLI",
+          "MLT",
+          "MHL",
+          "MTQ",
+          "MRT",
+          "MUS",
+          "MYT",
+          "MEX",
+          "FSM",
+          "MDA",
+          "MCO",
+          "MNG",
+          "MSR",
+          "MAR",
+          "MOZ",
+          "MMR",
+          "NAM",
+          "NRU",
+          "NPL",
+          "NLD",
+          "ANT",
+          "NCL",
+          "NZL",
+          "NIC",
+          "NER",
+          "NGA",
+          "NIU",
+          "NFK",
+          "MNP",
+          "NOR",
+          "OMN",
+          "PAK",
+          "PLW",
+          "PSE",
+          "PAN",
+          "PNG",
+          "PRY",
+          "PER",
+          "PHL",
+          "PCN",
+          "POL",
+          "PRT",
+          "PRI",
+          "QAT",
+          "REU",
+          "ROU",
+          "RUS",
+          "RWA",
+          "SHN",
+          "KNA",
+          "LCA",
+          "SPM",
+          "VCT",
+          "WSM",
+          "SMR",
+          "STP",
+          "SAU",
+          "SEN",
+          "SCG",
+          "SYC",
+          "SLE",
+          "SGP",
+          "SVK",
+          "SVN",
+          "SLB",
+          "SOM",
+          "ZAF",
+          "SGS",
+          "ESP",
+          "LKA",
+          "SDN",
+          "SUR",
+          "SJM",
+          "SWZ",
+          "SWE",
+          "CHE",
+          "SYR",
+          "TWN",
+          "TJK",
+          "TZA",
+          "THA",
+          "TLS",
+          "TGO",
+          "TKL",
+          "TON",
+          "TTO",
+          "TUN",
+          "TUR",
+          "TKM",
+          "TCA",
+          "TUV",
+          "UGA",
+          "UKR",
+          "ARE",
+          "GBR",
+          "USA",
+          "UMI",
+          "URY",
+          "UZB",
+          "VUT",
+          "VAT",
+          "VEN",
+          "VNM",
+          "VGB",
+          "VIR",
+          "WLF",
+          "ESH",
+          "YEM",
+          "ZMB",
+          "ZWE"
+        ]
+      },
+      "EkabsCurrency": {
+        "description": "ISO 4217 currency code",
+        "enum": [
+          "AED",
+          "AFN",
+          "ALL",
+          "AMD",
+          "ANG",
+          "AOA",
+          "ARS",
+          "AUD",
+          "AWG",
+          "AZN",
+          "BAM",
+          "BBD",
+          "BDT",
+          "BGN",
+          "BHD",
+          "BIF",
+          "BMD",
+          "BND",
+          "BOB",
+          "BOV",
+          "BRL",
+          "BSD",
+          "BTN",
+          "BWP",
+          "BYN",
+          "BYR",
+          "BZD",
+          "CAD",
+          "CDF",
+          "CHE",
+          "CHF",
+          "CHW",
+          "CLF",
+          "CLP",
+          "CN",
+          "COP",
+          "COU",
+          "CRC",
+          "CUC",
+          "CUP",
+          "CVE",
+          "CZK",
+          "DJF",
+          "DKK",
+          "DOP",
+          "DZD",
+          "EGP",
+          "ERN",
+          "ETB",
+          "EUR",
+          "FJD",
+          "FKP",
+          "GBP",
+          "GEL",
+          "GHS",
+          "GIP",
+          "GMD",
+          "GNF",
+          "GTQ",
+          "GYD",
+          "HKD",
+          "HNL",
+          "HRK",
+          "HTG",
+          "HUF",
+          "IDR",
+          "ILS",
+          "INR",
+          "IQD",
+          "IRR",
+          "ISK",
+          "JMD",
+          "JOD",
+          "JPY",
+          "KES",
+          "KGS",
+          "KHR",
+          "KMF",
+          "KPW",
+          "KRW",
+          "KWD",
+          "KYD",
+          "KZT",
+          "LAK",
+          "LBP",
+          "LKR",
+          "LRD",
+          "LSL",
+          "LYD",
+          "MAD",
+          "MDL",
+          "MGA",
+          "MKD",
+          "MMK",
+          "MNT",
+          "MOP",
+          "MRO",
+          "MUR",
+          "MVR",
+          "MWK",
+          "MXN",
+          "MXV",
+          "MYR",
+          "MZN",
+          "NAD",
+          "NGN",
+          "NIO",
+          "NOK",
+          "NPR",
+          "NZD",
+          "OMR",
+          "PAB",
+          "PEN",
+          "PGK",
+          "PHP",
+          "PKR",
+          "PLN",
+          "PYG",
+          "QAR",
+          "RON",
+          "RSD",
+          "RUB",
+          "RWF",
+          "SAR",
+          "SBD",
+          "SCR",
+          "SDG",
+          "SSP",
+          "SEK",
+          "SGD",
+          "SHP",
+          "SLL",
+          "SOS",
+          "SRD",
+          "STD",
+          "SVC",
+          "SYP",
+          "SZL",
+          "THB",
+          "TJS",
+          "TMT",
+          "TND",
+          "TOP",
+          "TRY",
+          "TTD",
+          "TWD",
+          "TZS",
+          "UAH",
+          "UGX",
+          "USD",
+          "UYI",
+          "UYU",
+          "UZS",
+          "VEF",
+          "VND",
+          "VUV",
+          "WST",
+          "XAF",
+          "XCD",
+          "XOF",
+          "XPF",
+          "XSU",
+          "YER",
+          "ZAR",
+          "ZMW",
+          "ZWL"
+        ]
+      },
+      "ReceiptSchemaEkabsV0": {
+        "type": "object",
+        "description": "This schema is an adaptation (for the Austrian legislation) of\n[EKaBS - Einheitlicher Standard für elektronische Kassenbelege](https://dfka.net/ekabs).",
+        "required": [
+          "head",
+          "data"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "head": {
+            "type": "object",
+            "description": "Header data of the receipt",
+            "required": [
+              "number",
+              "date"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique id of the receipt"
+              },
+              "number": {
+                "type": "string",
+                "description": "Receipt number"
+              },
+              "date": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Receipt date"
+              },
+              "delivery_period_start": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Start of the delivery period, which applies to the entire receipt"
+              },
+              "delivery_period_end": {
+                "type": "string",
+                "format": "date-time",
+                "description": "End of the delivery period, which applies to the entire receipt"
+              },
+              "seller": {
+                "type": "object",
+                "description": "Information about the seller / company",
+                "additionalProperties": true,
+                "required": [
+                  "name",
+                  "address",
+                  "tax_number"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Seller / company name"
+                  },
+                  "tax_number": {
+                    "type": "string",
+                    "description": "Tax number or VAT-ID number"
+                  },
+                  "tax_exemption": {
+                    "type": "boolean",
+                    "description": "Set this is if the seller is exempt from turnover tax",
+                    "default": false
+                  },
+                  "tax_exemption_note": {
+                    "type": "string",
+                    "description": "A note to be shown on the receipt if the seller is exempt from turnover tax"
+                  },
+                  "address": {
+                    "$ref": "#/components/schemas/EkabsAddress"
+                  }
+                }
+              },
+              "buyer_text": {
+                "type": "string",
+                "description": "Name and address of the buyer / customer as unstructured text field",
+                "example": "Erika Mustermann\nHeidestrasse 17\n51147 Köln"
+              },
+              "buyer": {
+                "type": "object",
+                "description": "Buyer / customer information",
+                "required": [
+                  "name",
+                  "address"
+                ],
+                "additionalProperties": true,
+                "properties": {
+                  "customer_number": {
+                    "type": "string",
+                    "description": "Customer number"
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Buyer / customer name"
+                  },
+                  "tax_number": {
+                    "type": "string",
+                    "description": "Tax number of the buyer / customer"
+                  },
+                  "address": {
+                    "$ref": "#/components/schemas/EkabsAddress"
+                  }
+                }
+              }
+            }
+          },
+          "data": {
+            "type": "object",
+            "description": "The data of the receipt",
+            "required": [
+              "currency",
+              "full_amount_incl_vat",
+              "payment_types",
+              "vat_amounts",
+              "lines"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "currency": {
+                "$ref": "#/components/schemas/EkabsCurrency"
+              },
+              "full_amount_incl_vat": {
+                "type": "string",
+                "pattern": "^-?\\d+\\.\\d{2}$",
+                "default": "0.00",
+                "description": "The gross total of the receipt",
+                "example": "-123.45"
+              },
+              "payment_types": {
+                "type": "array",
+                "description": "List of payment amounts",
+                "items": {
+                  "type": "object",
+                  "description": "Payment amount",
+                  "additionalProperties": true,
+                  "required": [
+                    "name",
+                    "amount"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Name of the payment"
+                    },
+                    "amount": {
+                      "type": "number",
+                      "description": "Payment amount in local currency"
+                    },
+                    "foreign_amount": {
+                      "type": "number",
+                      "description": "Payment amount in foreign currency"
+                    },
+                    "foreign_currency": {
+                      "$ref": "#/components/schemas/EkabsCurrency"
+                    }
+                  }
+                }
+              },
+              "vat_amounts": {
+                "type": "array",
+                "description": "Totals per VAT as normally printed on receipt",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "percentage",
+                    "incl_vat",
+                    "excl_vat",
+                    "vat",
+                    "vat_rate"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "vat_rate": {
+                      "$ref": "#/components/schemas/VatRateContainer"
+                    },
+                    "percentage": {
+                      "type": "number",
+                      "description": "VAT percentage",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "multipleOf": 0.01
+                    },
+                    "incl_vat": {
+                      "$ref": "#/components/schemas/Numeric"
+                    },
+                    "excl_vat": {
+                      "$ref": "#/components/schemas/Numeric"
+                    },
+                    "vat": {
+                      "$ref": "#/components/schemas/Numeric"
+                    }
+                  }
+                }
+              },
+              "lines": {
+                "type": "array",
+                "description": "List of receipt lines",
+                "items": {
+                  "type": "object",
+                  "description": "Receipt line",
+                  "required": [
+                    "text"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "Text of the receipt line"
+                    },
+                    "additional_text": {
+                      "type": "string",
+                      "description": "Additional information for the receipt line"
+                    },
+                    "vat_amounts": {
+                      "type": "array",
+                      "description": "Total amount of the line per VAT",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "description": "When the line is calculated based on the gross amount",
+                            "required": [
+                              "percentage",
+                              "incl_vat"
+                            ],
+                            "additionalProperties": true,
+                            "properties": {
+                              "percentage": {
+                                "type": "number",
+                                "description": "VAT percentage",
+                                "minimum": 0,
+                                "maximum": 100,
+                                "multipleOf": 0.01
+                              },
+                              "incl_vat": {
+                                "type": "number",
+                                "description": "Gross amount",
+                                "multipleOf": 0.00001
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "description": "When the line is calculated based on the net amount",
+                            "required": [
+                              "percentage",
+                              "excl_vat",
+                              "vat"
+                            ],
+                            "additionalProperties": true,
+                            "properties": {
+                              "percentage": {
+                                "type": "number",
+                                "description": "VAT percentage",
+                                "minimum": 0,
+                                "maximum": 100,
+                                "multipleOf": 0.01
+                              },
+                              "excl_vat": {
+                                "type": "number",
+                                "description": "Net amount",
+                                "multipleOf": 0.00001
+                              },
+                              "vat": {
+                                "type": "number",
+                                "description": "VAT amount (vat = incl_vat - excl_vat)",
+                                "multipleOf": 0.00001
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "item": {
+                      "type": "object",
+                      "description": "Product item details of the line",
+                      "required": [
+                        "number",
+                        "quantity",
+                        "price_per_unit"
+                      ],
+                      "additionalProperties": true,
+                      "properties": {
+                        "number": {
+                          "type": "string",
+                          "description": "Product number"
+                        },
+                        "gtin": {
+                          "type": "string",
+                          "description": "Optional GTIN / EAN of the product",
+                          "minLength": 1,
+                          "maxLength": 50
+                        },
+                        "quantity": {
+                          "type": "number",
+                          "description": "Quantity",
+                          "multipleOf": 0.001
+                        },
+                        "quantity_measure": {
+                          "type": "string",
+                          "description": "Quantity measure"
+                        },
+                        "price_per_unit": {
+                          "type": "number",
+                          "description": "Price per unit",
+                          "multipleOf": 0.00001
+                        }
+                      }
+                    },
+                    "delivery_period_start": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Start of the delivery period, which applies to a single line"
+                    },
+                    "delivery_period_end": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "End of the delivery period, which applies to a single line"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "misc": {
+            "type": "object",
+            "description": "Miscellaneous information",
+            "additionalProperties": true,
+            "properties": {
+              "footer_text": {
+                "type": "string",
+                "description": "Optional footer text of the receipt"
+              }
+            }
+          }
+        }
+      },
+      "VatRateContainer": {
+        "type": "string",
+        "enum": [
+          "STANDARD",
+          "REDUCED_1",
+          "REDUCED_2",
+          "SPECIAL",
+          "ZERO"
+        ],
+        "description": "Identifies a particular [VAT rate container](#section/Resources/VAT-Rate-Containers)."
+      },
+      "Numeric": {
+        "type": "string",
+        "pattern": "^-?\\d+\\.\\d{2}$",
+        "default": "0.00",
+        "example": "-123.45"
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}",
+        "example": "1c81cb86-c2e8-4074-afc3-a0601b2bf063"
+      },
+      "Timestamp": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "A timestamp / point in time measured in seconds since the [Unix epoch](https://en.wikipedia.org/wiki/Unix_time).",
+        "example": 1577833200
+      },
+      "CashRegisterId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}",
+        "example": "1c81cb86-c2e8-4074-afc3-a0601b2bf063",
+        "description": "Identifies a Cash Register."
+      },
+      "SignatureCreationUnitId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}",
+        "example": "1c81cb86-c2e8-4074-afc3-a0601b2bf063",
+        "description": "Identifies a Signature Creation Unit."
+      },
+      "ReceiptId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}",
+        "example": "1c81cb86-c2e8-4074-afc3-a0601b2bf063",
+        "description": "Identifies a Receipt."
+      },
+      "ReceiptNumber": {
+        "type": "string",
+        "description": "A strictly monotonically increasing number that uniquely identifies a receipt in the context of the RKSV. \nThis is an identifier created by fiskaly and does not have to correlate with any internal receipt numbers as it is solely used for identifying it in the context of an audit.\n\n**Note**: \nThis serial number must be printed on all receipts. \nThe following format is recommended: *RKSV-Beleg: 123*",
+        "pattern": "[0-9]+",
+        "example": "42"
+      },
+      "OrganizationId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "[a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}",
+        "example": "1c81cb86-c2e8-4074-afc3-a0601b2bf063",
+        "description": "ID of the Organization."
+      },
+      "MetadataRequest": {
+        "type": "object",
+        "description": "You can use this parameter to attach custom key-value data to an object.\nMetadata is useful for storing additional, structured information on an object.\n\n**Note**:\nYou can specify up to 20 keys, with key names up to 40 characters long and values up to 500 characters long.",
+        "example": {
+          "my_property_1": "1234",
+          "my_property_2": "https://my-internal-system/path/to/resource/1234"
+        },
+        "maxProperties": 20,
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "MetadataResponse": {
+        "type": "object",
+        "description": "Returns the existing metadata of the object. You can update metadata using the update metadata \nendpoint of each resource.",
+        "example": {
+          "my_property_1": "1234",
+          "my_property_2": "https://my-internal-system/path/to/resource/1234"
+        },
+        "maxProperties": 20,
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "Count": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991,
+        "description": "Number of available data items"
+      },
+      "RefreshToken": {
+        "type": "string",
+        "minLength": 1
+      },
+      "ApiKeyKey": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Key of the API Key and Secret."
+      },
+      "ApiKeySecret": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Secret of the API Key and Secret."
+      },
+      "Environment": {
+        "type": "string",
+        "enum": [
+          "TEST",
+          "LIVE"
+        ],
+        "example": "TEST"
+      },
+      "Version": {
+        "type": "string",
+        "default": "1.2.6",
+        "example": "1.2.6"
+      },
+      "RefreshTokenAuthentication": {
+        "type": "object",
+        "properties": {
+          "refresh_token": {
+            "$ref": "#/components/schemas/RefreshToken"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "additionalProperties": false
+      },
+      "ApiKeyAuthentication": {
+        "type": "object",
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/ApiKeyKey"
+          },
+          "api_secret": {
+            "$ref": "#/components/schemas/ApiKeySecret"
+          }
+        },
+        "required": [
+          "api_key",
+          "api_secret"
+        ],
+        "additionalProperties": false
+      },
+      "AuthenticationRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ApiKeyAuthentication"
+          },
+          {
+            "$ref": "#/components/schemas/RefreshTokenAuthentication"
+          }
+        ]
+      },
+      "AuthenticationResponse": {
+        "type": "object",
+        "description": "Successful authentication.",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "access_token_claims": {
+            "type": "object",
+            "description": "Contains information about the claims that are embedded within the access token. Can be used to retrieve one's own `organization_id`.",
+            "properties": {
+              "env": {
+                "$ref": "#/components/schemas/Environment"
+              },
+              "organization_id": {
+                "$ref": "#/components/schemas/OrganizationId"
+              }
+            },
+            "required": [
+              "env"
+            ],
+            "additionalProperties": false
+          },
+          "access_token_expires_in": {
+            "type": "integer"
+          },
+          "access_token_expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "refresh_token": {
+            "$ref": "#/components/schemas/RefreshToken"
+          },
+          "refresh_token_expires_in": {
+            "type": "integer"
+          },
+          "refresh_token_expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "additionalProperties": false
+      },
+      "CashRegisterRequestParams": {
+        "type": "object",
+        "properties": {
+          "cash_register_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          }
+        },
+        "required": [
+          "cash_register_id"
+        ],
+        "additionalProperties": false
+      },
+      "SignatureCreationUnitRequestParams": {
+        "type": "object",
+        "properties": {
+          "signature_creation_unit_id": {
+            "$ref": "#/components/schemas/SignatureCreationUnitId"
+          }
+        },
+        "required": [
+          "signature_creation_unit_id"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptIdOrNumber": {
+        "type": "string",
+        "description": "Identifies a Receipt either by its \n`receipt_id` (e.g., `1c81cb86-c2e8-4074-afc3-a0601b2bf063`) \nor its \n`receipt_number` (e.g., `42`).",
+        "pattern": "([a-f0-9]{8}-?[a-f0-9]{4}-?4[a-f0-9]{3}-?[89ab][a-f0-9]{3}-?[a-f0-9]{12}|[0-9]+)"
+      },
+      "SignReceiptRequestParams": {
+        "type": "object",
+        "properties": {
+          "cash_register_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "receipt_id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          }
+        },
+        "required": [
+          "cash_register_id",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "ValidateReceiptRequestParams": {
+        "type": "object",
+        "properties": {
+          "cash_register_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "receipt_id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          }
+        },
+        "required": [
+          "cash_register_id",
+          "receipt_id"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptRequestParams": {
+        "type": "object",
+        "properties": {
+          "cash_register_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "receipt_id_or_number": {
+            "$ref": "#/components/schemas/ReceiptIdOrNumber"
+          }
+        },
+        "required": [
+          "cash_register_id",
+          "receipt_id_or_number"
+        ],
+        "additionalProperties": false
+      },
+      "CashRegisterDescription": {
+        "type": "string",
+        "description": "Description of the Cash Register.",
+        "example": "My Cash Register 1"
+      },
+      "CashRegisterSerialNumber": {
+        "type": "string",
+        "description": "A unique serial number of the Cash Register provided by fiskaly. \nCorresponds to the \"Kassenidentifikationsnummer\" in the context of [RKSV](https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20009390).\n\n**Note**: \nThis serial number must be printed on all receipts. \nThe following format is recommended: *RKSV-Kassen-ID: 123*",
+        "example": "1"
+      },
+      "SignatureCreationUnitCertificateSerialNumber": {
+        "type": "string",
+        "description": "Unique serial number (in hexadecimal representation) of the Signature Creation Unit's signing certificate. \n\nNote: this property is missing as long as the Signature Creation Unit is in state `PENDING`.",
+        "example": "5c8e5"
+      },
+      "VatId": {
+        "type": "object",
+        "properties": {
+          "vat_id": {
+            "type": "string",
+            "description": "A value added tax identification number (e.g. \"ATU73948115\") is an identifier used for value added tax purposes.",
+            "pattern": "^ATU\\d{8}$",
+            "example": "ATU73948115"
+          }
+        },
+        "required": [
+          "vat_id"
+        ],
+        "additionalProperties": false
+      },
+      "TaxId": {
+        "type": "object",
+        "properties": {
+          "tax_id": {
+            "type": "string",
+            "pattern": "^\\d{2}[ -]?\\d{3}\\/?\\d{4}$",
+            "description": "The \"Steuernummer\" is a unique identifier (e.g. \"04-999/9048\") provided by the financial authorities.",
+            "example": "04-999/9048"
+          }
+        },
+        "required": [
+          "tax_id"
+        ],
+        "additionalProperties": false
+      },
+      "Gln": {
+        "type": "object",
+        "properties": {
+          "gln": {
+            "type": "string",
+            "pattern": "^\\d{13}$",
+            "description": "The Global Location Number (GLN) is a unique identifier provided by Bundesanstalt Statistik Österreich.",
+            "example": "1234567890123"
+          }
+        },
+        "required": [
+          "gln"
+        ],
+        "additionalProperties": false
+      },
+      "LegalEntityId": {
+        "description": "A unique identifier of the legal entity that operates the Signature Creation Unit.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/VatId"
+          },
+          {
+            "$ref": "#/components/schemas/TaxId"
+          },
+          {
+            "$ref": "#/components/schemas/Gln"
+          }
+        ]
+      },
+      "LegalEntityName": {
+        "type": "string",
+        "description": "The name of the legal entity that is bound to the Signature Creation Unit."
+      },
+      "CreateSignatureCreationUnitRequest": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          },
+          "legal_entity_id": {
+            "$ref": "#/components/schemas/LegalEntityId"
+          },
+          "legal_entity_name": {
+            "$ref": "#/components/schemas/LegalEntityName"
+          }
+        },
+        "required": [
+          "legal_entity_id"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateSignatureCreationUnitRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "INITIALIZED",
+              "DECOMMISSIONED"
+            ],
+            "example": "INITIALIZED"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "FonParticipantId": {
+        "type": "string",
+        "description": "The \"*Teilnehmer-Identifikation*\" part of the \n[FinanzOnline](#section/Resources/FON) Cash Register Web Service User (\"*Registrierkassen-Webservice-Benutzer*\")\ncredential triplet to be provided by the taxpayer.",
+        "pattern": "[0-9A-Za-z]{8,12}",
+        "minLength": 8,
+        "maxLength": 12
+      },
+      "FonUserId": {
+        "type": "string",
+        "description": "The \"*Benutzer-Identifikation*\" part of the \n[FinanzOnline](#section/Resources/FON) Cash Register Web Service User (\"*Registrierkassen-Webservice-Benutzer*\")\ncredential triplet to be provided by the taxpayer.",
+        "minLength": 5,
+        "maxLength": 12
+      },
+      "FonUserPin": {
+        "type": "string",
+        "description": "The \"*PIN*\" part of the \n[FinanzOnline](#section/Resources/FON) Cash Register Web Service User (\"*Registrierkassen-Webservice-Benutzer*\")\ncredential triplet to be provided by the taxpayer.",
+        "minLength": 5,
+        "maxLength": 128
+      },
+      "AuthenticateFonRequest": {
+        "type": "object",
+        "properties": {
+          "fon_participant_id": {
+            "$ref": "#/components/schemas/FonParticipantId"
+          },
+          "fon_user_id": {
+            "$ref": "#/components/schemas/FonUserId"
+          },
+          "fon_user_pin": {
+            "$ref": "#/components/schemas/FonUserPin"
+          }
+        },
+        "required": [
+          "fon_participant_id",
+          "fon_user_id",
+          "fon_user_pin"
+        ],
+        "additionalProperties": false
+      },
+      "FonAuthenticationStatus": {
+        "type": "string",
+        "enum": [
+          "AUTHENTICATED",
+          "UNAUTHENTICATED",
+          "ERROR_UNSPECIFIED"
+        ]
+      },
+      "AuthenticateFonResponse": {
+        "type": "object",
+        "description": "Successful authentication.",
+        "properties": {
+          "fon_participant_id": {
+            "$ref": "#/components/schemas/FonParticipantId"
+          },
+          "fon_user_id": {
+            "$ref": "#/components/schemas/FonUserId"
+          },
+          "authentication_status": {
+            "type": "string",
+            "enum": [
+              "AUTHENTICATED"
+            ],
+            "default": "AUTHENTICATED"
+          },
+          "time_authentication": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "fon_participant_id",
+          "fon_user_id",
+          "authentication_status",
+          "time_authentication"
+        ],
+        "additionalProperties": false
+      },
+      "FonStatusResponse": {
+        "type": "object",
+        "properties": {
+          "fon_participant_id": {
+            "$ref": "#/components/schemas/FonParticipantId"
+          },
+          "fon_user_id": {
+            "$ref": "#/components/schemas/FonUserId"
+          },
+          "authentication_status": {
+            "$ref": "#/components/schemas/FonAuthenticationStatus"
+          },
+          "time_authentication": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "authentication_status"
+        ],
+        "additionalProperties": false
+      },
+      "CreateCashRegisterRequest": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          },
+          "description": {
+            "$ref": "#/components/schemas/CashRegisterDescription"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateCashRegisterRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "REGISTERED",
+              "INITIALIZED",
+              "DECOMMISSIONED",
+              "DEFECTIVE",
+              "OUTAGE"
+            ],
+            "example": "INITIALIZED"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateConfigurationRequest": {
+        "type": "object",
+        "example": {
+          "yearly_receipt_validation_enabled": true,
+          "monthly_receipt_validation_enabled": true
+        },
+        "properties": {
+          "yearly_receipt_validation_enabled": {
+            "type": "boolean"
+          },
+          "monthly_receipt_validation_enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateSignatureCreationUnitResponse": {
+        "type": "object",
+        "description": "Returns the created Signature Creation Unit resource.",
+        "properties": {
+          "_id": {
+            "$ref": "#/components/schemas/SignatureCreationUnitId"
+          },
+          "_type": {
+            "type": "string",
+            "enum": [
+              "SIGNATURE_CREATION_UNIT"
+            ],
+            "default": "SIGNATURE_CREATION_UNIT"
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "CREATED",
+              "PENDING"
+            ]
+          },
+          "legal_entity_id": {
+            "$ref": "#/components/schemas/LegalEntityId"
+          },
+          "legal_entity_name": {
+            "$ref": "#/components/schemas/LegalEntityName"
+          },
+          "certificate_serial_number": {
+            "$ref": "#/components/schemas/SignatureCreationUnitCertificateSerialNumber"
+          },
+          "time_pending": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_creation": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          }
+        },
+        "required": [
+          "_id",
+          "_type",
+          "_env",
+          "_version",
+          "state",
+          "legal_entity_id",
+          "time_pending"
+        ],
+        "additionalProperties": false
+      },
+      "SignatureCreationUnitResponse": {
+        "type": "object",
+        "description": "Returns the Signature Creation Unit resource.",
+        "properties": {
+          "_id": {
+            "$ref": "#/components/schemas/SignatureCreationUnitId"
+          },
+          "_type": {
+            "type": "string",
+            "enum": [
+              "SIGNATURE_CREATION_UNIT"
+            ],
+            "default": "SIGNATURE_CREATION_UNIT"
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "CREATED",
+              "INITIALIZED",
+              "DECOMMISSIONED",
+              "OUTAGE",
+              "DEFECTIVE"
+            ]
+          },
+          "legal_entity_id": {
+            "$ref": "#/components/schemas/LegalEntityId"
+          },
+          "legal_entity_name": {
+            "$ref": "#/components/schemas/LegalEntityName"
+          },
+          "certificate_serial_number": {
+            "$ref": "#/components/schemas/SignatureCreationUnitCertificateSerialNumber"
+          },
+          "time_pending": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_creation": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          },
+          "time_initialization": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_decommission": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_outage": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_defect": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "_id",
+          "_type",
+          "_env",
+          "_version",
+          "state",
+          "legal_entity_id",
+          "time_pending"
+        ],
+        "additionalProperties": false
+      },
+      "CreateCashRegisterResponse": {
+        "type": "object",
+        "description": "Returns the created Cash Register resource.",
+        "properties": {
+          "_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "_type": {
+            "type": "string",
+            "enum": [
+              "CASH_REGISTER"
+            ],
+            "default": "CASH_REGISTER"
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "CREATED"
+            ]
+          },
+          "serial_number": {
+            "$ref": "#/components/schemas/CashRegisterSerialNumber"
+          },
+          "turnover_counter": {
+            "$ref": "#/components/schemas/Numeric"
+          },
+          "description": {
+            "$ref": "#/components/schemas/CashRegisterDescription"
+          },
+          "time_creation": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          }
+        },
+        "required": [
+          "_id",
+          "_type",
+          "_env",
+          "_version",
+          "state",
+          "serial_number",
+          "time_creation"
+        ],
+        "additionalProperties": false
+      },
+      "ConfigurationResponse": {
+        "type": "object",
+        "description": "Returns the updated Configuration for the organization",
+        "properties": {
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "yearly_receipt_validation_enabled": {
+            "type": "boolean"
+          },
+          "monthly_receipt_validation_enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "number",
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CashRegisterResponse": {
+        "type": "object",
+        "description": "Returns the updated Cash Register resource",
+        "properties": {
+          "_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "_type": {
+            "type": "string",
+            "enum": [
+              "CASH_REGISTER"
+            ],
+            "default": "CASH_REGISTER"
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "CREATED",
+              "REGISTERED",
+              "INITIALIZED",
+              "DECOMMISSIONED",
+              "OUTAGE",
+              "DEFECTIVE"
+            ]
+          },
+          "serial_number": {
+            "$ref": "#/components/schemas/CashRegisterSerialNumber"
+          },
+          "turnover_counter": {
+            "$ref": "#/components/schemas/Numeric"
+          },
+          "description": {
+            "$ref": "#/components/schemas/CashRegisterDescription"
+          },
+          "time_creation": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          },
+          "time_registration": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_initialization": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "initialization_receipt_id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          },
+          "time_decommission": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "decommission_receipt_id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          },
+          "time_outage": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "time_defect": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "_id",
+          "_type",
+          "_env",
+          "_version",
+          "state",
+          "serial_number",
+          "time_creation"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptSchemaRaw": {
+        "type": "object",
+        "description": "This schema contains the bare minimum of receipt data that needs to be signed.",
+        "properties": {
+          "gross_amount_standard": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "default": "0.00",
+            "description": "The [`STANDARD` VAT rate container](#section/Resources/VAT-Rate-Containers)'s gross amount of the receipt.",
+            "example": "-123.45"
+          },
+          "gross_amount_reduced_1": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "default": "0.00",
+            "description": "The [`REDUCED_1` VAT rate container](#section/Resources/VAT-Rate-Containers)'s gross amount of the receipt.",
+            "example": "-123.45"
+          },
+          "gross_amount_reduced_2": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "default": "0.00",
+            "description": "The [`REDUCED_2` VAT rate container](#section/Resources/VAT-Rate-Containers)'s gross amount of the receipt.",
+            "example": "-123.45"
+          },
+          "gross_amount_special": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "default": "0.00",
+            "description": "The [`SPECIAL` VAT rate container](#section/Resources/VAT-Rate-Containers)'s gross amount of the receipt.",
+            "example": "-123.45"
+          },
+          "gross_amount_zero": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "default": "0.00",
+            "description": "The [`ZERO` VAT rate container](#section/Resources/VAT-Rate-Containers)'s gross amount of the receipt.",
+            "example": "-123.45"
+          }
+        },
+        "required": [
+          "gross_amount_standard",
+          "gross_amount_reduced_1",
+          "gross_amount_reduced_2",
+          "gross_amount_special",
+          "gross_amount_zero"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptSchemaStandardV1": {
+        "type": "object",
+        "description": "This schema aims for compatibility to the already established `standard_v1` schema of the \n[fiskaly sign API (DE)](https://developer.fiskaly.com/api/kassensichv/v2/#operation/upsertTransaction)\nfor the German market.\nThis is the recommended schema.",
+        "properties": {
+          "amounts_per_vat_rate": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vat_rate": {
+                  "$ref": "#/components/schemas/VatRateContainer"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{2,64})$",
+                  "description": "encoded as quoted decimal with exactly 2 decimals (field 'BRUTTO' in DSFinV-K)",
+                  "example": "0.12"
+                }
+              },
+              "required": [
+                "vat_rate",
+                "amount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "amounts_per_payment_type": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "payment_type": {
+                  "type": "string",
+                  "enum": [
+                    "CASH",
+                    "NON_CASH"
+                  ],
+                  "example": "CASH",
+                  "description": "values map to field 'ZAHLART_TYP' in DSFinV-K"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{2,64})$",
+                  "description": "encoded as quoted decimal with at least 2 decimals [max. 64 decimals] \n            (field 'ZAHLART_BETRAG' in DSFinV-K)",
+                  "example": "0.12"
+                },
+                "currency_code": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z]{3}$",
+                  "example": "USD",
+                  "description": "currency code according to [Appendix DSFinVK-2.0](https://www.bzst.de/DE/Unternehmen/Aussenpruefungen/DigitaleSchnittstelleFinV/digitaleschnittstellefinv.html), e.g: `\"USD\"`, `\"CHF\"`, `\"EUR\"` [ISO 4217 Norm]",
+                  "default": "EUR"
+                }
+              },
+              "required": [
+                "payment_type",
+                "amount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "line_items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,64})?$",
+                  "description": "encoded as quoted decimal [max. 64 decimals] (field 'MENGE' in DSFinV-K)",
+                  "example": "10.982374598"
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 255,
+                  "example": "Eisbecher “Himbeere“",
+                  "description": "Designation of the product or service (field 'ARTIKELTEXT' in DSFinV-K)"
+                },
+                "price_per_unit": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{2,5})$",
+                  "description": "encoded as quoted decimal with at least 2 decimals [max. 5 decimals] (field 'STK_BR' in DSFinV-K)",
+                  "example": "20.25"
+                }
+              },
+              "required": [
+                "quantity",
+                "text",
+                "price_per_unit"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "amounts_per_vat_rate",
+          "line_items"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptSchema": {
+        "type": "object",
+        "description": "The receipt data to be signed.",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "oneOf": [
+          {
+            "properties": {
+              "ekabs_v0": {
+                "$ref": "#/components/schemas/ReceiptSchemaEkabsV0"
+              }
+            },
+            "required": [
+              "ekabs_v0"
+            ]
+          },
+          {
+            "properties": {
+              "standard_v1": {
+                "$ref": "#/components/schemas/ReceiptSchemaStandardV1"
+              }
+            },
+            "required": [
+              "standard_v1"
+            ]
+          },
+          {
+            "properties": {
+              "raw": {
+                "$ref": "#/components/schemas/ReceiptSchemaRaw"
+              }
+            },
+            "required": [
+              "raw"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "SignedReceiptSchema": {
+        "type": "object",
+        "description": "The signed receipt data.",
+        "properties": {
+          "raw": {
+            "$ref": "#/components/schemas/ReceiptSchemaRaw"
+          },
+          "standard_v1": {
+            "$ref": "#/components/schemas/ReceiptSchemaStandardV1"
+          },
+          "ekabs_v0": {
+            "$ref": "#/components/schemas/ReceiptSchemaEkabsV0"
+          }
+        },
+        "required": [
+          "raw"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptType": {
+        "type": "string",
+        "description": "Receipts generated by the user have the types `NORMAL`, `CANCELLATION` or `TRAINING`.\nAll other receipt types are generated automatically by the fiskaly SIGN AT.",
+        "enum": [
+          "NORMAL",
+          "CANCELLATION",
+          "TRAINING",
+          "INITIALIZATION",
+          "DECOMMISSION",
+          "MONTHLY_CLOSE",
+          "YEARLY_CLOSE",
+          "SIGNATURE_CREATION_UNIT_FAULT_CLEARANCE"
+        ]
+      },
+      "SignReceiptRequest": {
+        "type": "object",
+        "description": "Contains the Receipt data that will be signed",
+        "properties": {
+          "receipt_type": {
+            "type": "string",
+            "enum": [
+              "NORMAL",
+              "CANCELLATION",
+              "TRAINING"
+            ],
+            "default": "NORMAL",
+            "description": "Specifies the type of receipt to be signed:\n- `CANCELLATION`: Choose this type if the receipt to be signed cancels or reverses a previously signed receipt.\n- `TRAINING`: This type is appropriate if the receipt to be signed is being created in the course of a training and is therefore not tax relevant.\n- `NORMAL`: Choose this default type if the receipt to be signed is neither a `CANCELLATION` nor a `TRAINING`."
+          },
+          "schema": {
+            "$ref": "#/components/schemas/ReceiptSchema"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          }
+        },
+        "required": [
+          "receipt_type",
+          "schema"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptQrCodeData": {
+        "type": "string",
+        "description": "Contains the data / payload for the mandatory RKSV QR Code. \n\n**Note**: \nThis QR Code must be rendered using the provided data / payload and displayed on the receipt.",
+        "example": "_R1-AT3_dGxx_19_2017-10-24T11:07:32_0,00_0,00_0,00_0,00_0,00_7eti9M9dETz2_5474185F_M8LJDeWizNY=_4CtUHTuHoWvNfY0Ty+K8SuUVPYfZHjkM70/ZzATkb7Oj6G8PNWR6K1vsFWTXg2YsMyYHxVXpGJYEiAn0Uojfzw=="
+      },
+      "FonReceiptValidationResult": {
+        "type": "string",
+        "enum": [
+          "SUCCESS",
+          "ERROR_UNSPECIFIED"
+        ]
+      },
+      "FonReceiptValidation": {
+        "type": "object",
+        "description": "Receipts with a `_type` of `YEARLY_CLOSE`, `INITIALIZATION` or `DECOMMISSION` need to be validated using FON. fiskaly SIGN AT does this automatically. This property reports the status of this validation process.",
+        "properties": {
+          "validation_result": {
+            "$ref": "#/components/schemas/FonReceiptValidationResult"
+          },
+          "time_validation": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "validation_result",
+          "time_validation"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptSigned": {
+        "type": "boolean",
+        "default": true,
+        "description": "Sometimes Receipts can not be signed (e.g. because of a malfunctioning Signature Creation Unit).\nThis is reflected by a value of `false`.\n\n**Note**: \nAccording to [RKSV § 17 (4)](https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20009390)\nall unsigned receipts must have the following, additional text visible on the printed receipt: *Sicherheitseinrichtung ausgefallen*."
+      },
+      "SignReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          },
+          "_type": {
+            "type": "string",
+            "enum": [
+              "RECEIPT"
+            ],
+            "default": "RECEIPT"
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "receipt_type": {
+            "$ref": "#/components/schemas/ReceiptType"
+          },
+          "receipt_number": {
+            "$ref": "#/components/schemas/ReceiptNumber"
+          },
+          "time_signature": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "A timestamp / point in time measured in seconds since the [Unix epoch](https://en.wikipedia.org/wiki/Unix_time). representing the Receipt's signature date. \n\n**Note**: \nThis timestamp must be printed on all receipts. \nThe following format is recommended: *RKSV-Datum: 2021-12-01 13:14:15*",
+            "example": 1577833200
+          },
+          "cash_register_serial_number": {
+            "$ref": "#/components/schemas/CashRegisterSerialNumber"
+          },
+          "qr_code_data": {
+            "$ref": "#/components/schemas/ReceiptQrCodeData"
+          },
+          "signed": {
+            "$ref": "#/components/schemas/ReceiptSigned"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SignedReceiptSchema"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          },
+          "cash_register_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "signature_creation_unit_id": {
+            "$ref": "#/components/schemas/SignatureCreationUnitId"
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "Sicherheitseinrichtung ausgefallen",
+                "Stornobuchung",
+                "Trainingsbuchung"
+              ]
+            },
+            "description": "Contains hints about the Receipt signing status and/or type."
+          }
+        },
+        "required": [
+          "_id",
+          "_type",
+          "_env",
+          "_version",
+          "receipt_type",
+          "receipt_number",
+          "time_signature",
+          "cash_register_serial_number",
+          "cash_register_id",
+          "signature_creation_unit_id",
+          "qr_code_data",
+          "signed",
+          "schema"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          },
+          "_type": {
+            "type": "string",
+            "enum": [
+              "RECEIPT"
+            ],
+            "default": "RECEIPT"
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          },
+          "receipt_type": {
+            "$ref": "#/components/schemas/ReceiptType"
+          },
+          "receipt_number": {
+            "$ref": "#/components/schemas/ReceiptNumber"
+          },
+          "time_signature": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "A timestamp / point in time measured in seconds since the [Unix epoch](https://en.wikipedia.org/wiki/Unix_time). representing the Receipt's signature date. \n\n**Note**: \nThis timestamp must be printed on all receipts. \nThe following format is recommended: *RKSV-Datum: 2021-12-01 13:14:15*",
+            "example": 1577833200
+          },
+          "cash_register_serial_number": {
+            "$ref": "#/components/schemas/CashRegisterSerialNumber"
+          },
+          "qr_code_data": {
+            "$ref": "#/components/schemas/ReceiptQrCodeData"
+          },
+          "signed": {
+            "$ref": "#/components/schemas/ReceiptSigned"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SignedReceiptSchema"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataRequest"
+          },
+          "cash_register_id": {
+            "$ref": "#/components/schemas/CashRegisterId"
+          },
+          "signature_creation_unit_id": {
+            "$ref": "#/components/schemas/SignatureCreationUnitId"
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "Sicherheitseinrichtung ausgefallen",
+                "Stornobuchung",
+                "Trainingsbuchung"
+              ]
+            },
+            "description": "Contains hints about the Receipt signing status and/or type."
+          },
+          "fon_validations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FonReceiptValidation"
+            },
+            "description": "Receipts with a `receipt_type` of `INITIALIZATION`, `YEARLY_CLOSE` and `DECOMMISSION` need to be validated by Finanz-Online.\nfiskaly SIGN AT does this automatically in the background.\nThis property contains the results of these validations."
+          }
+        },
+        "required": [
+          "_id",
+          "_type",
+          "_env",
+          "_version",
+          "receipt_type",
+          "receipt_number",
+          "time_signature",
+          "cash_register_serial_number",
+          "cash_register_id",
+          "signature_creation_unit_id",
+          "qr_code_data",
+          "signed",
+          "schema",
+          "fon_validations"
+        ],
+        "additionalProperties": false
+      },
+      "BaseCollectionQueryString": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "type": "string",
+            "description": "Determines the sorting order.",
+            "enum": [
+              "ASC",
+              "DESC"
+            ],
+            "default": "ASC"
+          },
+          "limit": {
+            "description": "Limits the number of returned results.",
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 1,
+            "default": 100
+          },
+          "offset": {
+            "description": "Skips the specified number of results from the result set.",
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CashRegisterExportQuerystring": {
+        "type": "object",
+        "properties": {
+          "start_receipt_number": {
+            "type": "string",
+            "pattern": "[0-9]+",
+            "description": "Only return receipts with a `receipt_number` greater than or equal to the given value.",
+            "example": "42"
+          },
+          "end_receipt_number": {
+            "type": "string",
+            "pattern": "[0-9]+",
+            "description": "Only return receipts with a `receipt_number` less than or equal to the given value.",
+            "example": "42"
+          },
+          "start_time_signature": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Only return receipts with a `time_signature` later than or equal to the given timestamp.",
+            "example": 1577833200
+          },
+          "end_time_signature": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Only return receipts with a `time_signature` earlier than or equal to the given timestamp.",
+            "example": 1577833200
+          }
+        },
+        "additionalProperties": false
+      },
+      "ListReceiptsQuerystring": {
+        "type": "object",
+        "properties": {
+          "order_by": {
+            "type": "string",
+            "description": "Specifies the property to sort by",
+            "enum": [
+              "receipt_number"
+            ],
+            "default": "receipt_number"
+          },
+          "receipt_types": {
+            "description": "Filter to include only specific receipt types.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptType"
+            }
+          },
+          "order": {
+            "type": "string",
+            "description": "Determines the sorting order.",
+            "enum": [
+              "ASC",
+              "DESC"
+            ],
+            "default": "ASC"
+          },
+          "limit": {
+            "description": "Limits the number of returned results.",
+            "type": "integer",
+            "maximum": 100,
+            "minimum": 1,
+            "default": 100
+          },
+          "offset": {
+            "description": "Skips the specified number of results from the result set.",
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ListReceiptsResponse": {
+        "type": "object",
+        "description": "Returns a list of Receipts.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptResponse"
+            }
+          },
+          "count": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "_type": {
+            "type": "string",
+            "example": "RECEIPT_LIST",
+            "enum": [
+              "RECEIPT_LIST"
+            ]
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": [
+          "data",
+          "count",
+          "_type",
+          "_env",
+          "_version"
+        ],
+        "additionalProperties": false
+      },
+      "ListCashRegistersResponse": {
+        "type": "object",
+        "description": "Returns a list of Cash Register.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CashRegisterResponse"
+            }
+          },
+          "count": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "_type": {
+            "type": "string",
+            "example": "CASH_REGISTER_LIST",
+            "enum": [
+              "CASH_REGISTER_LIST"
+            ]
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": [
+          "data",
+          "count",
+          "_type",
+          "_env",
+          "_version"
+        ],
+        "additionalProperties": false
+      },
+      "ExportCashRegisterResponse": {
+        "type": "object",
+        "description": "JSON file containing the DEP7 export data.",
+        "properties": {
+          "Belege-Gruppe": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Signaturzertifikat": {
+                  "type": "string"
+                },
+                "Zertifizierungsstellen": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "Belege-kompakt": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ListSignatureCreationUnitsResponse": {
+        "type": "object",
+        "description": "Returns a list of Signature Creation Units.",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignatureCreationUnitResponse"
+            }
+          },
+          "count": {
+            "$ref": "#/components/schemas/Count"
+          },
+          "_type": {
+            "type": "string",
+            "example": "SIGNATURE_CREATION_UNIT_LIST",
+            "enum": [
+              "SIGNATURE_CREATION_UNIT_LIST"
+            ]
+          },
+          "_env": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "_version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": [
+          "data",
+          "count",
+          "_type",
+          "_env",
+          "_version"
+        ],
+        "additionalProperties": false
+      },
+      "NotFoundErrorResponse": {
+        "type": "object",
+        "description": "Resource not found.",
+        "properties": {
+          "status_code": {
+            "type": "integer",
+            "description": "The status code returned by the API.",
+            "example": 400
+          },
+          "error": {
+            "type": "string",
+            "description": "Textual description of the meaning of the status code.",
+            "example": "Bad Request"
+          },
+          "code": {
+            "type": "string",
+            "description": "Code of the error.",
+            "example": "E_BAD_REQUEST"
+          },
+          "message": {
+            "type": "string",
+            "description": "Error message further explaining the source of the issue.",
+            "example": "SCU does not exist."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClientErrorResponse": {
+        "type": "object",
+        "description": "fiskaly client error (4xx) response object.",
+        "properties": {
+          "status_code": {
+            "type": "integer",
+            "description": "The status code returned by the API.",
+            "example": 400
+          },
+          "error": {
+            "type": "string",
+            "description": "Textual description of the meaning of the status code.",
+            "example": "Bad Request"
+          },
+          "code": {
+            "type": "string",
+            "description": "Code of the error.",
+            "example": "E_BAD_REQUEST"
+          },
+          "message": {
+            "type": "string",
+            "description": "Error message further explaining the source of the issue.",
+            "example": "SCU does not exist."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "JWT": {
+        "description": "A JSON Web Token (JWT) used for access control and authorization.\n- Usage format: `Bearer <JWT>`\n- Example HTTP header: `Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`",
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/auth": {
+      "post": {
+        "operationId": "authenticateApi",
+        "summary": "Authenticate API",
+        "tags": [
+          "Authentication"
+        ],
+        "description": "To access our API, you need to have a valid JWT token. This endpoint creates the token with your `api_key` and `api_secret`. \nIf you don't have an `api_key`, you can create one via the [fiskaly HUB](https://hub.fiskaly.com).\nThe `api_secret` will be generated for you after you create the `api_key`.\nThe token must be sent with every following request in the `Authorization` header field using the `Bearer` authentication scheme.\nSee details [here](https://datatracker.ietf.org/doc/html/rfc6750#section-2.1).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthenticationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Unauthorized",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "status_code": {
+                      "type": "number",
+                      "example": 401
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Unauthorized"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/signature-creation-unit/{signature_creation_unit_id}": {
+      "put": {
+        "operationId": "createSignatureCreationUnit",
+        "summary": "Create a Signature Creation Unit",
+        "tags": [
+          "Signature Creation Units"
+        ],
+        "description": "This endpoint creates a Signature Creation Unit. \nThe Signature Creation Unit is identified by a `signature_creation_unit_id`. \nThe `signature_creation_unit_id` must comply with the [UUIDv4](#section/Introduction/UUIDv4) standard and should be generated on your side. \n\nWhen you create a Signature Creation Unit, its `state` is usually set to `CREATED`.\n\nIn some rare cases it may happen that the Signature Creation Unit can not be created immediately.\nThis will be reflected by a transient `PENDING` `state` that will eventually change to `CREATED` at a later point in time.\nSimply retry the request or use the [Retrieve a Signature Creation Unit](#operation/retrieveSignatureCreationUnit) endpoint to regularly check the `state` of the Signature Creation Unit.\n\nUse the [Update a Signature Creation Unit](#operation/updateSignatureCreationUnit) endpoint to transition a Signature Creation Unit to the `state` `INITIALIZED` in order to be able to use it for signing Receipts.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSignatureCreationUnitRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_creation_unit_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SignatureCreationUnitId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSignatureCreationUnitResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "retrieveSignatureCreationUnit",
+        "summary": "Retrieve a Signature Creation Unit",
+        "tags": [
+          "Signature Creation Units"
+        ],
+        "description": "This endpoint returns information about a specific Signature Creation Unit.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_creation_unit_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SignatureCreationUnitId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignatureCreationUnitResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateSignatureCreationUnit",
+        "summary": "Update a Signature Creation Unit",
+        "tags": [
+          "Signature Creation Units"
+        ],
+        "description": "This endpoint updates a Signature Creation Unit. \n\nIn order to be able to use a Signature Creation Unit for signing Receipts it needs to be transitioned to the `state` `INITIALIZED`.\n\nOnce a Signature Creation Unit has eventually reached its end-of-life this has to be reflected by setting its `state` to `DECOMMISSIONED`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSignatureCreationUnitRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_creation_unit_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SignatureCreationUnitId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignatureCreationUnitResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/signature-creation-unit": {
+      "get": {
+        "operationId": "listSignatureCreationUnits",
+        "summary": "List all Signature Creation Units",
+        "tags": [
+          "Signature Creation Units"
+        ],
+        "description": "This endpoint lists all available Signature Creation Units.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "ASC"
+            },
+            "description": "Determines the sorting order."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100
+            },
+            "description": "Limits the number of returned results."
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Skips the specified number of results from the result set."
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSignatureCreationUnitsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}": {
+      "put": {
+        "operationId": "createCashRegister",
+        "summary": "Create a Cash Register",
+        "tags": [
+          "Cash Registers"
+        ],
+        "description": "This endpoint creates a Cash Register. \nThe Cash Register is identified by a `cash_register_id`. \nThe `cash_register_id` must comply with the [UUIDv4](#section/Introduction/UUIDv4) standard and should be generated on your side. \n\nWhen you create a Cash Register, its `state` is set to `CREATED`.\n\nUse the [Update a Cash Register](#operation/updateCashRegister) endpoint to transition a Cash Register to the `state` `INITIALIZED` in order to be able to use it for signing Receipts.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCashRegisterRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateCashRegisterResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "retrieveCashRegister",
+        "summary": "Retrieve a Cash Register",
+        "tags": [
+          "Cash Registers"
+        ],
+        "description": "This endpoint returns information about a specific Cash Register.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashRegisterResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateCashRegister",
+        "summary": "Update a Cash Register",
+        "tags": [
+          "Cash Registers"
+        ],
+        "description": "This endpoint updates a Cash Register. \n\nIn order to be able to use a Cash Register for signing Receipts it needs to be transitioned to the `state` `INITIALIZED`.\n\nOnce a Cash Register has eventually reached its end-of-life this has to be reflected by setting its `state` to `DECOMMISSIONED`.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCashRegisterRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashRegisterResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register": {
+      "get": {
+        "operationId": "listCashRegisters",
+        "summary": "List Cash Registers",
+        "tags": [
+          "Cash Registers"
+        ],
+        "description": "This endpoint lists available Cash Registers.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "ASC"
+            },
+            "description": "Determines the sorting order."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100
+            },
+            "description": "Limits the number of returned results."
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Skips the specified number of results from the result set."
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCashRegistersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/receipt/{receipt_id}/validation": {
+      "post": {
+        "operationId": "validateReceipt",
+        "summary": "Validate a Receipt",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint validates a Receipt.\n\nThis returns a status representing the outcome of the validation against FinanzOnline, as well as a message explaining the validation result.\nThe validation is performed in a sychronous manner, meaning if FinanzOnline is not available the request might time out.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReceiptId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FonReceiptValidation"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/receipt/{receipt_id}": {
+      "put": {
+        "operationId": "signReceipt",
+        "summary": "Sign a Receipt",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint signs a Receipt.\nHence, it is the single most important endpoint for day-to-day operations.\n\nThe response contains all information that is necessary for augmenting the final receipt which is handed out to the customer:\n\n1. `qr_code_data`, which contains the data for the RKSV QR Code to be displayed in a graphical representation,\n2. as well as information that needs to be displayed in textual form: `receipt_number`, `time_signature` and `cash_register_serial_number`,\n3. all raw gross amounts.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignReceiptRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReceiptId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignReceiptResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/receipt/{receipt_id_or_number}": {
+      "get": {
+        "operationId": "retrieveReceipt",
+        "summary": "Retrieve a Receipt",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint returns information about a specific Receipt. \nThe Receipt is identified by the `receipt_id_or_number` path parameter.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "receipt_id_or_number",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReceiptIdOrNumber"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/receipt": {
+      "get": {
+        "operationId": "listAllReceipts",
+        "summary": "List all Receipts",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint lists Receipts of all available Cash Registers.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "receipt_number"
+              ],
+              "default": "receipt_number"
+            },
+            "description": "Specifies the property to sort by"
+          },
+          {
+            "in": "query",
+            "name": "receipt_types",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ReceiptType"
+              }
+            },
+            "description": "Filter to include only specific receipt types."
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "ASC"
+            },
+            "description": "Determines the sorting order."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100
+            },
+            "description": "Limits the number of returned results."
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Skips the specified number of results from the result set."
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListReceiptsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/receipt": {
+      "get": {
+        "operationId": "listReceipts",
+        "summary": "List Receipts of a Cash Register",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint lists the Receipts of a specific Cash Register.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "receipt_number"
+              ],
+              "default": "receipt_number"
+            },
+            "description": "Specifies the property to sort by"
+          },
+          {
+            "in": "query",
+            "name": "receipt_types",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ReceiptType"
+              }
+            },
+            "description": "Filter to include only specific receipt types."
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "ASC"
+            },
+            "description": "Determines the sorting order."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100
+            },
+            "description": "Limits the number of returned results."
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Skips the specified number of results from the result set."
+          },
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListReceiptsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/metadata": {
+      "get": {
+        "operationId": "retrieveCashRegisterMetadata",
+        "summary": "Retrieve metadata of a Cash Register",
+        "tags": [
+          "Cash Registers"
+        ],
+        "description": "This endpoint retrieves additional structured information about a Cash Register.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateCashRegisterMetadata",
+        "summary": "Update metadata of a Cash Register",
+        "tags": [
+          "Cash Registers"
+        ],
+        "description": "This endpoint creates or updates additional structured information about a Cash Register.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/receipt/{receipt_id_or_number}/metadata": {
+      "get": {
+        "operationId": "retrieveReceiptMetadata",
+        "summary": "Retrieve metadata of a Receipt",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint retrieves additional structured information about a Receipt.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "receipt_id_or_number",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReceiptIdOrNumber"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateReceiptMetadata",
+        "summary": "Update metadata of a Receipt",
+        "tags": [
+          "Receipts"
+        ],
+        "description": "This endpoint creates or updates additional structured information about a Receipt.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "receipt_id_or_number",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReceiptIdOrNumber"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/signature-creation-unit/{signature_creation_unit_id}/metadata": {
+      "get": {
+        "operationId": "retrieveSignatureCreationUnitMetadata",
+        "summary": "Retrieve metadata of a Signature Creation Unit",
+        "tags": [
+          "Signature Creation Units"
+        ],
+        "description": "This endpoint retrieves additional structured information about a Signature Creation Unit.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_creation_unit_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SignatureCreationUnitId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateSignatureCreationUnitMetadata",
+        "summary": "Update metadata of a Signature Creation Unit",
+        "tags": [
+          "Signature Creation Units"
+        ],
+        "description": "This endpoint creates or updates additional structured information about a Signature Creation Unit.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "signature_creation_unit_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SignatureCreationUnitId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cash-register/{cash_register_id}/export": {
+      "get": {
+        "operationId": "exportCashRegister",
+        "summary": "Export a Cash Register",
+        "tags": [
+          "Data Exports"
+        ],
+        "description": "This endpoint returns the DEP7 export data.\n\nYou need to provide this data to the authorities during an audit.\n\nUsually a complete DEP7 (i.e., from the first signed receipt to the last signed receipt) needs to be exported. \nThe auditors can also request a subset of the complete export.\nThis partial export can be parametrized with the query parameters.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_receipt_number",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "[0-9]+",
+              "example": "42"
+            },
+            "description": "Only return receipts with a `receipt_number` greater than or equal to the given value."
+          },
+          {
+            "in": "query",
+            "name": "end_receipt_number",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "[0-9]+",
+              "example": "42"
+            },
+            "description": "Only return receipts with a `receipt_number` less than or equal to the given value."
+          },
+          {
+            "in": "query",
+            "name": "start_time_signature",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "example": 1577833200
+            },
+            "description": "Only return receipts with a `time_signature` later than or equal to the given timestamp."
+          },
+          {
+            "in": "query",
+            "name": "end_time_signature",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "example": 1577833200
+            },
+            "description": "Only return receipts with a `time_signature` earlier than or equal to the given timestamp."
+          },
+          {
+            "in": "path",
+            "name": "cash_register_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CashRegisterId"
+            }
+          }
+        ],
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportCashRegisterResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fon/auth": {
+      "put": {
+        "operationId": "authenticateFon",
+        "summary": "Authenticate FON",
+        "tags": [
+          "FON",
+          "Authentication"
+        ],
+        "description": "The fiscalization process requires interactions with [FinanzOnline (FON)](#section/Resources/FinanzOnline-(FON)).\nThis includes registering Cash Registers and Signature Creation Units, validating Receipts, etc.\nThe fiskaly SIGN AT automates all those steps.\n\nOur system communicates with [FinanzOnline (FON)](https://finanzonline.bmf.gv.at/fon/) in the name of the taxpayer. \nThe taxpayer must create a [FinanzOnline Cash Register web service user (\"*Registrierkassen-Webservice-Benutzer*\", pages 60-63)](https://finanzonline.bmf.gv.at/eLearning/BMF_Handbuch_Registrierkassen.pdf). \nThen you must use those credentials to authenticate the taxpayer with FON through this endpoint.\n\n**Note**:\nThe credentials of this Cash Register Web Service User must be provided **only once** for authenticating with FON.\nThe Cash Register web service user remains authenticated with FON indefinitely.\n\n**Note**: \nYou must authenticate with FON before transitioning Signature Creation Units and Cash Registers to `INITIALIZED`. \n\n**Note**:\nFor requests requiring our system to communicate with [FinanzOnline (FON)](https://finanzonline.bmf.gv.at/fon/), \nany downtime or unavailability of the [FinanzOnline (FON)](https://finanzonline.bmf.gv.at/fon/) service may impact such requests.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthenticateFonRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticateFonResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "retrieveFonStatus",
+        "summary": "Retrieve FON Status",
+        "tags": [
+          "FON"
+        ],
+        "description": "This endpoint can be used to check the status of the FON authentication.\n\nIf `authentication_status` is not\n`AUTHENTICATED` then it is necessary that the user reauthenticates with FON using the [Authenticate FON](#operation/authenticateFon) endpoint.",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FonStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/configuration": {
+      "patch": {
+        "operationId": "updateConfiguration",
+        "summary": "Update organization's configuration",
+        "tags": [
+          "Configurations"
+        ],
+        "description": "This endpoint updates current Configuration for an Organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "yearly_receipt_validation_enabled": true,
+                  "monthly_receipt_validation_enabled": true
+                },
+                "properties": {
+                  "yearly_receipt_validation_enabled": {
+                    "type": "boolean"
+                  },
+                  "monthly_receipt_validation_enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "retrieveConfiguration",
+        "summary": "Retrieve organization's configuration",
+        "tags": [
+          "Configurations"
+        ],
+        "description": "This endpoint retrieves the current Configuration for an Organization.",
+        "security": [
+          {
+            "JWT": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigurationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://rksv.fiskaly.com"
+    }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "Authentication",
+      "tags": [
+        "Authentication"
+      ]
+    },
+    {
+      "name": "Maintenance",
+      "tags": [
+        "Signature Creation Units",
+        "Cash Registers",
+        "FON"
+      ]
+    },
+    {
+      "name": "Input",
+      "tags": [
+        "Receipts"
+      ]
+    },
+    {
+      "name": "Exports",
+      "tags": [
+        "Data Exports"
+      ]
+    },
+    {
+      "name": "Configuration",
+      "tags": [
+        "Configurations"
+      ]
+    }
+  ]
+}
