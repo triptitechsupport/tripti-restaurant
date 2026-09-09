@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {billingApi} from '@/lib/billingApi.js';
 import PeriodicReceiptStatus from '@/components/PeriodicReceiptStatus.jsx';
 import {Button} from '@/components/ui/button';
+import FonAuthentication from '@/components/FonAuthentication.jsx';
 
 export default function AdminRksvDiagnostics() {
   const [config, setConfig] = useState(null);
@@ -19,6 +20,7 @@ export default function AdminRksvDiagnostics() {
     {error ? <div role="alert"><p>{error}</p><Button variant="outline" onClick={() => setAttempt(value => value + 1)}>Retry</Button></div> :
       !config ? <p>Loading fiscal configuration…</p> : <>
         <p className="text-sm">Environment: {config.environment}</p>
+        <FonAuthentication config={config}/>
         {!config.enabled ? <p>SIGN AT is disabled.</p> : config.readiness?.ready === false ?
           <p role="alert">{config.readiness.issues.join(' ')}</p> : <PeriodicReceiptStatus config={config}/>}
       </>}

@@ -46,7 +46,12 @@ router.post('/transactions/:id/validate', handle(async (req,res) => {
 router.get('/configuration', handle(async (_req,res) => {
   const cfg = fiscalConfig();
   res.json({enabled: cfg.enabled, environment: cfg.environment, company: cfg.company,
+    fonCredentialsConfigured: ['FON_PARTICIPANT_ID', 'FON_USER_ID', 'FON_PIN'].every(key => Boolean(process.env[key]?.trim())),
     registerId: cfg.registerId, scuId: cfg.scuId, readiness: fiscalReadiness(cfg)});
+}));
+router.get('/fon/status', handle(async (_req, res) => {
+  const result = await fiskaly('/fon/auth');
+  res.json({authenticationStatus: result.authentication_status || 'UNKNOWN'});
 }));
 router.get('/status', handle(async (_req,res) => {
   const cfg = fiscalConfig();

@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import {createFiscalLifecycle} from '../src/services/fiscalLifecycle.js';
 const registerId = '11111111-1111-4111-8111-111111111111';
 const scuId = '22222222-2222-4222-8222-222222222222';
+test('FON authentication uses server credentials and rejects missing configuration', async () => {
+  const calls = [];
+  let credentials = {fon_participant_id: 'testuser1', fon_user_id: 'testuser', fon_user_pin: 'testpin'};
+  const service = createFiscalLifecycle({
+    config: () => ({enabled: true, environment: 'TEST', registerId, scuId}),
+    fonCredentials: () => credentials,
+    remote: async (path, request) => { calls.push({path, request}); return {authentication_status: 'AUTHENTICATED'}; },
+  });
+  assert.equal((await service.execute('authenticate-fon', {fon_user_pin: 'browser-override'})).authentication_status, 'AUTHENTICATED');
+  assert.deepEqual(calls, [{path: '/fon/auth', request: {method: 'PUT', body: credentials}}]);
+  credentials = {...credentials, fon_user_pin: ''};
+  await assert.rejects(service.execute('authenticate-fon'), /Configure FON credentials/);
+  assert.equal(calls.length, 1);
+});
 function fixture(options = {}) {
   const calls = [];
   const register = {_id: registerId, _env: 'TEST', state: options.state || 'INITIALIZED'};
