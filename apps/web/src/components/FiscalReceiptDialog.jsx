@@ -52,7 +52,8 @@ export default function FiscalReceiptDialog({transaction, onClose}) {
             <ReceiptRow label="Date / Time">
               <span style={{ whiteSpace: "nowrap" }}>
               {validDate
-                ? `${signedDate.toLocaleDateString("de-AT", {
+                ? `${signedDate.toLocaleDateString("en-GB", {
+                    day: "2-digit", month: "short", year: "numeric",
                     timeZone: "Europe/Vienna",
                   })} ${signedDate.toLocaleTimeString("de-AT", {
                     timeZone: "Europe/Vienna",
