@@ -1,0 +1,17 @@
+.git
+**/node_modules
+**/.env
+**/.env.*
+**/pb_data
+**/pb_snapshots
+**/*.db
+**/*.db-*
+**/*.zip
+**/*.exe
+**/*.log
+.rksv-test
+dist
+vault
+app.tar.gz
+scripts
+apps/web/rksv-preview.*

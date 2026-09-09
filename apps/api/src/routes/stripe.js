@@ -3,7 +3,11 @@ import Stripe from 'stripe';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+router.use((req, res, next) => {
+	if (!stripe) return res.status(503).json({error: 'Stripe is not configured.'});
+	next();
+});
 
 // In-memory store for session metadata (sessionId -> { deliveryAddress, customerEmail, customerName, items })
 // In production, use Redis or a database for persistence

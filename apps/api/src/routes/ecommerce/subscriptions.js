@@ -3,7 +3,11 @@ import Stripe from 'stripe';
 import logger from '../../utils/logger.js';
 
 const router = Router();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+router.use((req, res, next) => {
+	if (!stripe) return res.status(503).json({error: 'Stripe is not configured.'});
+	next();
+});
 
 /**
  * Fetches user's active subscriptions from Stripe
