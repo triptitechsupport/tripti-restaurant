@@ -49,8 +49,17 @@ export default function FiscalReceiptDialog({transaction, onClose}) {
             : <ReceiptRow label="Receipt No."><strong>{t.fiskalyReceiptNumber}</strong></ReceiptRow>}
           <ReceiptRow label="Order ID">{t.orderId}</ReceiptRow>
           {t.receiptSnapshot?.settlementId && <ReceiptRow label="Settlement">{t.receiptSnapshot.settlementNumber || t.receiptSnapshot.settlementId}</ReceiptRow>}
-          <ReceiptRow label="Date">{validDate ? signedDate.toLocaleDateString('de-AT', {timeZone: 'Europe/Vienna'}) : '—'}</ReceiptRow>
-          <ReceiptRow label="Time">{validDate ? signedDate.toLocaleTimeString('de-AT', {timeZone: 'Europe/Vienna'}) : '—'}</ReceiptRow>
+            <ReceiptRow label="Date / Time">
+              <span style={{ whiteSpace: "nowrap" }}>
+              {validDate
+                ? `${signedDate.toLocaleDateString("de-AT", {
+                    timeZone: "Europe/Vienna",
+                  })} ${signedDate.toLocaleTimeString("de-AT", {
+                    timeZone: "Europe/Vienna",
+                  })}`
+                : "—"}
+              </span>
+            </ReceiptRow>
         </section>
         <hr/>
         <section>
