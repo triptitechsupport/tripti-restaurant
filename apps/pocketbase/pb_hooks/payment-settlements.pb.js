@@ -47,9 +47,15 @@ routerAdd('POST', '/api/payment-settlements/confirm', e => {
       });
     });
     if (!Number.isSafeInteger(cents) || cents <= 0) throw new BadRequestError('Select a positive settlement amount.');
+    const counter = app.findRecordById('settlement_counters', 'settlementseq01');
+    const sequence = counter.getInt('lastValue') + 1;
+    if (!Number.isSafeInteger(sequence)) throw new BadRequestError('Settlement sequence limit reached.');
+    counter.set('lastValue', sequence);
+    app.save(counter);
     const settlement = new Record(app.findCollectionByNameOrId('payment_settlements'));
     settlement.load({order: order.id, orderId: order.getString('orderId'), tableNumber: order.getString('tableNumber'),
-      actor: e.auth.id, requestKey: body.requestKey, items: selected, amount: cents / 100});
+      actor: e.auth.id, requestKey: body.requestKey, items: selected, amount: cents / 100,
+      settlementNumber: 'S' + String(sequence).padStart(2, '0')});
     app.save(settlement);
     body.selections.forEach(selection => {
       const kot = app.findRecordById('kitchen_orders', selection.kot);

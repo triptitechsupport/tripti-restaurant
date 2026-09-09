@@ -40,6 +40,7 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
     const data = buildReceipt([{items: settlement.items}], [], paymentType, settlement.orderId, config().company);
     data.requestPayload.metadata.settlement_id = id;
     data.receiptSnapshot.settlementId = id;
+    data.receiptSnapshot.settlementNumber = settlement.settlementNumber || '';
     const cashRegister = await register();
     return db.send('/api/fiscal/prepare', {method: 'POST', body: {transaction: {
       ...data, order: settlement.order, orderId: settlement.orderId, settlement: id, cashRegister: cashRegister.id,

@@ -19,6 +19,8 @@ await assert.rejects(confirm({...body,requestKey:randomUUID(),selections:[{kot:k
   {index:0,expected:kot.items[0]},{index:1,expected:{...kot.items[1],price:999}}]}]}));
 assert.equal((await db.collection('kitchen_orders').getOne(kot.id)).items[0].cleared,false);
 const first = await confirm(body);
+assert.match(first.settlementNumber, /^S\d{2,}$/);
+assert.equal((await confirm(body)).settlementNumber, first.settlementNumber);
 assert.equal(first.amount,20); assert.equal(first.items.length,1);
 assert.equal((await confirm(body)).id,first.id);
 assert.equal((await db.collection('waiter_orders').getOne(order.id)).paymentStatus,'partial');
@@ -28,6 +30,7 @@ const secondBody={order:order.id,requestKey:randomUUID(),selections:[{kot:kot.id
 const race=await Promise.allSettled([confirm(secondBody),confirm({...secondBody,requestKey:randomUUID()})]);
 assert.equal(race.filter(r=>r.status==='fulfilled').length,1);
 const second=race.find(r=>r.status==='fulfilled').value;
+assert.equal(Number(second.settlementNumber.slice(1)), Number(first.settlementNumber.slice(1)) + 1);
 assert.equal((await db.collection('waiter_orders').getOne(order.id)).paymentStatus,'paid');
 await assert.rejects(db.collection('payment_settlements').update(first.id,{amount:1}));
 await assert.rejects(db.collection('kitchen_orders').update(kot.id,{items:[]}));
@@ -43,6 +46,7 @@ const service=createBillingService({db,remote:async (path,options)=>{
 }});
 const a=await service.generateSettlement(first.id,'CASH',admin.id);
 const b=await service.generateSettlement(second.id,'CARD',admin.id);
+assert.equal(a.receiptSnapshot.settlementNumber, first.settlementNumber);
 assert.equal(a.amount,20);assert.equal(b.amount,5);assert.notEqual(a.fiskalyReceiptId,b.fiskalyReceiptId);
 assert.equal(a.requestPayload.schema.standard_v1.line_items.length,1);
 assert.equal(b.requestPayload.schema.standard_v1.line_items[0].text,'Drink B');

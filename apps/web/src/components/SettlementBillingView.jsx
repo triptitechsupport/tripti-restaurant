@@ -59,7 +59,7 @@ export default function SettlementBillingView() {
       ).length
     : 0;
   const statusBadge = row => <Badge variant="outline" className={`font-bold text-[10px] shrink-0 ${row.expand?.order?.orderStatus === "closed" ? "bg-slate-100 text-slate-600 border-slate-300" : "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"}`}>{row.expand?.order?.orderStatus === "closed" ? "Closed" : "Open"}</Badge>;
-  const orderLink = row => <button type="button" aria-label={`View settlement for ${row.orderId}`} aria-haspopup="dialog" className="text-left font-mono font-bold text-primary text-xs notranslate rounded-sm underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelected(row)}>{row.orderId}<span className="block mt-1 font-normal text-muted-foreground text-[10px]">{row.id}</span></button>;
+  const orderLink = row => <button type="button" aria-label={`View settlement for ${row.orderId}`} aria-haspopup="dialog" className="text-left font-mono font-bold text-primary text-xs notranslate rounded-sm underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelected(row)}>{row.orderId}<span className="block mt-1 font-normal text-muted-foreground text-[10px]">{row.settlementNumber || row.id}</span></button>;
   const confirmed = row => new Date(row.created).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"});
   return (
     <section className="p-4 md:p-6 space-y-5">
@@ -112,7 +112,7 @@ export default function SettlementBillingView() {
           <DialogHeader>
             <DialogTitle>Settlement items</DialogTitle>
             <DialogDescription>
-              {selected?.orderId} / {selected?.id}
+              {selected?.orderId} / {selected?.settlementNumber || selected?.id}
             </DialogDescription>
           </DialogHeader>
           {selected && (
