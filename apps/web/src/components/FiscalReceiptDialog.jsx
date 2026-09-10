@@ -98,10 +98,9 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
               </ReceiptRow>
             )}
             <ReceiptRow label="Order ID">
-              {t.orderId}_
-              {(t.receiptSnapshot?.settlementId &&
-                t.receiptSnapshot.settlementNumber) ||
-                t.receiptSnapshot.settlementId}
+              {snapshot.settlementNumber?.startsWith(`${t.orderId}_`)
+                ? snapshot.settlementNumber
+                : [t.orderId, snapshot.settlementNumber || snapshot.settlementId].filter(Boolean).join('_')}
             </ReceiptRow>
             <ReceiptRow label="Date / Time">
               <span style={{ whiteSpace: "nowrap" }}>

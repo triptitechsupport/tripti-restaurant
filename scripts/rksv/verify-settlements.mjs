@@ -19,7 +19,7 @@ await assert.rejects(confirm({...body,requestKey:randomUUID(),selections:[{kot:k
   {index:0,expected:kot.items[0]},{index:1,expected:{...kot.items[1],price:999}}]}]}));
 assert.equal((await db.collection('kitchen_orders').getOne(kot.id)).items[0].cleared,false);
 const first = await confirm(body);
-assert.match(first.settlementNumber, /^S\d{2,}$/);
+assert.equal(first.settlementNumber, `${order.orderId}_S001`);
 assert.equal((await confirm(body)).settlementNumber, first.settlementNumber);
 assert.equal(first.amount,20); assert.equal(first.items.length,1);
 assert.equal((await confirm(body)).id,first.id);
@@ -30,7 +30,12 @@ const secondBody={order:order.id,requestKey:randomUUID(),selections:[{kot:kot.id
 const race=await Promise.allSettled([confirm(secondBody),confirm({...secondBody,requestKey:randomUUID()})]);
 assert.equal(race.filter(r=>r.status==='fulfilled').length,1);
 const second=race.find(r=>r.status==='fulfilled').value;
-assert.equal(Number(second.settlementNumber.slice(1)), Number(first.settlementNumber.slice(1)) + 1);
+assert.equal(second.settlementNumber, `${order.orderId}_S002`);
+const otherOrder = await db.collection('waiter_orders').create({orderId: `OTHER-${Date.now()}`, orderType: 'walkin', tableNumber: 'T2', orderStatus: 'closed'});
+const otherKot = await db.collection('kitchen_orders').create({parentOrder: otherOrder.id, tableNumber: 'T2', status: 'completed', items: [
+  {name:'Other food', quantity:1, price:3, vat_Rate:'REDUCED_1', cleared:false}]});
+const otherSettlement = await confirm({order: otherOrder.id, requestKey: randomUUID(), selections: [{kot: otherKot.id, lines: [{index: 0, expected: otherKot.items[0]}]}]});
+assert.equal(otherSettlement.settlementNumber, `${otherOrder.orderId}_S001`);
 assert.equal((await db.collection('waiter_orders').getOne(order.id)).paymentStatus,'paid');
 await assert.rejects(db.collection('payment_settlements').update(first.id,{amount:1}));
 await assert.rejects(db.collection('kitchen_orders').update(kot.id,{items:[]}));
