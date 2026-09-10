@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {billingApi} from '@/lib/billingApi.js';
-import PeriodicReceiptStatus from '@/components/PeriodicReceiptStatus.jsx';
+import CashRegisterSetup from '@/components/CashRegisterSetup.jsx';
 import {Button} from '@/components/ui/button';
 import FonAuthentication from '@/components/FonAuthentication.jsx';
 
@@ -22,7 +22,7 @@ export default function AdminRksvDiagnostics() {
         <p className="text-sm">Environment: {config.environment}</p>
         <FonAuthentication config={config}/>
         {!config.enabled ? <p>SIGN AT is disabled.</p> : config.readiness?.ready === false ?
-          <p role="alert">{config.readiness.issues.join(' ')}</p> : <PeriodicReceiptStatus config={config}/>}
+          <p role="alert">{config.readiness.issues.join(' ')}</p> : <CashRegisterSetup config={config} onRefresh={async () => setConfig(await billingApi('/configuration'))}/>}
       </>}
   </section>;
 }

@@ -7,7 +7,7 @@
     "dev": "node --trace-deprecation --env-file=.env src/main.js",
     "start": "node --env-file=.env src/main.js",
     "lint": "eslint . --quiet",
-    "test:rksv": "node --test tests/fiscal.test.js tests/lifecycle.test.js tests/periodic.test.js tests/billing-rate-limit.test.js"
+    "test:rksv": "node --test tests/fiscal.test.js tests/lifecycle.test.js tests/periodic.test.js tests/billing-rate-limit.test.js tests/registers.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

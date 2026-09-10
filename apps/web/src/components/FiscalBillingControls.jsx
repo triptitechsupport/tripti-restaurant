@@ -9,6 +9,18 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
   );
   const released = fiscal.transactions.filter(c => (order.settlementId ? c.settlement === order.settlementId : c.order === order.id && !c.settlement) && c.status === "superseded");
   const canRecover = receipt => receipt?.status === "failed" && receipt.failureDetails?.recoverable && !receipt.fallbackReceipt;
+  if (part === "register") {
+    const rows = fiscal.configuration?.registers || [];
+    const selected = fiscal.registerFor(order);
+    return <select aria-label={`Cash register for ${order.settlementNumber || order.orderId}`}
+      className="border rounded-md bg-background p-2 text-xs max-w-48" value={selected}
+      disabled={Boolean(t) || fiscal.busy === order.id}
+      onChange={e => fiscal.setRegisterChoices(prev => ({...prev, [order.id]: e.target.value}))}>
+      <option value="">Select register</option>
+      {selected && !rows.some(r => r.id === selected) && <option value={selected}>Original register</option>}
+      {rows.map(r => <option key={r.id} value={r.id} disabled={!r.enabledForBilling}>{r.name}{r.enabledForBilling ? '' : ' — setup required'}</option>)}
+    </select>;
+  }
   if (part === "payment")
     return (
       <select
@@ -103,7 +115,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
       {!t && (
         <Button
           size="sm"
-          disabled={fiscal.busy === order.id || Boolean(fiscal.error)}
+          disabled={fiscal.busy === order.id || Boolean(fiscal.error) || (order.settlementId && !fiscal.registerFor(order))}
           onClick={() => fiscal.generate(order)}
         >
           {fiscal.busy === order.id ? "Generating…" : "Generate Bill"}

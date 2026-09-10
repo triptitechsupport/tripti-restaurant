@@ -11,6 +11,7 @@ export default function useFiscalBilling() {
   const [transactionsLoaded, setTransactionsLoaded] = useState(false);
   const [configuration, setConfiguration] = useState(null);
   const [payments, setPayments] = useState({});
+  const [registerChoices, setRegisterChoices] = useState({});
   const [busy, setBusy] = useState(null);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
@@ -27,11 +28,14 @@ export default function useFiscalBilling() {
   useEffect(() => { void refresh(); const timer = setInterval(refresh, 5000); return () => clearInterval(timer); }, [refresh]);
   const transactionFor = order => transactions.find(t => (order.settlementId ? t.settlement === order.settlementId : t.order === order.id && !t.settlement) && t.receiptType === 'NORMAL' && t.status !== 'superseded');
   const paymentFor = order => transactionFor(order)?.paymentType || payments[order.id] || 'CASH';
+  const registerFor = order => transactionFor(order)?.cashRegister || registerChoices[order.id] ||
+    configuration?.registers?.find(r => r.isDefault && r.enabledForBilling)?.id ||
+    configuration?.registers?.find(r => r.fiskalyCashRegisterId === configuration.registerId && r.enabledForBilling)?.id || "";
   async function generate(order, receiptType = 'NORMAL') {
     if (receiptType === 'NORMAL' && !window.confirm(`Generate the receipt for ${order.orderId}${order.settlementId ? " / settlement " + order.settlementId : ""}? The saved items will be fiscalized.`)) return;
     setBusy(order.id);
     try {
-      const data = await billingApi(order.settlementId ? `/settlements/${order.settlementId}/generate` : `/orders/${order.id}/generate`, {paymentType: paymentFor(order), receiptType});
+      const data = await billingApi(order.settlementId ? `/settlements/${order.settlementId}/generate` : `/orders/${order.id}/generate`, {paymentType: paymentFor(order), receiptType, cashRegisterId: registerFor(order)});
       setTransactions(prev => [data.transaction, ...prev.filter(t => t.id !== data.transaction.id)]);
       toast.success('Receipt saved for generation.');
       await refresh();
@@ -61,5 +65,5 @@ export default function useFiscalBilling() {
     } catch (e) { toast.error(e.message); }
     finally { await refresh(); setBusy(null); }
   }
-  return {transactions, transactionsLoaded, configuration, transactionFor, paymentFor, setPayments, busy, generate, retry, cancel, recover, refresh, preview, setPreview, error};
+  return {transactions, transactionsLoaded, configuration, transactionFor, paymentFor, setPayments, registerFor, setRegisterChoices, busy, generate, retry, cancel, recover, refresh, preview, setPreview, error};
 }

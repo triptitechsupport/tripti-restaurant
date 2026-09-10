@@ -1,10 +1,11 @@
 import {Router} from 'express';
 import pb from '../utils/pocketbaseClient.js';
 import fiscalAdmin from '../middleware/fiscal-admin.js';
-import {billing, lifecycle} from '../services/billingRuntime.js';
+import {billing, lifecycle, registers} from '../services/billingRuntime.js';
 import {fiskaly, fiscalConfig, FiscalError} from '../services/fiskalyClient.js';
 import {fiscalReadiness} from '../services/fiscalReadiness.js';
-import {periodicMonitor} from '../services/periodicReceipts.js';
+import {createPeriodicMonitor} from '../services/periodicReceipts.js';
+const monitors = new Map();
 const router = Router();
 router.use(fiscalAdmin);
 const handle = fn => async (req, res) => {
@@ -17,11 +18,22 @@ const handle = fn => async (req, res) => {
 router.get('/transactions', handle(async (_req,res) => res.json({transactions: await billing.listTransactions()})));
 router.get('/settlements', handle(async (_req,res) => res.json({settlements: await pb.collection('payment_settlements').getFullList({sort: '-created', expand: 'order'})})));
 router.post('/settlements/:id/generate', handle(async (req,res) => {
-  const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin);
+  const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.cashRegisterId);
   void billing.drain().catch(error => console.error('[RKSV queue]', error.message));
   res.status(202).json({transaction});
 }));
-router.get('/periodic-receipts', handle(async (_req,res) => res.json(await periodicMonitor.read())));
+router.get('/periodic-receipts', handle(async (req,res) => {
+  const row = await registers.resolve(req.query.cashRegisterId);
+  const key = `${row.environment}:${row.id}:${row.scuId}`;
+  if (!monitors.has(key)) monitors.set(key, createPeriodicMonitor({config: () => registers.scoped(row)}));
+  res.json(await monitors.get(key).read());
+}));
+router.get('/registers', handle(async (_req,res) => res.json({registers: await registers.list()})));
+router.post('/registers', handle(async (req,res) => res.json({register: await registers.add(req.body)})));
+for (const [action, fn] of Object.entries({setup: registers.setup, refresh: registers.refresh, default: registers.makeDefault, 'validate-initial': registers.validateInitial})) {
+  router.post(`/registers/:id/${action}`, handle(async (req,res) => res.json({register: await fn(req.params.id)})));
+}
+router.post('/registers/:id/action/:action', handle(async (req,res) => res.json(await registers.action(req.params.id, req.params.action, req.body))));
 router.post('/orders/:id/generate', handle(async (req,res) => {
   const transaction = await billing.generate(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.receiptType);
   // The durable queue survives browser disconnection and API restart.
@@ -47,14 +59,14 @@ router.get('/configuration', handle(async (_req,res) => {
   const cfg = fiscalConfig();
   res.json({enabled: cfg.enabled, environment: cfg.environment, company: cfg.company,
     fonCredentialsConfigured: ['FON_PARTICIPANT_ID', 'FON_USER_ID', 'FON_PIN'].every(key => Boolean(process.env[key]?.trim())),
-    registerId: cfg.registerId, scuId: cfg.scuId, readiness: fiscalReadiness(cfg)});
+    registerId: cfg.registerId, scuId: cfg.scuId, registers: await registers.list(), readiness: fiscalReadiness(cfg)});
 }));
 router.get('/fon/status', handle(async (_req, res) => {
   const result = await fiskaly('/fon/auth');
   res.json({authenticationStatus: result.authentication_status || 'UNKNOWN'});
 }));
-router.get('/status', handle(async (_req,res) => {
-  const cfg = fiscalConfig();
+router.get('/status', handle(async (req,res) => {
+  const cfg = req.query.cashRegisterId ? registers.scoped(await registers.get(req.query.cashRegisterId)) : fiscalConfig();
   const paths = {register: `/cash-register/${cfg.registerId}`, scu: `/signature-creation-unit/${cfg.scuId}`, fon: '/fon/auth', configuration: '/configuration'};
   const result = {};
   for (const [key,path] of Object.entries(paths)) {
@@ -63,10 +75,10 @@ router.get('/status', handle(async (_req,res) => {
   res.json(result);
 }));
 router.post('/setup/:action', handle(async (req,res) => {
-  res.json(await lifecycle.execute(req.params.action, req.body));
+  res.json(req.body.cashRegisterId ? await registers.action(req.body.cashRegisterId, req.params.action, req.body) : await lifecycle.execute(req.params.action, req.body));
 }));
-router.get('/lifecycle/receipts', handle(async (_req,res) => {
-  const cfg = fiscalConfig();
+router.get('/lifecycle/receipts', handle(async (req,res) => {
+  const cfg = registers.scoped(await registers.resolve(req.query.cashRegisterId));
   const base = `/cash-register/${cfg.registerId}`;
   const register = await fiskaly(base);
   const receipts = {};
@@ -80,7 +92,8 @@ router.post('/lifecycle/receipts/:kind/validate', handle(async (req,res) => {
   const fields = {initialization: 'initialization_receipt_id', decommission: 'decommission_receipt_id'};
   const field = fields[req.params.kind];
   if (!field) throw new FiscalError('Choose initialization or decommission receipt.');
-  const base = `/cash-register/${fiscalConfig().registerId}`;
+  const selected = await registers.resolve(req.body.cashRegisterId);
+  const base = `/cash-register/${selected.fiskalyCashRegisterId}`;
   const register = await fiskaly(base);
   if (!register[field]) throw new FiscalError('This lifecycle receipt does not exist yet.', 404);
   res.json(await fiskaly(`${base}/receipt/${register[field]}/validation`, {method: 'POST'}));
@@ -93,7 +106,8 @@ router.get('/dep7', handle(async (req,res) => {
       query.set(key, req.query[key]);
     }
   }
-  const data = await fiskaly(`/cash-register/${fiscalConfig().registerId}/export?${query}`);
-  res.setHeader('Content-Disposition', 'attachment; filename="dep7.json"'); res.json(data);
+  const selected = await registers.resolve(req.query.cashRegisterId);
+  const data = await fiskaly(`/cash-register/${selected.fiskalyCashRegisterId}/export?${query}`);
+  res.setHeader('Content-Disposition', `attachment; filename="dep7-${selected.fiskalyCashRegisterId}.json"`); res.json(data);
 }));
 export default router;

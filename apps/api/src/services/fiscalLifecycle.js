@@ -41,7 +41,7 @@ export function createFiscalLifecycle({remote = fiskaly, config = fiscalConfig, 
         if (error.status !== 404 || error.code !== code) throw error;
       }
       return remote(paths[kind], {method: 'PUT', body: kind === 'register' ?
-        {description: cfg.company.name} : {legal_entity_id: {vat_id: cfg.company.vatId}}});
+        {description: String(input.description || cfg.company.name).slice(0, 100)} : {legal_entity_id: {vat_id: cfg.company.vatId}}});
     }
     const transition = transitions[action];
     if (!transition) throw new FiscalError('Unknown or unsupported lifecycle action.');

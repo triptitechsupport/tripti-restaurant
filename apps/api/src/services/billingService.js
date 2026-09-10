@@ -4,6 +4,7 @@ import {buildReceipt, cancellationPayload, sourceSnapshot} from './fiscalReceipt
 import {buildFallbackReceipt} from './fiscalFallback.js';
 
 export function createBillingService({db, remote = fiskaly, config = fiscalConfig,
+  resolveRegister,
   onQueueError = (id, error) => console.error(`[RKSV queue ${id}]`, error.message)} ) {
   const txs = () => db.collection('fiskaly_transactions');
   // One local worker: serialize signing, retry-state changes and recovery checks.
@@ -27,12 +28,14 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
       environment: cfg.environment, name: cfg.company.name, vatId: cfg.company.vatId});
   }
   async function listTransactions() { return txs().getFullList({sort: '-created'}); }
-  async function generateSettlement(id, paymentType, userId) {
+  async function generateSettlement(id, paymentType, userId, selectedRegisterId) {
     assertFiscalReady(config());
     const settlement = await db.collection('payment_settlements').getOne(id);
     const key = `SETTLEMENT:${id}`;
     const existing = await txs().getFullList({filter: db.filter('businessReceiptKey = {:key}', {key})});
     if (existing.length) {
+      if (selectedRegisterId && existing[0].cashRegister !== selectedRegisterId)
+        throw new FiscalError('This settlement is already assigned to a different cash register.', 409);
       const originalRegister = await db.collection('cash_registers').getOne(existing[0].cashRegister);
       if (originalRegister.environment !== config().environment) throw new FiscalError('Settlement belongs to a different fiscal environment.', 409);
       assertReceiptReady(existing[0], config()); return existing[0];
@@ -41,7 +44,9 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
     data.requestPayload.metadata.settlement_id = id;
     data.receiptSnapshot.settlementId = id;
     data.receiptSnapshot.settlementNumber = settlement.settlementNumber || '';
-    const cashRegister = await register();
+    const cashRegister = resolveRegister ? await resolveRegister(selectedRegisterId) : await register();
+    data.receiptSnapshot.cashRegisterName = cashRegister.name;
+    data.receiptSnapshot.cashRegisterId = cashRegister.fiskalyCashRegisterId;
     return db.send('/api/fiscal/prepare', {method: 'POST', body: {transaction: {
       ...data, order: settlement.order, orderId: settlement.orderId, settlement: id, cashRegister: cashRegister.id,
       paymentType, receiptType: 'NORMAL', createdBy: userId, businessReceiptKey: key,
@@ -63,7 +68,7 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
     const kots = await db.collection('kitchen_orders').getFullList({filter: db.filter('parentOrder = {:id}', {id: order.id}), sort: 'id'});
     const menu = await db.collection('menu_items').getFullList();
     const data = buildReceipt(kots, menu, paymentType, order.orderId, config().company, receiptType);
-    const cashRegister = await register();
+    const cashRegister = resolveRegister ? await resolveRegister() : await register();
     return db.send('/api/fiscal/prepare', {method: 'POST', body: {
       sourceKots: sourceSnapshot(kots), transaction: {...data, order: order.id, orderId: order.orderId, cashRegister: cashRegister.id,
         paymentType, receiptType, createdBy: userId, businessReceiptKey: key, fiskalyReceiptId: randomUUID(), status: 'pending'}}});

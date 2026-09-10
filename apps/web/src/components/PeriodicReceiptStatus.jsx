@@ -15,13 +15,13 @@ export default function PeriodicReceiptStatus({config}) {
     if (!enabled) return;
     async function check() {
       setBusy(true);
-      try { const result = await billingApi('/periodic-receipts'); if (active) {setData(result); setError('');} }
+      try { const result = await billingApi(`/periodic-receipts${config.cashRegisterId ? '?cashRegisterId=' + encodeURIComponent(config.cashRegisterId) : ''}`); if (active) {setData(result); setError('');} }
       catch (failure) { if (active) setError(failure.message); }
       finally { if (active) {setBusy(false); timer = setTimeout(check, 60000);} }
     }
     void check();
     return () => { active = false; clearTimeout(timer); };
-  }, [enabled, config?.registerId, config?.environment, refresh]);
+  }, [enabled, config?.registerId, config?.cashRegisterId, config?.environment, refresh]);
   if (!enabled) return null;
   const failed = data?.receipts.filter(receipt => receipt.status === 'FAILED').length || 0;
   const unreported = data?.receipts.filter(receipt => receipt.status === 'NOT_REPORTED').length || 0;

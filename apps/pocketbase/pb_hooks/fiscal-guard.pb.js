@@ -5,7 +5,11 @@ routerAdd('POST', '/api/fiscal/prepare', (e) => {
   let result;
   $app.runInTransaction((app) => {
     const existing = app.findRecordsByFilter('fiskaly_transactions', 'businessReceiptKey = {:key}', '', 1, 0, {key: body.transaction.businessReceiptKey});
-    if (existing.length) { result = existing[0]; return; }
+    if (existing.length) {
+      if (existing[0].getString('cashRegister') !== body.transaction.cashRegister)
+        throw new BadRequestError('This receipt is already assigned to another cash register.');
+      result = existing[0]; return;
+    }
     const order = app.findRecordById('waiter_orders', body.transaction.order);
     if (body.transaction.settlement && body.transaction.receiptType !== 'CANCELLATION') {
       const settlement = app.findRecordById('payment_settlements', body.transaction.settlement);
