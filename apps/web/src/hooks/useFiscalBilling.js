@@ -32,7 +32,7 @@ export default function useFiscalBilling() {
     configuration?.registers?.find(r => r.isDefault && r.enabledForBilling)?.id ||
     configuration?.registers?.find(r => r.fiskalyCashRegisterId === configuration.registerId && r.enabledForBilling)?.id || "";
   async function generate(order, receiptType = 'NORMAL') {
-    if (receiptType === 'NORMAL' && !window.confirm(`Generate the receipt for ${order.orderId}${order.settlementId ? " / settlement " + order.settlementId : ""}? The saved items will be fiscalized.`)) return;
+    if (receiptType === 'NORMAL' && !window.confirm(`Generate the receipt for ${order.settlementNumber || order.orderId}? The saved items will be fiscalized.`)) return;
     setBusy(order.id);
     try {
       const data = await billingApi(order.settlementId ? `/settlements/${order.settlementId}/generate` : `/orders/${order.id}/generate`, {paymentType: paymentFor(order), receiptType, cashRegisterId: registerFor(order)});
