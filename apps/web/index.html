@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/app-icon.png" />
@@ -14,9 +14,35 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Tripti Genusswelt" />
     <meta name="application-name" content="Tripti Genusswelt" />
-    <meta name="description" content="Tripti Genusswelt – Indian restaurant. Browse the menu, reserve a table, and order online." />
+    <meta name="description" content="Tripti Genusswelt – authentisches indisches Restaurant in Villach. Speisekarte ansehen, Tisch reservieren und online bestellen." />
 
-    <title>Tripti Genusswelt</title>
+    <meta property="og:type" content="restaurant" />
+    <meta property="og:site_name" content="Tripti Genusswelt" />
+    <meta property="og:title" content="Tripti Genusswelt – Indisches Restaurant in Villach" />
+    <meta property="og:description" content="Authentische indische Küche in Villach. Speisekarte ansehen, Tisch reservieren und online bestellen." />
+    <meta property="og:image" content="/app-icon.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Restaurant",
+        "name": "Tripti Genusswelt",
+        "servesCuisine": "Indian",
+        "telephone": "+436641219289",
+        "email": "info@triptigenusswelt.at",
+        "url": "https://triptigenusswelt.at/",
+        "menu": "https://triptigenusswelt.at/menu",
+        "acceptsReservations": "https://triptigenusswelt.at/table-reservation",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Italiener Straße 17",
+          "postalCode": "9500",
+          "addressLocality": "Villach",
+          "addressCountry": "AT"
+        }
+      }
+    </script>
+
+    <title>Tripti Genusswelt – Indisches Restaurant in Villach</title>
   </head>
   <body>
     <div id="root"></div>

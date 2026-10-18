@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Phone, Mail, Instagram, Facebook } from 'lucide-react';
+import { MapPin, Phone, Mail } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import pb from '@/lib/pocketbaseClient.js';
 
@@ -46,14 +46,6 @@ export default function Footer() {
             <p className="text-primary-foreground/80 leading-relaxed text-sm">
               {t('heroSubtitle') || 'Discover a symphony of spices and traditional recipes crafted with passion.'}
             </p>
-            <div className="flex space-x-4 pt-2">
-              <a href="#" className="w-10 h-10 rounded-full bg-primary-foreground/10 flex items-center justify-center text-primary-foreground hover:bg-secondary hover:text-secondary-foreground transition-all" aria-label="Facebook">
-                <Facebook className="h-5 w-5" />
-              </a>
-              <a href="#" className="w-10 h-10 rounded-full bg-primary-foreground/10 flex items-center justify-center text-primary-foreground hover:bg-secondary hover:text-secondary-foreground transition-all" aria-label="Instagram">
-                <Instagram className="h-5 w-5" />
-              </a>
-            </div>
           </div>
 
           <div>
@@ -85,7 +77,7 @@ export default function Footer() {
             <ul className="space-y-4">
               <li className="flex items-start gap-3 text-primary-foreground/80">
                 <MapPin className="h-5 w-5 text-secondary shrink-0 mt-0.5" />
-                <span className="font-medium leading-snug">Italiener Straße 17,<br/>Villach 9500</span>
+                <a href="https://www.google.com/maps/search/?api=1&query=Italiener+Stra%C3%9Fe+17%2C+9500+Villach" target="_blank" rel="noopener noreferrer" className="font-medium leading-snug hover:text-secondary transition-colors">Italiener Straße 17,<br/>9500 Villach</a>
               </li>
               <li className="flex items-center gap-3 text-primary-foreground/80">
                 <Phone className="h-5 w-5 text-secondary shrink-0" />
@@ -103,10 +95,9 @@ export default function Footer() {
           <span className="text-sm text-primary-foreground/60 font-medium">
             © {currentYear} Tripti Genusswelt. {t('allRightsReserved') || 'All rights reserved.'}
           </span>
-          <div className="flex gap-6 text-sm font-medium">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm font-medium">
             <Link to="/privacy-policy" className="text-primary-foreground/60 hover:text-secondary transition-colors">{t('privacyPolicy') || 'Privacy Policy'}</Link>
             <Link to="/terms-of-service" className="text-primary-foreground/60 hover:text-secondary transition-colors">{t('termsOfService') || 'Terms of Service'}</Link>
-            <a href="/TRIPTI_GENUSSWELT_DOCUMENTATION.txt" target="_blank" rel="noopener noreferrer" download className="text-primary-foreground/60 hover:text-secondary transition-colors">Documentation</a>
           </div>
         </div>
       </div>

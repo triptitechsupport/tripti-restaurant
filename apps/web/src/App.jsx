@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import NotFoundPage from '@/pages/NotFoundPage.jsx';
 import { Route, Routes, BrowserRouter as Router, Navigate, useLocation } from 'react-router-dom';
 import { LanguageProvider } from '@/contexts/LanguageContext.jsx';
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext.jsx';
@@ -19,34 +20,34 @@ import MarqueeBar from '@/components/MarqueeBar.jsx';
 import HomePage from '@/pages/HomePage.jsx';
 import MenuPage from '@/pages/MenuPage.jsx';
 import TableReservationPage from '@/pages/TableReservationPage.jsx';
-import ReservationConfirmationPage from '@/pages/ReservationConfirmationPage.jsx';
+const ReservationConfirmationPage = lazy(() => import('@/pages/ReservationConfirmationPage.jsx'));
 import ContactPage from '@/pages/ContactPage.jsx';
 import CartPage from '@/pages/CartPage.jsx';
-import CheckoutPage from '@/pages/CheckoutPage.jsx';
-import OrderConfirmationPage from '@/pages/OrderConfirmationPage.jsx';
-import AdminLoginPage from '@/pages/AdminLoginPage.jsx';
-import KdsLoginPage from '@/pages/KdsLoginPage.jsx';
-import WaiterLoginPage from '@/pages/WaiterLoginPage.jsx';
-import KdsDashboard from '@/pages/KdsDashboard.jsx';
-import WaiterDashboard from '@/pages/WaiterDashboard.jsx';
-import AdminPlaceOrderPage from '@/pages/AdminPlaceOrderPage.jsx';
-import PrivacyPolicyPage from '@/pages/PrivacyPolicyPage.jsx';
-import TermsOfServicePage from '@/pages/TermsOfServicePage.jsx';
+const CheckoutPage = lazy(() => import('@/pages/CheckoutPage.jsx'));
+const OrderConfirmationPage = lazy(() => import('@/pages/OrderConfirmationPage.jsx'));
+const AdminLoginPage = lazy(() => import('@/pages/AdminLoginPage.jsx'));
+const KdsLoginPage = lazy(() => import('@/pages/KdsLoginPage.jsx'));
+const WaiterLoginPage = lazy(() => import('@/pages/WaiterLoginPage.jsx'));
+const KdsDashboard = lazy(() => import('@/pages/KdsDashboard.jsx'));
+const WaiterDashboard = lazy(() => import('@/pages/WaiterDashboard.jsx'));
+const AdminPlaceOrderPage = lazy(() => import('@/pages/AdminPlaceOrderPage.jsx'));
+const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage.jsx'));
+const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage.jsx'));
 
 // Dashboards & Admin
-import AdminMenuPage from '@/pages/AdminMenuPage.jsx';
-import AdminBookingDashboard from '@/pages/AdminBookingDashboard.jsx';
-import AdminReservationApprovalPage from '@/pages/AdminReservationApprovalPage.jsx';
-import GuestDashboard from '@/pages/GuestDashboard.jsx';
+const AdminMenuPage = lazy(() => import('@/pages/AdminMenuPage.jsx'));
+const AdminBookingDashboard = lazy(() => import('@/pages/AdminBookingDashboard.jsx'));
+const AdminReservationApprovalPage = lazy(() => import('@/pages/AdminReservationApprovalPage.jsx'));
+const GuestDashboard = lazy(() => import('@/pages/GuestDashboard.jsx'));
 import ProtectedAdminRoute from '@/components/ProtectedAdminRoute.jsx';
-import WaiterHelpPage from '@/pages/WaiterHelpPage.jsx';
-import AdminHelpPage from '@/pages/AdminHelpPage.jsx';
-import StockLoginPage from '@/pages/StockLoginPage.jsx';
-import StockDashboard from '@/pages/StockDashboard.jsx';
-import StockHelpPage from '@/pages/StockHelpPage.jsx';
+const WaiterHelpPage = lazy(() => import('@/pages/WaiterHelpPage.jsx'));
+const AdminHelpPage = lazy(() => import('@/pages/AdminHelpPage.jsx'));
+const StockLoginPage = lazy(() => import('@/pages/StockLoginPage.jsx'));
+const StockDashboard = lazy(() => import('@/pages/StockDashboard.jsx'));
+const StockHelpPage = lazy(() => import('@/pages/StockHelpPage.jsx'));
 
 // Subscriptions
-import SubscriptionsPage from '@/pages/SubscriptionsPage.jsx';
+const SubscriptionsPage = lazy(() => import('@/pages/SubscriptionsPage.jsx'));
 import WhatsAppButton from '@/components/WhatsAppButton.jsx';
 import GlobalReservationNotifications from '@/components/GlobalReservationNotifications.jsx';
 import { LOGIN_PATH, MANAGE_PATH } from '@/config/subscriptionRoutes.js';
@@ -86,6 +87,16 @@ function ConnectionMonitor() {
   );
 }
 
+// Staff, admin and checkout pages load only when opened, so guests on phones
+// download far less code for the home page and menu.
+function PageLoading() {
+  return (
+    <div className="flex-1 flex items-center justify-center py-24" role="status" aria-live="polite">
+      <div className="h-10 w-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+    </div>
+  );
+}
+
 function Layout() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const location = useLocation();
@@ -110,6 +121,7 @@ function Layout() {
       <GlobalReservationNotifications />
       
       <div className="flex-1 flex flex-col">
+        <Suspense fallback={<PageLoading />}>
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<HomePage />} />
@@ -206,7 +218,10 @@ function Layout() {
           {/* Subscription Routes */}
           <Route path={LOGIN_PATH} element={<Navigate to="/" replace />} />
           <Route path={MANAGE_PATH} element={<SubscriptionsPage />} />
+
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </Suspense>
       </div>
       
       {showFooter ? <Footer /> : null}

@@ -54,7 +54,7 @@ export default function Header({ setIsCartOpen }) {
         <div className="flex h-[var(--nav-height-mobile)] md:h-[var(--nav-height-desktop)] items-center justify-between">
           
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-3 md:gap-4 group">
+          <Link to="/" className="flex items-center gap-3 md:gap-4 group shrink-0">
             {logoUrl ? (
               <motion.div
                 whileHover={{ scale: 1.05 }}
@@ -73,10 +73,10 @@ export default function Header({ setIsCartOpen }) {
                 transition={{ type: "spring", stiffness: 300 }}
                 className="flex flex-col"
               >
-                <span className="text-xl md:text-3xl font-serif font-bold text-primary-foreground tracking-tight drop-shadow-sm group-hover:text-secondary transition-colors duration-300">
+                <span className="whitespace-nowrap text-xl md:text-3xl font-serif font-bold text-primary-foreground tracking-tight drop-shadow-sm group-hover:text-secondary transition-colors duration-300">
                   Tripti Genusswelt
                 </span>
-                <span className="text-[10px] md:text-xs font-semibold uppercase tracking-[0.2em] text-primary-foreground/90">
+                <span className="whitespace-nowrap text-[10px] md:text-xs font-semibold uppercase tracking-[0.2em] text-primary-foreground/90">
                   The Indian Restaurant
                 </span>
               </motion.div>
@@ -84,7 +84,7 @@ export default function Header({ setIsCartOpen }) {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center gap-6">
+          <div className="hidden xl:flex items-center gap-5">
             {navLinks.map((link, idx) => (
               <motion.div
                 key={link.path}
@@ -94,7 +94,7 @@ export default function Header({ setIsCartOpen }) {
               >
                 <Link
                   to={link.path}
-                  className={`text-sm font-bold transition-colors duration-300 uppercase tracking-wider min-h-[44px] flex items-center relative overflow-hidden group ${
+                  className={`text-sm font-bold transition-colors duration-300 uppercase tracking-wider whitespace-nowrap min-h-[44px] flex items-center relative overflow-hidden group ${
                     link.path === '/table-reservation' 
                       ? 'reserve-table-button' 
                       : isActive(link.path) ? 'text-secondary' : 'text-primary-foreground/80 hover:text-secondary'
@@ -108,12 +108,12 @@ export default function Header({ setIsCartOpen }) {
               </motion.div>
             ))}
             
-            <div className="h-6 w-px bg-secondary/30 mx-1"></div>
+            <div className="hidden 2xl:block h-6 w-px bg-secondary/30 mx-1"></div>
 
             <motion.a 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
               href="tel:+436641219289" 
-              className="flex items-center gap-2 text-sm font-bold text-primary-foreground hover:text-secondary transition-colors duration-300 min-h-[44px]"
+              className="hidden 2xl:flex items-center gap-2 whitespace-nowrap text-sm font-bold text-primary-foreground hover:text-secondary transition-colors duration-300 min-h-[44px]"
             >
               <Phone className="h-4 w-4" />
               +43 6641219289
@@ -180,7 +180,7 @@ export default function Header({ setIsCartOpen }) {
           </div>
 
           {/* Mobile Right Section */}
-          <div className="flex items-center gap-2 lg:hidden">
+          <div className="flex items-center gap-2 xl:hidden">
             {!isAdminAuthenticated && isOrderingEnabled && (
               <button 
                 onClick={() => setIsCartOpen(true)} 
