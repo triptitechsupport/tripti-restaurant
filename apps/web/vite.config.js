@@ -13,7 +13,8 @@ import { existsSync, readFileSync } from 'node:fs';
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const allDeps = Object.keys(pkg.dependencies || {});
 
-const isDev = process.env.NODE_ENV !== 'production';
+// `vite build` always counts as production, even when NODE_ENV is not set (as in the Docker build stage).
+const isDev = process.env.NODE_ENV !== 'production' && !process.argv.includes('build');
 
 // Only the Horizons editor may read this dev server cross-origin. `cors: true`
 // sends `Access-Control-Allow-Origin: *`, which lets any site read the source
@@ -302,7 +303,9 @@ if (window.navigation && window.self !== window.top) {
 const addTransformIndexHtml = {
 	name: 'add-transform-index-html',
 	transformIndexHtml(html) {
-		const tags = [
+		// The Horizons editor scripts (error reporting to the editor frame and a
+		// patched window.fetch) are only useful inside the editor, not on the live site.
+		const tags = !isDev ? [] : [
 			{
 				tag: 'script',
 				attrs: { type: 'module' },
