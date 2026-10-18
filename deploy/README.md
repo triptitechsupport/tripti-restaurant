@@ -6,26 +6,21 @@ are lost on restart, redeploy, or idle shutdown. Remote Fiskaly receipts survive
 Do not use this image for actual restaurant operations or restore a production
 database into it.
 
-## Push these files
+## Push this branch
 
-From the repository root on `rksv-poc`:
+From the repository root (the repository must be private):
 
 ```powershell
-git add Dockerfile .dockerignore deploy apps/api/src/routes/stripe.js apps/api/src/routes/ecommerce/subscriptions.js
-git diff --cached --stat
-git commit -m "Add Render Free TEST deployment"
-git push origin rksv-poc
+git push origin rksv-platform
 ```
 
-Review any previously staged changes before committing. The local PocketBase
-package.json edit and preview fixture are not required for Docker startup.
-Do not add `.env`, `pb_data`, or backups. Local database contents and uploaded
-images are not included; the image seeds only what is in committed migrations.
+Do not add `.env`, `pb_data`, or backups. The image seeds only what is in
+committed migrations. Nothing in this image depends on Hostinger.
 
 ## Render settings
 
 - New **Web Service**, GitHub repository `triptitechsupport/tripti-restaurant`.
-- Branch `rksv-poc`; runtime **Docker**; instance **Free**.
+- Branch `rksv-platform`; runtime **Docker**; instance **Free**.
 - Root Directory empty; Dockerfile `./Dockerfile`; context `.`.
 - Docker Command empty; no separate build/start command.
 - No disk; disable Auto-Deploy initially.

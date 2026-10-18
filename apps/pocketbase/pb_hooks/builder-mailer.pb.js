@@ -1,7 +1,9 @@
 
 /// <reference path="../pb_data/types.d.ts" />
 onMailerSend((e) => {
-    if (e.app.settings().smtp.enabled) {
+    // Use SMTP from the PocketBase settings when set. The Hostinger mailer API is
+    // only used when its URL and key are given, so any host can run this app.
+    if (e.app.settings().smtp.enabled || !$os.getenv("BUILDER_MAILER_API_URL") || !$os.getenv("BUILDER_MAILER_API_KEY")) {
         return e.next()
     }
 
