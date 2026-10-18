@@ -127,13 +127,14 @@ export default function ContactPage() {
               className="h-full min-h-[450px] rounded-3xl overflow-hidden border-2 border-border shadow-xl relative hover:shadow-2xl transition-shadow duration-500"
             >
               <iframe 
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2731.654321!2d13.845678!3d46.612345!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNDbCsDM2JzQ0LjQiTiAxM8KwNTAnNDQuNCJF!5e0!3m2!1sen!2sat!4v1620000000000!5m2!1sen!2sat" 
+                src="https://www.google.com/maps?q=Italiener+Stra%C3%9Fe+17,+9500+Villach,+Austria&output=embed" 
                 width="100%" 
                 height="100%" 
                 style={{ border: 0 }} 
                 allowFullScreen="" 
                 loading="lazy" 
-                title="Restaurant Location"
+                title="Tripti Genusswelt, Italiener Straße 17, 9500 Villach"
+                referrerPolicy="no-referrer-when-downgrade"
                 className="w-full h-full absolute inset-0 filter hover:contrast-110 transition-all duration-500"
               ></iframe>
             </motion.div>

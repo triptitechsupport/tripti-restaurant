@@ -42,6 +42,11 @@ export function LanguageProvider({ children }) {
     }
   }, []);
 
+  // Tell browsers, screen readers and search engines which language is shown.
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
   useEffect(() => {
     fetchSettingsAndTranslations();
   }, [fetchSettingsAndTranslations]);

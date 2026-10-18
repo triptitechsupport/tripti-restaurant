@@ -180,6 +180,7 @@ export default function HomePage() {
           <DecorativeElements />
 
           <div className="relative z-30 mx-auto max-w-4xl w-full text-center flex flex-col items-center justify-center">
+            <h1 className="sr-only">Tripti Genusswelt – Indisches Restaurant in Villach</h1>
             {/* Top text - Mobile & Tablet */}
             <p className="lg:hidden text-base md:text-xl text-primary/90 font-medium mb-2 animate-stagger-fade-up animation-delay-500">
               {t("heroSubtitleTop")}
@@ -190,6 +191,8 @@ export default function HomePage() {
                 <img
                   src="https://horizons-cdn.hostinger.com/450079b8-5822-46b7-a2c8-af6dc49bcbc7/8bdded65f72ad525fd1340e56a415c6c.jpg"
                   alt="Tripti Genusswelt - Das authentische indische Restaurant"
+                  fetchPriority="high"
+                  decoding="async"
                   className="w-full h-auto object-cover"
                 />
               </div>
