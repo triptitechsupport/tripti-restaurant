@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { waiterPb } from '@/lib/staffClients.js';
 import pbDefault from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
-import { ConciergeBell, LogOut, Zap, Clock, LogIn, ArrowLeft } from 'lucide-react';
+import { ConciergeBell, LogOut, Zap, Clock, LogIn, ArrowLeft, HelpCircle } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import OrderPlacement from '@/components/OrderPlacement.jsx';
 import StaffChat from '@/components/StaffChat.jsx';
@@ -230,6 +230,17 @@ export default function WaiterDashboard() {
               </Button>
             )}
             <ContactKitchenButton pbClient={pb} displayName={displayName} />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => navigate('/waiter-help')}
+              className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90"
+              aria-label="Help"
+              title="Help"
+            >
+              <HelpCircle className="h-4 w-4 sm:mr-1" />
+              <span className="hidden lg:inline">Help</span>
+            </Button>
             <Button
               variant="secondary"
               size="sm"

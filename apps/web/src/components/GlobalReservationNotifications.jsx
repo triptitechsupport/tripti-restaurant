@@ -60,6 +60,21 @@ export default function GlobalReservationNotifications() {
   // Track whether a popup is currently open so polling never re-opens it.
   const alertOpenRef = useRef(false);
 
+  const surfaceNewcomer = (record) => {
+    if (!record || !record.id) return;
+    if (alertedIdsRef.current.has(record.id)) return;
+    alertedIdsRef.current.add(record.id);
+    if (!alertOpenRef.current) {
+      alertOpenRef.current = true;
+      setNewReservationAlert(record);
+    }
+    playNotificationChime();
+    toast.info(`New reservation from ${record.guestName}`, {
+      description: `${record.reservationDate ? format(new Date(record.reservationDate), 'MMM d, yyyy') : ''} at ${record.reservationTime} \u2022 ${record.partySize || record.numberOfGuests} guests`,
+      duration: 8000,
+    });
+  };
+
   const fetchReservations = async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
@@ -67,6 +82,7 @@ export default function GlobalReservationNotifications() {
       const data = await pb.collection('table_reservations').getFullList({
         sort: '-created',
         $autoCancel: false,
+        requestKey: 'global-reservation-notifications',
       });
 
       const pending = data.filter((r) => !r.status || r.status === 'Pending');
@@ -82,21 +98,13 @@ export default function GlobalReservationNotifications() {
       // Find genuinely new pending reservations we have never alerted for.
       const newcomers = pending.filter((r) => !alertedIdsRef.current.has(r.id));
       if (newcomers.length > 0) {
-        // Mark them all as alerted immediately so they can't retrigger.
-        newcomers.forEach((r) => alertedIdsRef.current.add(r.id));
         const latest = newcomers
           .slice()
           .sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0))[0];
-
-        // Only surface a popup if one isn't already open.
-        if (!alertOpenRef.current) {
-          alertOpenRef.current = true;
-          setNewReservationAlert(latest);
-        }
-        playNotificationChime();
-        toast.info(`New reservation from ${latest.guestName}`, {
-          description: `${latest.reservationDate ? format(new Date(latest.reservationDate), 'MMM d, yyyy') : ''} at ${latest.reservationTime} \u2022 ${latest.partySize || latest.numberOfGuests} guests`,
-          duration: 8000,
+        // surfaceNewcomer marks all via the loop below + shows the latest.
+        newcomers.forEach((r) => {
+          if (r.id === latest.id) surfaceNewcomer(r);
+          else alertedIdsRef.current.add(r.id);
         });
       }
     } catch {
@@ -115,21 +123,66 @@ export default function GlobalReservationNotifications() {
       return undefined;
     }
 
-    fetchReservations();
+    let cancelled = false;
+    let unsubFn = null;
+    let reconnectId = null;
 
-    // Real-time subscription (primary channel).
-    pb.collection('table_reservations').subscribe('*', function () {
-      fetchReservations();
-    });
+    void fetchReservations();
 
-    // Polling fallback in case the realtime websocket drops through the proxy.
+    // Real-time subscription (primary channel) — apply create events instantly
+    // so the popup does not wait on a full list refetch.
+    const attachRealtime = () => {
+      void pb
+        .collection('table_reservations')
+        .subscribe('*', (e) => {
+          if (cancelled) return;
+          if (!initialLoadDoneRef.current) {
+            // Still seeding — fall back to full fetch which will seed IDs.
+            void fetchReservations();
+            return;
+          }
+          if (e?.action === 'create' && e.record && (!e.record.status || e.record.status === 'Pending')) {
+            surfaceNewcomer(e.record);
+            return;
+          }
+          // Updates/deletes: reconcile via list so we don't miss edge cases.
+          void fetchReservations();
+        }, { requestKey: 'global-reservation-rt' })
+        .then((unsub) => {
+          if (cancelled) {
+            try { unsub?.(); } catch { /* ignore */ }
+            return;
+          }
+          unsubFn = unsub;
+        })
+        .catch(() => {
+          if (!cancelled) reconnectId = window.setTimeout(attachRealtime, 3000);
+        });
+    };
+
+    attachRealtime();
+
+    // Faster polling fallback (was 20s — felt very delayed when realtime drops).
     const intervalId = setInterval(() => {
-      fetchReservations();
-    }, 20000);
+      if (!cancelled) void fetchReservations();
+    }, 5000);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !cancelled) {
+        void fetchReservations();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
+      cancelled = true;
       clearInterval(intervalId);
-      pb.collection('table_reservations').unsubscribe('*');
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (reconnectId) window.clearTimeout(reconnectId);
+      // Only detach THIS listener — bare unsubscribe('*') kills other subscribers.
+      try {
+        if (typeof unsubFn === 'function') unsubFn();
+      } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminAuthenticated]);

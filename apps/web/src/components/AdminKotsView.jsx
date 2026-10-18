@@ -2,15 +2,24 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import {
   ChefHat, RefreshCw, Loader2, Filter, XCircle, Table2, User, Calendar, Layers,
+  Eye, StickyNote, Trash2, ShieldAlert, Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import pb from '@/lib/pocketbaseClient.js';
+import apiServerClient from '@/lib/apiServerClient.js';
 import { toast } from 'sonner';
 import { resolveOrderId, resolveBaseOrderId } from '@/lib/kotPrint.js';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { kotsExportColumns } from '@/lib/csvConfigs.js';
 import {
   isKotDelayed, countDelayedKots, DELAYED_CARD_CLS,
 } from '@/lib/kotDelayed.js';
@@ -45,6 +54,23 @@ function elapsedLabel(ms) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+// Whether a KOT's created timestamp falls within the selected date range.
+// `from`/`to` are HTML date-input strings (YYYY-MM-DD); the range is
+// inclusive of the full from-day and to-day. Empty bounds skip that side.
+function inDateRange(kot, from, to) {
+  if (!from && !to) return true;
+  const t = new Date(kot.created).getTime();
+  if (from) {
+    const f = new Date(from + 'T00:00:00').getTime();
+    if (t < f) return false;
+  }
+  if (to) {
+    const e = new Date(to + 'T23:59:59').getTime();
+    if (t > e) return false;
+  }
+  return true;
+}
+
 function parentOf(kot) {
   return (kot && kot.expand && kot.expand.parentOrder) || null;
 }
@@ -64,6 +90,39 @@ function waiterOf(kot) {
   return (p && p.placedBy) || kot.placedBy || '';
 }
 
+// Parse the JSON `items` field of a kitchen order into a stable array.
+// Defensive: the field may be a string, array, or missing.
+function kotItems(kot) {
+  if (!kot) return [];
+  let items = kot.items;
+  if (typeof items === 'string') {
+    try { items = JSON.parse(items); } catch (_) { return []; }
+  }
+  if (!Array.isArray(items)) return [];
+  return items;
+}
+
+// Short preview of the ordered items for table/card display, e.g.
+// "Samosa x2, Masala Dosa x1" (truncated).
+function itemsPreview(kot, max = 2) {
+  const items = kotItems(kot);
+  if (items.length === 0) return '—';
+  const parts = items.slice(0, max).map((it) => {
+    const name = it.name || it.itemName || 'Item';
+    const qty = it.quantity != null ? ` x${it.quantity}` : '';
+    return `${name}${qty}`;
+  });
+  const more = items.length > max ? ` +${items.length - max} more` : '';
+  return parts.join(', ') + more;
+}
+
+// Euro formatting for item/unit prices in the detail dialog.
+function fmtEuro(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  return `€${v.toFixed(2)}`;
+}
+
 export default function AdminKotsView() {
   const [kots, setKots] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -80,6 +139,66 @@ export default function AdminKotsView() {
   // Filters
   const [statusFilter, setStatusFilter] = useState('all'); // all|active|pending|preparing|ready|completed|cancelled|delayed
   const [sortOrder, setSortOrder] = useState('desc'); // desc=newest, asc=oldest
+  // Date-range filter for viewing / extracting history by date. The full
+  // 40-day retention window is available; defaults to empty (all dates).
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  // Detail dialog — full ordered-item breakdown for a single KOT.
+  const [detailKot, setDetailKot] = useState(null);
+
+  // Admin-only "Reset complete data" — password-protected, server-side
+  // enforced via POST /hcgi/api/reset-data. Clears KOTs (kitchen_orders)
+  // and customer online orders only; bills/payments (waiter_orders), logs
+  // (analysis history), menu, accounts, settings, and audit history are
+  // retained. Waiter/KDS/unauthenticated users cannot reach the deletion
+  // step (the route checks the admin JWT + admin_users lookup + password).
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState('');
+
+  const handleResetData = async () => {
+    setResetError('');
+    if (!resetPassword) {
+      setResetError('Enter your admin password to confirm.');
+      return;
+    }
+    if (!resetConfirm) {
+      setResetError('You must acknowledge the reset scope to continue.');
+      return;
+    }
+    setResetBusy(true);
+    try {
+      const token = pb.authStore.token;
+      const response = await apiServerClient.fetch('/reset-data', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password: resetPassword, confirm: 'RESET' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setResetError(data.error || 'Reset failed.');
+        return;
+      }
+      toast.success(
+        `Reset complete: ${data.deleted?.kots ?? 0} KOT(s) and ${data.deleted?.orders ?? 0} order(s) cleared. Bills, payments, and analysis history retained.`,
+      );
+      setResetOpen(false);
+      setResetPassword('');
+      setResetConfirm(false);
+      fetchKots(true);
+    } catch (err) {
+      console.error('[AdminKotsView] reset failed', err);
+      setResetError('Network error — reset could not be completed.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   // Ticking clock so elapsed time + delayed state recalculate live.
   useEffect(() => {
@@ -153,6 +272,8 @@ export default function AdminKotsView() {
     } else if (statusFilter !== 'all') {
       list = list.filter((k) => k.status === statusFilter);
     }
+    // Date-range filter (history by date).
+    list = list.filter((k) => inDateRange(k, dateFrom, dateTo));
     // Re-sort client-side to keep delayed-first option stable if needed.
     if (sortOrder === 'asc') {
       list = [...list].sort((a, b) => new Date(a.created) - new Date(b.created));
@@ -160,16 +281,22 @@ export default function AdminKotsView() {
       list = [...list].sort((a, b) => new Date(b.created) - new Date(a.created));
     }
     return list;
-  }, [kots, statusFilter, sortOrder, now]);
+  }, [kots, statusFilter, sortOrder, now, dateFrom, dateTo]);
 
   const delayedCount = useMemo(() => countDelayedKots(kots, now), [kots, now]);
 
   const resetFilters = () => {
     setStatusFilter('all');
     setSortOrder('desc');
+    setDateFrom('');
+    setDateTo('');
   };
 
-  const activeFilterCount = (statusFilter !== 'all' ? 1 : 0) + (sortOrder !== 'desc' ? 1 : 0);
+  const activeFilterCount =
+    (statusFilter !== 'all' ? 1 : 0) +
+    (sortOrder !== 'desc' ? 1 : 0) +
+    (dateFrom ? 1 : 0) +
+    (dateTo ? 1 : 0);
 
   return (
     <>
@@ -184,13 +311,36 @@ export default function AdminKotsView() {
             </div>
             <div>
               <h2 className="text-xl sm:text-2xl font-serif font-bold text-primary">Kitchen Order Tickets (KOTs)</h2>
-              <p className="text-sm text-muted-foreground">Live view of all kitchen orders with delayed-state highlighting.</p>
+              <p className="text-sm text-muted-foreground">Live view of all kitchen orders with delayed-state highlighting. KOTs leave the active KDS after 5 hours but stay here for 40 days.</p>
             </div>
           </div>
-          <Button onClick={handleRefresh} variant="outline" className="h-10 w-full sm:w-auto" disabled={refreshing}>
-            {refreshing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-            Refresh
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <Button onClick={handleRefresh} variant="outline" className="h-10 w-full sm:w-auto" disabled={refreshing}>
+              {refreshing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+              Refresh
+            </Button>
+            <CsvImportExport
+              collection={COLLECTION}
+              entityLabel="KOTs"
+              exportFileName="kots.csv"
+              exportColumns={kotsExportColumns}
+              fetchRecords={async () => {
+                const sort = sortOrder === 'asc' ? 'created' : '-created';
+                const all = await pb.collection(COLLECTION).getFullList({ sort, expand: 'parentOrder', $autoCancel: false });
+                // Export respects the selected date range so Admin can
+                // extract a specific period within the 40-day window.
+                return all.filter((k) => inDateRange(k, dateFrom, dateTo));
+              }}
+            />
+            <Button
+              onClick={() => { setResetError(''); setResetOpen(true); }}
+              variant="outline"
+              className="h-10 w-full sm:w-auto border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <ShieldAlert className="h-4 w-4 mr-2" />
+              Reset Data
+            </Button>
+          </div>
         </div>
 
         {/* Summary cards */}
@@ -234,7 +384,7 @@ export default function AdminKotsView() {
             <CardDescription className="text-sm">Filter kitchen orders by status, including a Delayed view.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold text-muted-foreground">Kitchen Status</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -261,7 +411,30 @@ export default function AdminKotsView() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-muted-foreground">From Date</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-10"
+                  max={dateTo || undefined}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-muted-foreground">To Date</Label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-10"
+                  min={dateFrom || undefined}
+                />
+              </div>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Records are retained for 40 days (1 month 10 days). Use the date filters to view or extract a range — the CSV export respects the selected dates.
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               {activeFilterCount > 0 && (
                 <Button onClick={resetFilters} variant="ghost" className="h-9 text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -306,6 +479,7 @@ export default function AdminKotsView() {
                         <th className="px-4 py-3 font-semibold">Order Type</th>
                         <th className="px-4 py-3 font-semibold">Table</th>
                         <th className="px-4 py-3 font-semibold">Waiter</th>
+                        <th className="px-4 py-3 font-semibold">Items Ordered</th>
                         <th className="px-4 py-3 font-semibold">Created</th>
                         <th className="px-4 py-3 font-semibold">Status</th>
                       </tr>
@@ -323,7 +497,7 @@ export default function AdminKotsView() {
                         const shared = isSharedParent(parent, groupMap);
                         const combo = combinationLabel(parent, groupMap);
                         return (
-                          <tr key={k.id} className={`hover:bg-muted/30 transition-colors ${delayed ? 'bg-destructive/5' : ''}`}>
+                          <tr key={k.id} className={`hover:bg-muted/30 transition-colors cursor-pointer ${delayed ? 'bg-destructive/5' : ''}`} onClick={() => setDetailKot(k)}>
                             <td className="px-4 py-3">
                               <p className="font-mono font-bold text-primary text-xs notranslate" translate="no">{resolveOrderId(k)}</p>
                               <p className="text-[10px] text-muted-foreground notranslate" translate="no">{resolveBaseOrderId(k)}</p>
@@ -352,6 +526,10 @@ export default function AdminKotsView() {
                                 <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 <span className="truncate">{waiterOf(k) || '—'}</span>
                               </span>
+                            </td>
+                            <td className="px-4 py-3 max-w-[280px]">
+                              <span className="text-foreground text-xs break-words">{itemsPreview(k)}</span>
+                              <span className="text-[10px] text-secondary font-bold ml-1 whitespace-nowrap">({kotItems(k).length} item{kotItems(k).length === 1 ? '' : 's'})</span>
                             </td>
                             <td className="px-4 py-3 text-muted-foreground notranslate" translate="no">
                               {new Date(k.created).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
@@ -383,7 +561,7 @@ export default function AdminKotsView() {
                     const shared = isSharedParent(parent, groupMap);
                     const combo = combinationLabel(parent, groupMap);
                     return (
-                      <div key={k.id} className={`p-4 space-y-3 ${delayed ? DELAYED_CARD_CLS + ' border-destructive' : ''}`}>
+                      <div key={k.id} className={`p-4 space-y-3 cursor-pointer ${delayed ? DELAYED_CARD_CLS + ' border-destructive' : ''}`} onClick={() => setDetailKot(k)}>
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="font-mono font-bold text-primary text-sm notranslate" translate="no">{resolveOrderId(k)}</p>
@@ -419,6 +597,10 @@ export default function AdminKotsView() {
                             {shared ? `Shared Order: ${combo}` : `Linked: ${combo}`}
                           </div>
                         )}
+                        <div className="rounded-lg bg-muted/40 border border-border/60 px-3 py-2">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1">Items Ordered ({kotItems(k).length})</p>
+                          <p className="text-xs text-foreground break-words">{itemsPreview(k, 3)}</p>
+                        </div>
                         <div className="flex items-center justify-between pt-1 border-t border-border/40">
                           <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-wide flex items-center gap-1">
                             <Calendar className="h-3 w-3" /> Waiting
@@ -435,6 +617,181 @@ export default function AdminKotsView() {
             )}
           </CardContent>
         </Card>
+
+        {/* KOT item detail dialog — complete ordered-item breakdown */}
+        <Dialog open={!!detailKot} onOpenChange={(open) => { if (!open) setDetailKot(null); }}>
+          <DialogContent className="modal-mobile-safe max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ChefHat className="h-5 w-5 text-secondary" /> KOT Items
+              </DialogTitle>
+              <DialogDescription>
+                {detailKot ? (
+                  <span className="notranslate" translate="no">
+                    {resolveOrderId(detailKot)} · {waiterOf(detailKot) || '—'} · {new Date(detailKot.created).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                ) : ''}
+              </DialogDescription>
+            </DialogHeader>
+            {detailKot && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Table</p>
+                    <p className="text-foreground font-semibold break-words">{tableOf(detailKot) || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Room</p>
+                    <p className="text-foreground font-semibold">{detailKot.room || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Status</p>
+                    <p className="text-foreground font-semibold capitalize">{detailKot.status || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Order Type</p>
+                    <p className="text-foreground font-semibold">{ORDER_TYPE_LABEL[orderTypeOf(detailKot)] || '—'}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-muted-foreground text-left">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold">Item</th>
+                        <th className="px-3 py-2 font-semibold">Category</th>
+                        <th className="px-3 py-2 font-semibold text-center">Qty</th>
+                        <th className="px-3 py-2 font-semibold">Spice</th>
+                        <th className="px-3 py-2 font-semibold text-right">Unit Price</th>
+                        <th className="px-3 py-2 font-semibold text-right">Line Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {kotItems(detailKot).length === 0 ? (
+                        <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground italic">No items recorded for this KOT.</td></tr>
+                      ) : kotItems(detailKot).map((it, idx) => {
+                        const qty = Number(it.quantity ?? 1);
+                        const price = Number(it.price || 0);
+                        const line = Number.isFinite(price) && Number.isFinite(qty) ? price * qty : 0;
+                        return (
+                          <tr key={idx}>
+                            <td className="px-3 py-2 font-medium text-foreground break-words">{it.name || it.itemName || 'Item'}</td>
+                            <td className="px-3 py-2 text-muted-foreground break-words">{it.category || '—'}</td>
+                            <td className="px-3 py-2 text-center font-bold notranslate" translate="no">x{qty}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{it.spiceLevel && it.spiceLevel !== 'None' ? it.spiceLevel : '—'}</td>
+                            <td className="px-3 py-2 text-right notranslate" translate="no">{fmtEuro(price)}</td>
+                            <td className="px-3 py-2 text-right font-bold notranslate" translate="no">{fmtEuro(line)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {detailKot.notes && (
+                  <div className="rounded-lg bg-secondary/10 border border-secondary/30 px-3 py-2 flex items-start gap-2">
+                    <StickyNote className="h-4 w-4 text-secondary shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Order Notes</p>
+                      <p className="text-sm text-foreground break-words">{detailKot.notes}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between border-t border-border pt-3">
+                  <span className="text-sm font-bold text-primary uppercase tracking-wide">KOT Total</span>
+                  <span className="text-lg font-bold text-primary notranslate" translate="no">
+                    {fmtEuro(kotItems(detailKot).reduce((s, it) => s + (Number(it.price || 0) * Number(it.quantity ?? 1)), 0))}
+                  </span>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Admin-only reset — password-protected, server-side enforced.
+            Clears KOTs + customer orders; retains bills/payments, analysis
+            history, menu, accounts, settings, and audit history. */}
+        <Dialog open={resetOpen} onOpenChange={(open) => { if (!resetBusy) setResetOpen(open); }}>
+          <DialogContent className="modal-mobile-safe max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <ShieldAlert className="h-5 w-5" /> Reset Complete Data
+              </DialogTitle>
+              <DialogDescription>
+                Permanently clears all Kitchen Order Tickets (KOTs) and customer online orders.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-1">
+              <div className="rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-3 space-y-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-destructive flex items-center gap-1.5">
+                  <Trash2 className="h-3.5 w-3.5" /> Will be deleted
+                </p>
+                <ul className="text-xs text-foreground list-disc pl-5 space-y-0.5">
+                  <li>All KOTs (kitchen_orders) — including today's active tickets</li>
+                  <li>All customer online orders (orders)</li>
+                </ul>
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 flex items-center gap-1.5 pt-1">
+                  <Lock className="h-3.5 w-3.5" /> Will be kept
+                </p>
+                <ul className="text-xs text-foreground list-disc pl-5 space-y-0.5">
+                  <li>Bills &amp; payment totals (waiter_orders)</li>
+                  <li>Analysis / audit history (logs)</li>
+                  <li>Menu, accounts, settings, stock, reservations, feedback</li>
+                </ul>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="reset-password" className="text-xs font-bold text-muted-foreground">
+                  Admin Password
+                </Label>
+                <Input
+                  id="reset-password"
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="Enter your admin password"
+                  className="h-10"
+                  autoComplete="current-password"
+                  disabled={resetBusy}
+                />
+              </div>
+
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox
+                  checked={resetConfirm}
+                  onCheckedChange={(v) => setResetConfirm(!!v)}
+                  disabled={resetBusy}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-muted-foreground">
+                  I understand this permanently deletes all KOTs and customer orders and cannot be undone. Bills, payments, and analysis history are retained.
+                </span>
+              </label>
+
+              {resetError && (
+                <p className="text-sm text-destructive font-medium bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
+                  {resetError}
+                </p>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetBusy}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleResetData}
+                disabled={resetBusy || !resetPassword || !resetConfirm}
+              >
+                {resetBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                Reset Data
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </>
   );

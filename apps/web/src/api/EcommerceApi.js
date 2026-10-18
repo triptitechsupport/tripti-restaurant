@@ -1,5 +1,11 @@
 const ECOMMERCE_API_URL = "https://api-ecommerce.hostinger.com";
 const ECOMMERCE_STORE_ID = "store_01KTF6N3R88AQDBGXM83TCK8D4";
+const DEFAULT_SEARCH_LIMIT = 15;
+const MAX_SEARCH_LIMIT = 200;
+const MAX_SEARCH_QUERY_LENGTH = 100;
+const DOMAIN_CHECKOUT_PATH = "/checkout/";
+const DOMAIN_CHECKOUT_MARKER = "data-hostinger-checkout-shell";
+const DOMAIN_CHECKOUT_PROBE_TIMEOUT_MS = 1500;
 
 export const formatCurrency = (priceInCents, currencyInfo) => {
   if (!currencyInfo || priceInCents === null || priceInCents === undefined) {
@@ -138,11 +144,12 @@ const getProductPrice = (product) => {
     selectedVariant?.prices?.[0]?.sale_amount ||
     selectedVariant?.prices?.[0]?.amount ||
     0;
+  const list_price_in_cents = selectedVariant?.prices?.[0]?.amount || 0;
   const currency = selectedVariant?.prices?.[0]?.currency_code || "eur";
   const currency_info = selectedVariant?.prices?.[0]?.currency;
 
   // price_in_cents is the price value in cents, make sure to convert it to a full price based on decimal_digits
-  return { price_in_cents, currency, currency_info };
+  return { price_in_cents, list_price_in_cents, currency, currency_info };
 };
 
 /**
@@ -864,6 +871,27 @@ async function getCheckoutLanguage() {
   return data.store_owner?.language;
 }
 
+async function getDomainCheckoutUrl() {
+  const { protocol, origin } = window.location;
+
+  if (protocol !== "https:") {
+    return undefined;
+  }
+
+  try {
+    const response = await fetch(`${DOMAIN_CHECKOUT_PATH}?probe=${Date.now()}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(DOMAIN_CHECKOUT_PROBE_TIMEOUT_MS),
+    });
+
+    return response.ok && (await response.text()).includes(DOMAIN_CHECKOUT_MARKER)
+      ? `${origin}${DOMAIN_CHECKOUT_PATH}`
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * POST /store/{store_id}/checkout - Initialize Checkout Endpoint
  * @function initializeCheckout
@@ -871,6 +899,8 @@ async function getCheckoutLanguage() {
  * @operationId PostInitializeCheckout
  * @summary Initialize Checkout
  * @description Creates a payment session and returns a checkout URL. Shape: {@link InitializeCheckoutParams}.
+ * The URL is usually this site's own `/checkout/` page, which the platform serves —
+ * never create a route, page or file at `/checkout` itself.
  * @group Checkout
  *
  * @param {InitializeCheckoutParams} params - Request body fields (see typedefs for nested types)
@@ -917,8 +947,10 @@ export async function initializeCheckout({
   customer,
 }) {
   const url = `${ECOMMERCE_API_URL}/store/${ECOMMERCE_STORE_ID}/checkout`;
+  const languagePromise = getCheckoutLanguage().catch(() => "en");
+  const checkoutUrl = await getDomainCheckoutUrl();
 
-  const checkoutInitPromise = fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -927,16 +959,13 @@ export async function initializeCheckout({
       items,
       successUrl,
       cancelUrl,
+      checkoutUrl,
       locale,
       timeZone: getBrowserTimeZone(),
       customer,
     }),
   });
-
-  const [response, language] = await Promise.all([
-    checkoutInitPromise,
-    getCheckoutLanguage().catch(() => "en"),
-  ]);
+  const language = await languagePromise;
 
   if (!response.ok) {
     const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -949,4 +978,119 @@ export async function initializeCheckout({
   const checkoutRedirectUrl = `${data.url}&lang=${language?.toLowerCase() || "en"}`;
 
   return { url: checkoutRedirectUrl };
+}
+
+/**
+ * @typedef {Object} SearchProductResponse
+ * @property {string} id - Unique product identifier
+ * @property {string} title - Product name/title
+ * @property {string|null} subtitle - Short product subtitle
+ * @property {string|null} image - Product thumbnail URL
+ * @property {string} url_handle - Canonical storefront handle: slug, else SEO slug, else product id
+ * @property {number} price_in_cents - Effective price in the currency's smallest unit
+ * @property {string} currency - Currency code (e.g., "USD", "EUR")
+ * @property {string} price_formatted - Formatted effective price string (e.g., "$10.99")
+ * @property {string|null} list_price_formatted - Formatted pre-discount price, null unless discounted.
+ * Unlike a variant's `sale_price_formatted`, this is the struck-through price, not the effective one.
+ * @property {boolean} is_price_range - Whether the product's variants span more than one price
+ * @property {boolean} purchasable - Whether the product can currently be bought
+ * @property {string|null} site_product_selection - Which variant the storefront prices the product by
+ * @property {{ value: string }} type - Product type (e.g. `subscription`)
+ */
+
+/**
+ * GET /v2/channels/{sales_channel_id}/products?q= - Free-text Product Search Endpoint
+ * @function searchProducts
+ * @static
+ * @operationId channelsProductsList
+ * @summary Search Products
+ * @description Search this site's products by free text over the product title. Results are scoped
+ * to the site's sales channel, so a product sold only through another channel never appears.
+ * Requires the site's sales channel id (`scha_*`); a raw store id is not accepted.
+ * @group Product
+ *
+ * @param {Object} params - Search parameters object
+ * @param {string} params.query - Free-text search term, capped at 100 characters (required)
+ * @param {number} [params.pageSize] - Maximum number of products to return, capped at 200 (optional)
+ *
+ * @returns {Promise<{ products: SearchProductResponse[], count: number }>} Matching products and the
+ * total match count. A query holding no word of 3 or more characters matches nothing.
+ *
+ * @example
+ * const { products, count } = await searchProducts({ query: "bicycle" });
+ */
+export async function searchProducts({
+  query,
+  pageSize = DEFAULT_SEARCH_LIMIT,
+} = {}) {
+  const trimmedQuery = query?.trim();
+
+  if (!trimmedQuery) {
+    return { products: [], count: 0 };
+  }
+
+  if (!ECOMMERCE_STORE_ID) {
+    throw new Error(
+      "Product search is unavailable: this site has no ecommerce sales channel",
+    );
+  }
+
+  const queryParams = new URLSearchParams({
+    q: trimmedQuery.slice(0, MAX_SEARCH_QUERY_LENGTH),
+    limit: String(Math.min(pageSize, MAX_SEARCH_LIMIT)),
+  });
+
+  const response = await fetch(
+    `${ECOMMERCE_API_URL}/v2/channels/${ECOMMERCE_STORE_ID}/products?${queryParams}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  // A query with no word of 3 or more characters matches nothing, which is an ordinary keystroke.
+  // Every other failure throws, so a missing or inactive sales channel is not mistaken for 0 hits.
+  if (response.status === 400) {
+    return { products: [], count: 0 };
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const { data, count } = await response.json();
+
+  return {
+    products: (data || []).map((product) => {
+      const { price_in_cents, list_price_in_cents, currency, currency_info } =
+        getProductPrice(product);
+      const priceRange = product.price;
+
+      return {
+        id: product.id,
+        title: product.title,
+        subtitle: product.subtitle,
+        image: product.thumbnail,
+        url_handle: product.url_handle,
+        price_in_cents,
+        currency,
+        price_formatted: formatCurrency(price_in_cents, currency_info),
+        list_price_formatted:
+          list_price_in_cents > price_in_cents
+            ? formatCurrency(list_price_in_cents, currency_info)
+            : null,
+        is_price_range: Boolean(
+          priceRange && priceRange.lowest_amount !== priceRange.highest_amount,
+        ),
+        purchasable: product.is_available,
+        site_product_selection: product.site_product_selection,
+        type: {
+          value: product.type?.value || "",
+        },
+      };
+    }),
+    count: count || 0,
+  };
 }

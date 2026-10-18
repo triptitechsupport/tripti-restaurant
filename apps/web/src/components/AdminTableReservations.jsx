@@ -16,6 +16,8 @@ import TableStatusOverview from '@/components/TableStatusOverview.jsx';
 import { useIsMobile } from '@/hooks/use-mobile.jsx';
 import { cn } from '@/lib/utils';
 import { openGmailCompose } from '@/utils/gmailComposer.js';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { reservationsExportColumns, reservationsImportConfig } from '@/lib/csvConfigs.js';
 
 const STATUS_ORDER = { Pending: 0, Approved: 1, Declined: 2 };
 
@@ -74,22 +76,39 @@ export default function AdminTableReservations({ authToken }) {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    let unsubReservations = null;
+    let unsubTables = null;
+
     if (authToken) {
       fetchReservations();
       fetchTables();
     }
 
-    pb.collection('table_reservations').subscribe('*', function () {
-      fetchReservations();
-    });
+    // Per-listener unsubscribe only — bare unsubscribe('*') kills the Admin
+    // pending-panel and GlobalReservationNotifications listeners too.
+    void pb
+      .collection('table_reservations')
+      .subscribe('*', () => { if (!cancelled) fetchReservations(); })
+      .then((unsub) => {
+        if (cancelled) { try { unsub?.(); } catch { /* ignore */ } return; }
+        unsubReservations = unsub;
+      })
+      .catch(() => {});
 
-    pb.collection('table_configurations').subscribe('*', function () {
-      fetchTables();
-    });
+    void pb
+      .collection('table_configurations')
+      .subscribe('*', () => { if (!cancelled) fetchTables(); })
+      .then((unsub) => {
+        if (cancelled) { try { unsub?.(); } catch { /* ignore */ } return; }
+        unsubTables = unsub;
+      })
+      .catch(() => {});
 
     return () => {
-      pb.collection('table_reservations').unsubscribe('*');
-      pb.collection('table_configurations').unsubscribe('*');
+      cancelled = true;
+      try { if (typeof unsubReservations === 'function') unsubReservations(); } catch { /* ignore */ }
+      try { if (typeof unsubTables === 'function') unsubTables(); } catch { /* ignore */ }
     };
   }, [authToken]);
 
@@ -231,10 +250,23 @@ export default function AdminTableReservations({ authToken }) {
             </SelectContent>
           </Select>
         </div>
-        <Button variant="outline" onClick={fetchReservations} disabled={loading} className="min-h-touch w-full sm:w-auto">
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3 shrink-0">
+          <Button variant="outline" onClick={fetchReservations} disabled={loading} className="min-h-touch w-full sm:w-auto">
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <CsvImportExport
+            collection="table_reservations"
+            entityLabel="reservations"
+            exportFileName="reservations.csv"
+            exportColumns={reservationsExportColumns}
+            importConfig={reservationsImportConfig}
+            fetchRecords={async () => {
+              return await pb.collection('table_reservations').getFullList({ sort: '-created', $autoCancel: false });
+            }}
+            onImportComplete={fetchReservations}
+          />
+        </div>
       </div>
 
       {loading ? (

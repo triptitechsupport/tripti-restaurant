@@ -7,7 +7,7 @@
     "dev": "vite --host :: --port 3000",
     "build": "node tools/generate-llms.js || true && vite build --outDir ../../dist/apps/web",
     "start": "vite preview --outDir ../../dist/apps/web --host :: --port 3000",
-    "lint": "eslint . --quiet",
+    "lint": "eslint . --quiet; lint_status=$?; eslint \"src/**/*.jsx\" --config eslint.config.mjs --format ./eslint.unicode-escapes-formatter.mjs --no-error-on-unmatched-pattern; exit $lint_status",
     "lint:warn": "eslint ."
   },
   "dependencies": {
@@ -47,6 +47,7 @@
     "esbuild": "^0.28.1",
     "framer-motion": "^11.15.0",
     "input-otp": "^1.4.2",
+    "jsbarcode": "^3.12.3",
     "lucide-react": "^0.469.0",
     "next-themes": "^0.4.6",
     "pocketbase": "^0.25.0",
@@ -76,15 +77,15 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
-    "eslint": "^9.39.4",
-    "eslint-import-resolver-alias": "^1.1.2",
-    "eslint-plugin-import": "^2.32.0",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^5.1.0",
     "globals": "^15.14.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "terser": "^5.37.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-import-resolver-alias": "^1.1.2"
   }
 }

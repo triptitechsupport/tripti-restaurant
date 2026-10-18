@@ -55,9 +55,16 @@ export default function CustomerFeedback() {
           fetchApproved();
         }
       })
-      .catch((error) =>
-        console.error('[CustomerFeedback] subscribe failed', error),
-      );
+      .catch((error) => {
+        // Status 0 / AbortError = a transient realtime disconnect or
+        // auto-cancellation of the shared realtime connection (it races with
+        // the other homepage subscribers — MarqueeBar, useOrderSettings — on
+        // mount, and can also fire on a rapid mount/unmount). The initial
+        // fetch above already loaded approved feedback, so this is harmless
+        // noise; suppress it like MarqueeBar does and only surface real errors.
+        if (error && (error.status === 0 || error.isAbort || error.name === 'AbortError')) return;
+        console.error('[CustomerFeedback] subscribe failed', error);
+      });
 
     return () => {
       void pb.collection('feedback').unsubscribe('*').catch(() => {});

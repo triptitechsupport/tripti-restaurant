@@ -106,6 +106,7 @@ export default function Footer() {
           <div className="flex gap-6 text-sm font-medium">
             <Link to="/privacy-policy" className="text-primary-foreground/60 hover:text-secondary transition-colors">{t('privacyPolicy') || 'Privacy Policy'}</Link>
             <Link to="/terms-of-service" className="text-primary-foreground/60 hover:text-secondary transition-colors">{t('termsOfService') || 'Terms of Service'}</Link>
+            <a href="/TRIPTI_GENUSSWELT_DOCUMENTATION.txt" target="_blank" rel="noopener noreferrer" download className="text-primary-foreground/60 hover:text-secondary transition-colors">Documentation</a>
           </div>
         </div>
       </div>

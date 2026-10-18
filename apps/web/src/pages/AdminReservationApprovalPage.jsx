@@ -19,6 +19,8 @@ import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
 import apiServerClient from '@/lib/apiServerClient.js';
 import { openGmailCompose } from '@/utils/gmailComposer.js';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { reservationsExportColumns, reservationsImportConfig } from '@/lib/csvConfigs.js';
 
 export default function AdminReservationApprovalPage() {
   const [reservations, setReservations] = useState([]);
@@ -128,15 +130,34 @@ export default function AdminReservationApprovalPage() {
   }, [dateFilter]);
 
   useEffect(() => {
-    pb.collection('table_reservations').subscribe('*', function () {
-      fetchDateReservations();
-    });
-    pb.collection('table_configurations').subscribe('*', function () {
-      fetchTables();
-    });
+    let cancelled = false;
+    let unsubReservations = null;
+    let unsubTables = null;
+
+    // Per-listener unsubscribe only — bare unsubscribe('*') kills the Admin
+    // pending-panel and GlobalReservationNotifications listeners too.
+    void pb
+      .collection('table_reservations')
+      .subscribe('*', () => { if (!cancelled) fetchDateReservations(); })
+      .then((unsub) => {
+        if (cancelled) { try { unsub?.(); } catch { /* ignore */ } return; }
+        unsubReservations = unsub;
+      })
+      .catch(() => {});
+
+    void pb
+      .collection('table_configurations')
+      .subscribe('*', () => { if (!cancelled) fetchTables(); })
+      .then((unsub) => {
+        if (cancelled) { try { unsub?.(); } catch { /* ignore */ } return; }
+        unsubTables = unsub;
+      })
+      .catch(() => {});
+
     return () => {
-      pb.collection('table_reservations').unsubscribe('*');
-      pb.collection('table_configurations').unsubscribe('*');
+      cancelled = true;
+      try { if (typeof unsubReservations === 'function') unsubReservations(); } catch { /* ignore */ }
+      try { if (typeof unsubTables === 'function') unsubTables(); } catch { /* ignore */ }
     };
   }, [dateFilter]);
 
@@ -325,16 +346,29 @@ export default function AdminReservationApprovalPage() {
         <div className="lg:col-span-3 space-y-6">
           <Card className="shadow-sm border-border">
             <CardHeader className="pb-4 border-b bg-muted/20">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center gap-3">
                 <div>
                   <CardTitle>Booking Requests</CardTitle>
                   <CardDescription>
                     Showing {reservations.length} {statusFilter.toLowerCase()} reservations for {dateFilter ? format(new Date(dateFilter), 'MMM d, yyyy') : 'all dates'}
                   </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="sm:hidden">
-                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
-                </Button>
+                <div className="flex items-center gap-3">
+                  <CsvImportExport
+                    collection="table_reservations"
+                    entityLabel="reservations"
+                    exportFileName="reservations.csv"
+                    exportColumns={reservationsExportColumns}
+                    importConfig={reservationsImportConfig}
+                    fetchRecords={async () => {
+                      return await pb.collection('table_reservations').getFullList({ sort: '-created', $autoCancel: false });
+                    }}
+                    onImportComplete={fetchData}
+                  />
+                  <Button variant="outline" size="sm" onClick={fetchData} disabled={loading} className="sm:hidden">
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">

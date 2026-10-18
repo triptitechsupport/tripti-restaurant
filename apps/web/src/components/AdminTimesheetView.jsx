@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import pb from '@/lib/pocketbaseClient.js';
 import { toast } from 'sonner';
 import { formatDuration, formatTimestamp } from '@/utils/timesheetService.js';
+import { pbDateFilter } from '@/lib/pbDateFilter.js';
 
 const COLLECTION = 'waiter_timesheets';
 
@@ -57,11 +58,11 @@ export default function AdminTimesheetView() {
       // Build a filter on clockIn within [start 00:00, end 23:59:59].
       const parts = [];
       if (start) {
-        const startIso = new Date(`${start}T00:00:00`).toISOString();
+        const startIso = pbDateFilter(new Date(`${start}T00:00:00`));
         parts.push(`clockIn >= "${startIso}"`);
       }
       if (end) {
-        const endIso = new Date(`${end}T23:59:59`).toISOString();
+        const endIso = pbDateFilter(new Date(`${end}T23:59:59`));
         parts.push(`clockIn <= "${endIso}"`);
       }
       if (waiterFilter && waiterFilter !== 'all') {

@@ -30,6 +30,18 @@ export default function StaffLogin({ collection, title, description, redirectTo,
     try {
       await pb.collection(collection).authWithPassword(formData.loginId, formData.password, { $autoCancel: false });
       toast.success(t('staff_loginSuccess'));
+
+      // Role separation: each staff role (waiter/KDS/stock) uses its own
+      // isolated LocalAuthStore (pb_waiter_auth / pb_kds_auth / pb_stock_auth),
+      // so their sessions never clobber one another and can coexist on the
+      // same device. The ONLY shared store is the default one (pb_auth), which
+      // holds admin_users and guest/customer tokens. Clearing just that shared
+      // store on a staff login wipes any stale admin token — preventing a
+      // waiter/KDS/stock user from reaching the Admin Dashboard via a leftover
+      // admin_users session — WITHOUT logging out other staff roles.
+      // AdminAuthContext subscribes to the default store's onChange, so this
+      // immediately flips `isAdminAuthenticated` to false.
+      try { if (pb !== defaultPb) defaultPb.authStore.clear(); } catch (_) { /* ignore */ }
       // Optional post-login hook (e.g. waiter clock-in). Failures here must not
       // block the login itself.
       if (typeof onLoginSuccess === 'function') {

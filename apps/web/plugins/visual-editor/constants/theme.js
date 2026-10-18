@@ -32,6 +32,10 @@ export const ANNOTATION_COLOR = '#673DE6';
 export const ANNOTATION_COLOR_HOVER = '#5025D1';
 /** Placeholder text color in panel inputs. */
 export const PLACEHOLDER_COLOR = '#D1D5DC';
+/** Scrollbar thumb on dark panel surfaces. Matches the chat's `--scrollbar-thumb`. */
+export const SCROLLBAR_THUMB = 'rgba(255, 255, 255, 0.28)';
+/** Hovered scrollbar thumb. Matches the chat's `--scrollbar-thumb-hover`. */
+export const SCROLLBAR_THUMB_HOVER = 'rgba(255, 255, 255, 0.42)';
 
 /** Browser int32 max; toolbar, dropdowns, and annotation panel. */
 export const Z_INDEX_EDITOR_PANEL = 2147483647;

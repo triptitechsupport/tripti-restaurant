@@ -20,6 +20,8 @@ import {
 import pb from '@/lib/pocketbaseClient.js';
 import { toast } from 'sonner';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { waitersExportColumns, waitersImportConfig, waiterEmailFor } from '@/lib/csvConfigs.js';
 
 const COLLECTION = 'waiter_users';
 const EMAIL_DOMAIN = 'triptiwaiter.local';
@@ -179,6 +181,40 @@ export default function AdminWaiterManagement() {
     if (errors[key]) setErrors((p) => ({ ...p, [key]: undefined }));
   };
 
+  // Custom CSV import apply — waiter_users is an auth collection that needs
+  // an auto-generated email (from username) and passwordConfirm on create.
+  // Password is optional on update (blank = keep current).
+  const customApplyWaiter = async (row) => {
+    const { username, displayName, password } = row.payload;
+    const base = {
+      username,
+      displayName: displayName || '',
+      email: waiterEmailFor(username),
+      emailVisibility: false,
+      verified: false,
+    };
+    if (row.action === 'update' && row.matchId) {
+      const updateData = { ...base };
+      if (password) {
+        updateData.password = password;
+        updateData.passwordConfirm = password;
+      }
+      const rec = await pb.collection(COLLECTION).update(row.matchId, updateData, {
+        $autoCancel: false,
+        requestKey: `csv-up-${COLLECTION}-${row.matchId}-${row.rowNumber}`,
+      });
+      return { status: 'updated', recordId: rec.id };
+    }
+    if (!password) {
+      throw new Error('Password is required when creating a new waiter');
+    }
+    const rec = await pb.collection(COLLECTION).create(
+      { ...base, password, passwordConfirm: password },
+      { $autoCancel: false, requestKey: `csv-cr-${COLLECTION}-${row.rowNumber}` },
+    );
+    return { status: 'created', recordId: rec.id };
+  };
+
   return (
     <>
       <Helmet>
@@ -201,6 +237,31 @@ export default function AdminWaiterManagement() {
             </Button>
           )}
         </div>
+
+        {/* CSV export / import for waiter accounts */}
+        {!showForm && (
+          <div className="bg-card border-2 border-border rounded-2xl p-4 md:p-5 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-serif font-bold text-primary">Waiters — CSV Export / Import</h3>
+                <p className="text-xs text-muted-foreground font-medium mt-0.5">
+                  Export waiter accounts to CSV, edit offline, then re-import. Matched by ID or Username. Password required to create new accounts; leave blank on updates to keep the current password.
+                </p>
+              </div>
+              <div className="sm:ml-auto">
+                <CsvImportExport
+                  collection={COLLECTION}
+                  entityLabel="waiters"
+                  exportFileName="waiters.csv"
+                  exportColumns={waitersExportColumns}
+                  importConfig={waitersImportConfig}
+                  customApply={customApplyWaiter}
+                  onImportComplete={loadWaiters}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <Dialog open={showForm} onOpenChange={(o) => { if (!o) closeForm(); }}>
           <DialogContent className="max-w-lg w-[92vw] rounded-2xl border-2 border-primary shadow-xl">

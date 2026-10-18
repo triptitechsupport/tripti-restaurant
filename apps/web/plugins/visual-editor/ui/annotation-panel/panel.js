@@ -2,9 +2,9 @@ import { ANNOTATION_PANEL_HTML } from './template.js';
 import { ANNOTATION_PANEL_STYLES } from './styles.js';
 import { addAnnotationMarker, removeMarker, unhighlightAllMarkers } from './annotation-markers.js';
 import { lockHoverOutline, unlockHoverOutline } from '../overlays/hover-outline.js';
-import { isInFixedContext, getElementType } from '../../utils/dom-utils.js';
+import { isInFixedContext, getElementType, isolateEditorUiEvents } from '../../utils/dom-utils.js';
 import { captureElementMetadata } from '../../utils/selection-mode-metadata.js';
-import { PANEL_GAP, PANEL_MARGIN, PARENT_TOOLBAR_HEIGHT, ANNOTATION_PANEL_WIDTH, ANNOTATION_PANEL_ESTIMATED_HEIGHT, MAX_ANNOTATION_ATTACHMENTS } from '../../constants/layout.js';
+import { PANEL_GAP, PANEL_MARGIN, PARENT_TOOLBAR_HEIGHT, ANNOTATION_PANEL_WIDTH, ANNOTATION_PANEL_ESTIMATED_HEIGHT, MAX_ANNOTATION_ATTACHMENTS, TOOLTIP_VIEWPORT_MARGIN } from '../../constants/layout.js';
 import {
 	getComments, setComments,
 	getPanelMode, setPanelMode,
@@ -16,7 +16,7 @@ import {
 	getAnnotationClickY, setAnnotationClickY,
 	getEditorTranslations,
 } from '../../state/annotation-state.js';
-import { ICON_CLOSE, ICON_PAPER_CLIP } from '../../constants/icons.js';
+import { ICON_DELETE, ICON_IMAGE } from '../../constants/icons.js';
 import { ParentMessage } from '../../constants/messages.js';
 import { postToParent } from '../../utils/parent-frame.js';
 import { clearSelectedElements } from '../../state/multi-select-state.js';
@@ -31,9 +31,13 @@ const DEFAULT_LABELS = {
 	annotationPlaceholder: 'Tell AI what to change',
 	annotationElementSelected: '{count} element selected',
 	annotationElementsSelected: '{count} elements selected',
-	annotationAttachImage: 'Add image',
+	annotationAttachImage: 'Add images',
 	annotationRemoveImage: 'Remove image',
+	annotationDeleteComment: 'Delete comment',
 };
+
+/** Gap (px) between a panel button and the tooltip floating above it. */
+const BUTTON_TOOLTIP_GAP = 8;
 
 function label(key, replacements = {}) {
 	const raw = getEditorTranslations()[key] || DEFAULT_LABELS[key] || key;
@@ -43,6 +47,7 @@ function label(key, replacements = {}) {
 }
 
 let _annotationPanelEl = null;
+let _buttonTooltipEl = null;
 let _stylesInjected = false;
 let _panelKeydownHandler = null;
 let _isAttachmentUploadInProgress = false;
@@ -82,7 +87,10 @@ function ensurePanelElement() {
 
 	textarea.placeholder = label('annotationPlaceholder');
 	commentBtn.textContent = label('annotationAddComment');
-	attachImageBtn.title = label('annotationAttachImage');
+	attachImageBtn.setAttribute('aria-label', label('annotationAttachImage'));
+	deleteBtn.setAttribute('aria-label', label('annotationDeleteComment'));
+	bindButtonTooltip(attachImageBtn);
+	bindButtonTooltip(deleteBtn);
 
 	textarea.addEventListener('input', () => {
 		commentBtn.disabled = !textarea.value.trim();
@@ -97,10 +105,57 @@ function ensurePanelElement() {
 		postToParent(ParentMessage.ANNOTATION_IMAGE_ATTACH_REQUESTED);
 	});
 
-	_annotationPanelEl.addEventListener('keydown', stopHostPageKeyPropagation);
-	_annotationPanelEl.addEventListener('keyup', stopHostPageKeyPropagation);
+	isolateEditorUiEvents(_annotationPanelEl);
 
 	return _annotationPanelEl;
+}
+
+/**
+ * Shows the editor's hover tooltip centred above a panel button, reusing the
+ * `element-type-tooltip` look. The tooltip is a child of the panel: the panel
+ * already carries the highest z-index the editor has, so a tooltip anywhere
+ * else on the page could never paint over it. Offsets are therefore measured
+ * against the panel's own box rather than the viewport.
+ * @param {HTMLButtonElement} button
+ */
+function showButtonTooltip(button) {
+	const text = button.getAttribute('aria-label');
+	if (!text || !_annotationPanelEl) return;
+
+	if (!_buttonTooltipEl) {
+		_buttonTooltipEl = document.createElement('div');
+		_buttonTooltipEl.className = 'element-type-tooltip selection-mode-button-tooltip';
+		_annotationPanelEl.appendChild(_buttonTooltipEl);
+	}
+
+	_buttonTooltipEl.textContent = text;
+	_buttonTooltipEl.classList.add('active');
+
+	const panelRect = _annotationPanelEl.getBoundingClientRect();
+	const buttonRect = button.getBoundingClientRect();
+	const { width, height } = _buttonTooltipEl.getBoundingClientRect();
+	const centeredLeft = buttonRect.left + (buttonRect.width - width) / 2;
+	const clampedLeft = Math.min(
+		Math.max(centeredLeft, TOOLTIP_VIEWPORT_MARGIN),
+		Math.max(TOOLTIP_VIEWPORT_MARGIN, window.innerWidth - width - TOOLTIP_VIEWPORT_MARGIN)
+	);
+
+	_buttonTooltipEl.style.left = `${clampedLeft - panelRect.left}px`;
+	_buttonTooltipEl.style.top = `${buttonRect.top - panelRect.top - height - BUTTON_TOOLTIP_GAP}px`;
+}
+
+function hideButtonTooltip() {
+	_buttonTooltipEl?.classList.remove('active');
+}
+
+function bindButtonTooltip(button) {
+	button.addEventListener('mouseenter', () => {
+		if (button.disabled) return;
+		showButtonTooltip(button);
+	});
+	button.addEventListener('mouseleave', hideButtonTooltip);
+	button.addEventListener('blur', hideButtonTooltip);
+	button.addEventListener('click', hideButtonTooltip);
 }
 
 function setAttachmentUploadInProgress(isUploading) {
@@ -172,8 +227,8 @@ function updateAttachImageButtonState() {
 	attachImageBtn.classList.toggle('is-loading', isUploading);
 	attachImageBtn.innerHTML = isUploading
 		? '<span class="selection-mode-attach-spinner" aria-hidden="true"></span>'
-		: ICON_PAPER_CLIP;
-	attachImageBtn.title = (isAtLimit || isUploading) ? '' : label('annotationAttachImage');
+		: ICON_IMAGE;
+	if (attachImageBtn.disabled) hideButtonTooltip();
 }
 
 function renderAttachments() {
@@ -188,17 +243,28 @@ function renderAttachments() {
 		const chip = document.createElement('div');
 		chip.className = 'selection-mode-annotation-attachment';
 
-		const name = document.createElement('span');
-		name.className = 'selection-mode-annotation-attachment-name';
-		name.textContent = fileName;
+		const thumbnail = document.createElement('img');
+		thumbnail.className = 'selection-mode-annotation-attachment-thumb';
+		thumbnail.src = url;
+		thumbnail.alt = fileName;
+		thumbnail.title = fileName;
+		thumbnail.loading = 'lazy';
+		thumbnail.decoding = 'async';
+		thumbnail.addEventListener('click', () => {
+			const allAttachments = getPendingAttachments().map(({ url: attachmentUrl, fileName: attachmentName }) => ({
+				url: attachmentUrl,
+				fileName: attachmentName,
+			}));
+			postToParent(ParentMessage.ANNOTATION_IMAGE_PREVIEW_REQUESTED, { url, attachments: allAttachments });
+		});
 
 		const removeBtn = document.createElement('button');
 		removeBtn.className = 'selection-mode-annotation-attachment-remove';
 		removeBtn.title = label('annotationRemoveImage');
-		removeBtn.innerHTML = ICON_CLOSE;
+		removeBtn.innerHTML = ICON_DELETE;
 		removeBtn.addEventListener('click', () => removePendingAttachment(url));
 
-		chip.append(name, removeBtn);
+		chip.append(thumbnail, removeBtn);
 		container.appendChild(chip);
 	});
 
@@ -402,6 +468,7 @@ export function hideAnnotationPanel({ restoreFocus = true, keepSelection = false
 		: attachmentsNotIn(getPendingAttachments(), _savedAttachments));
 
 	_annotationPanelEl.classList.remove('active');
+	hideButtonTooltip();
 	setAttachmentUploadInProgress(false);
 
 	setPendingElements([]);
@@ -434,10 +501,6 @@ export function getAnnotationPanelEl() {
 }
 
 
-function stopHostPageKeyPropagation(event) {
-	event.stopPropagation();
-}
-
 function attachPanelKeydown() {
 	detachPanelKeydown();
 	_panelKeydownHandler = (event) => {
@@ -447,12 +510,12 @@ function attachPanelKeydown() {
 			hideAnnotationPanel();
 		}
 	};
-	document.addEventListener('keydown', _panelKeydownHandler, true);
+	window.addEventListener('keydown', _panelKeydownHandler, true);
 }
 
 function detachPanelKeydown() {
 	if (_panelKeydownHandler) {
-		document.removeEventListener('keydown', _panelKeydownHandler, true);
+		window.removeEventListener('keydown', _panelKeydownHandler, true);
 		_panelKeydownHandler = null;
 	}
 }

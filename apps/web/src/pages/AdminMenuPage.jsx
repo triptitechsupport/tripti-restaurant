@@ -3,6 +3,8 @@ import { Helmet } from 'react-helmet';
 import { Plus, LayoutGrid } from 'lucide-react';
 import MenuItemsList from '@/components/MenuItemsList.jsx';
 import MenuItemEditModal from '@/components/MenuItemEditModal.jsx';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { menuItemsExportColumns, menuItemsImportConfig } from '@/lib/csvConfigs.js';
 import { Button } from '@/components/ui/button';
 
 export default function AdminMenuPage() {
@@ -60,6 +62,26 @@ export default function AdminMenuPage() {
               <Plus className="h-5 w-5 mr-2" />
               Add New Item
             </Button>
+          </div>
+
+          {/* CSV export / import — bulk menu management without manual entry */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mt-6 pt-6 border-t-2 border-border/60">
+            <div className="min-w-0">
+              <h3 className="text-sm font-serif font-bold text-primary">Bulk CSV Export / Import</h3>
+              <p className="text-xs text-muted-foreground font-medium mt-0.5">
+                Export the current menu to CSV, edit offline, then re-import to create or update items in bulk. Existing items are matched by ID or Name (EN).
+              </p>
+            </div>
+            <div className="sm:ml-auto">
+              <CsvImportExport
+                collection="menu_items"
+                entityLabel="menu items"
+                exportFileName="menu_items.csv"
+                exportColumns={menuItemsExportColumns}
+                importConfig={menuItemsImportConfig}
+                onImportComplete={() => setRefreshTrigger(prev => prev + 1)}
+              />
+            </div>
           </div>
 
           {/* List Component */}

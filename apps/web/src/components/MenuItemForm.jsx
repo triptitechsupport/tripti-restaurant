@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
@@ -47,6 +47,57 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
   });
   const [imageFile, setImageFile] = useState(null);
   const [errors, setErrors] = useState({});
+  // The category that arrived with the item. Radix Select used to fire an
+  // empty onValueChange while options were still loading and wipe this, so
+  // the dropdown showed "Select a category" and a save erased the value.
+  const savedCategoryRef = useRef('');
+
+  // Fetch dynamic categories from the `categories` collection (sorted by
+  // display_order, then name). Falls back to a sensible default list if the
+  // collection is empty or unreachable so the form always remains usable.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const records = await pb.collection('categories').getFullList({
+          sort: 'display_order,name',
+          $autoCancel: false,
+        });
+        if (!alive) return;
+        setCategories(records.length > 0 ? records : []);
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+        if (alive) setCategories([]);
+      } finally {
+        if (alive) setCategoriesLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const readStoredCategory = (item) => {
+    if (!item) return '';
+    const raw = item.category ?? item.categoryId ?? item.category_id ?? '';
+    if (Array.isArray(raw)) return String(raw[0] || '').trim();
+    return String(raw).trim();
+  };
+
+  // Map a stored value (English name, German name, id, or legacy casing)
+  // onto the canonical English category name the rest of the menu uses.
+  // Unknown values are kept as-is so a save never blanks them.
+  const resolveCategoryValue = (stored, list) => {
+    const value = String(stored || '').trim();
+    if (!value || !list?.length) return value;
+    const needle = value.toLowerCase();
+    const match = list.find((c) =>
+      c.id === value
+      || c.name === value
+      || c.name_de === value
+      || (c.name && c.name.toLowerCase() === needle)
+      || (c.name_de && c.name_de.toLowerCase() === needle)
+    );
+    return match ? match.name : value;
+  };
 
   // Fetch dynamic categories from the `categories` collection (sorted by
   // display_order, then name). Falls back to a sensible default list if the
@@ -72,6 +123,8 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
   }, []);
 
   useEffect(() => {
+    const stored = readStoredCategory(initialData);
+    savedCategoryRef.current = stored;
     if (initialData) {
       setFormData({
         nameEN: initialData.nameEN || initialData.name || '',
@@ -80,7 +133,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
         descriptionDE: initialData.descriptionDE || '',
         allergens: initialData.allergens || [],
         price: initialData.price?.toString() || '',
-        category: initialData.category || '',
+        category: resolveCategoryValue(stored, categories),
         vat_Rate: initialData.vat_Rate || (/beverages|getränke|getraenke/i.test(initialData.category || '') ? 'STANDARD' : 'REDUCED_1'),
         availability: initialData.availability ?? true,
         isVegetarian: initialData.isVegetarian ?? false,
@@ -95,14 +148,30 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
       setImageFile(null);
       setErrors({});
     }
+    // categories is applied in the effect below so a late category list
+    // does not reset the rest of the form the user may already be editing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData]);
+
+  useEffect(() => {
+    if (!savedCategoryRef.current || categories.length === 0) return;
+    const resolved = resolveCategoryValue(savedCategoryRef.current, categories);
+    setFormData((prev) => {
+      // Only fill or normalize. Never replace a category the user already picked.
+      if (!prev.category || prev.category === savedCategoryRef.current) {
+        return prev.category === resolved ? prev : { ...prev, category: resolved };
+      }
+      return prev;
+    });
+  }, [categories]);
 
   const validate = () => {
     const newErrors = {};
     if (!formData.nameEN.trim()) newErrors.nameEN = 'English name is required';
     if (!formData.nameDE.trim()) newErrors.nameDE = 'German name is required';
     if (!formData.price || isNaN(formData.price) || parseFloat(formData.price) < 0) newErrors.price = 'Valid price is required (min 0)';
-    if (!formData.category) newErrors.category = 'Category is required';
+    const categoryToSave = formData.category || savedCategoryRef.current;
+    if (!categoryToSave) newErrors.category = 'Category is required';
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -137,7 +206,13 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
       submitData.append('description', formData.descriptionEN.trim());
 
       submitData.append('price', parseFloat(formData.price));
-      submitData.append('category', formData.category);
+      // Never send a blank category over an existing one. A cleared dropdown
+      // used to overwrite the stored value on save.
+      const categoryToSave = resolveCategoryValue(
+        formData.category || savedCategoryRef.current,
+        categories,
+      );
+      submitData.append('category', categoryToSave);
       submitData.append('vat_Rate', formData.vat_Rate);
       submitData.append('availability', formData.availability);
       submitData.append('isVegetarian', formData.isVegetarian);
@@ -200,18 +275,28 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <MobileFormField label={<>Category <span className="text-destructive">*</span></>} id="menuItemCategory" error={errors.category}>
-            <Select value={formData.category} onValueChange={(val) => setFormData(prev => ({ ...prev, category: val, vat_Rate: /beverages|getränke|getraenke/i.test(val) ? 'STANDARD' : 'REDUCED_1' }))}>
-              <SelectTrigger id="menuItemCategory" className={errors.category ? "border-destructive focus-visible:ring-destructive" : ""}>
-                <SelectValue placeholder={categoriesLoading ? 'Loading categories…' : 'Select a category'} />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                {categories.map(cat => (
-                  <SelectItem key={cat.id} value={cat.name} className="min-h-[44px]">
-                    {language === 'de' ? (cat.name_de || cat.name) : cat.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <select
+              id="menuItemCategory"
+              value={formData.category}
+              onChange={(e) => {
+                const next = e.target.value;
+                savedCategoryRef.current = next;
+                setFormData((prev) => ({ ...prev, category: next, vat_Rate: /beverages|getränke|getraenke/i.test(next) ? 'STANDARD' : 'REDUCED_1' }));
+              }}
+              className={`flex h-9 w-full items-center rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${errors.category ? 'border-destructive focus:ring-destructive' : 'border-input'} ${formData.category ? 'text-foreground' : 'text-muted-foreground'}`}
+            >
+              <option value="" disabled>
+                {categoriesLoading ? 'Loading categories…' : 'Select a category'}
+              </option>
+              {formData.category && !categories.some((c) => c.name === formData.category) && (
+                <option value={formData.category}>{formData.category}</option>
+              )}
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.name}>
+                  {language === 'de' ? (cat.name_de || cat.name) : cat.name}
+                </option>
+              ))}
+            </select>
           </MobileFormField>
 
           <MobileFormField label="VAT rate" id="menuItemVatRate">

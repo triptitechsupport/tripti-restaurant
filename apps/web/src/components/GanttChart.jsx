@@ -3,36 +3,44 @@ import { format, addDays, parseISO } from 'date-fns';
 import {
   ChevronLeft, ChevronRight, CalendarDays, Loader2, RefreshCw, Plus,
   AlertTriangle, Clock, Users, X, Phone, Mail, Hash, Sparkles, Hand, Baby, CalendarClock,
+  MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
 import { cn } from '@/lib/utils';
 import ReservationGanttModal from '@/components/ReservationGanttModal.jsx';
+import { openGmailCompose } from '@/utils/gmailComposer.js';
 
 // ---- Serving windows (minutes from midnight) ----
-const LUNCH_START = 11 * 60; // 660
-const LUNCH_END = 13 * 60;   // 780
-const DINNER_START = 17 * 60; // 1020
-const DINNER_END = 21 * 60;   // 1260
-const GAP = DINNER_START - LUNCH_END; // 240 (13:00-17:00 closed)
-const LUNCH_SPAN = LUNCH_END - LUNCH_START; // 120
-const TOTAL_SPAN = LUNCH_SPAN + (DINNER_END - DINNER_START); // 360
+// Lunch 11:00–14:00 and dinner 17:00–21:00. Hours between 14:00 and 17:00
+// are closed and collapsed on the timeline. Wednesday closure is handled
+// separately via restaurant_hours.closedWeekday.
+const LUNCH_START = 11 * 60;  // 660  (11:00)
+const LUNCH_END = 14 * 60;    // 840  (14:00)
+const DINNER_START = 17 * 60; // 1020 (17:00 / 5:00 PM)
+const DINNER_END = 21 * 60;   // 1260 (21:00 / 9:00 PM)
+const LUNCH_SPAN = LUNCH_END - LUNCH_START;   // 180
+const DINNER_SPAN = DINNER_END - DINNER_START; // 240
+// One visual column between lunch and dinner to mark closed hours.
+const GAP_SPAN = 30;
+const TOTAL_SPAN = LUNCH_SPAN + GAP_SPAN + DINNER_SPAN; // 450
 
 const COL_MINUTES = 30;
 const COL_WIDTH = 68;
 const ROW_HEIGHT = 58;
 const LABEL_WIDTH = 96;
 
-// Column boundary labels (each = 30 min)
+// Column boundary labels (each = 30 min). The column between 14:00 and 17:00
+// is the collapsed closed period (visual gap only).
 const COL_LABELS = [
-  '11:00', '11:30', '12:00', '12:30', '13:00',
+  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00',
   '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00',
 ];
-// Index in COL_LABELS where dinner begins (after 13:00)
-const DINNER_COL_INDEX = 5;
 
 const toMinutes = (t) => {
   if (!t) return null;
@@ -45,18 +53,38 @@ const toStr = (mins) => {
   return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
 };
 
-// real minutes -> offset minutes (collapses the 13:00-17:00 gap)
+// real minutes -> offset minutes across lunch + gap + dinner
 const realToOffset = (t) => {
   if (t == null) return 0;
-  if (t <= LUNCH_END) return Math.max(0, t - LUNCH_START);
-  if (t >= DINNER_START) return LUNCH_SPAN + (t - DINNER_START);
-  // inside gap -> clamp to lunch end
-  return LUNCH_SPAN;
+  if (t <= LUNCH_END) {
+    return Math.max(0, Math.min(LUNCH_SPAN, t - LUNCH_START));
+  }
+  if (t < DINNER_START) {
+    // Closed gap — pin to the middle of the visual gap column
+    return LUNCH_SPAN + GAP_SPAN / 2;
+  }
+  return LUNCH_SPAN + GAP_SPAN + Math.max(0, Math.min(DINNER_SPAN, t - DINNER_START));
 };
-// offset minutes -> real minutes
+// offset minutes -> real minutes (gap snaps to dinner start so clicks land on a valid slot)
 const offsetToReal = (off) => {
-  if (off <= LUNCH_SPAN) return LUNCH_START + off;
-  return DINNER_START + (off - LUNCH_SPAN);
+  const clamped = Math.max(0, Math.min(TOTAL_SPAN, off));
+  if (clamped <= LUNCH_SPAN) return LUNCH_START + clamped;
+  if (clamped < LUNCH_SPAN + GAP_SPAN) return DINNER_START;
+  return DINNER_START + (clamped - LUNCH_SPAN - GAP_SPAN);
+};
+
+// Keep a start/end pair inside a single serving window (never across the gap).
+const clampToServingWindow = (start, end) => {
+  const mid = (start + end) / 2;
+  const useDinner = mid >= (LUNCH_END + DINNER_START) / 2;
+  if (useDinner) {
+    let s = Math.max(DINNER_START, Math.min(DINNER_END - COL_MINUTES, start));
+    let e = Math.max(s + COL_MINUTES, Math.min(DINNER_END, end));
+    return [s, e];
+  }
+  let s = Math.max(LUNCH_START, Math.min(LUNCH_END - COL_MINUTES, start));
+  let e = Math.max(s + COL_MINUTES, Math.min(LUNCH_END, end));
+  return [s, e];
 };
 
 const timeToX = (t) => (realToOffset(toMinutes(t)) / COL_MINUTES) * COL_WIDTH;
@@ -73,7 +101,7 @@ const STATUS_STYLE = {
   Declined: { bg: 'bg-red-500/70', border: 'border-red-700', text: 'text-white', label: 'Cancelled', dot: 'bg-red-600' },
 };
 
-export default function GanttChart({ initialDate, focusReservationId, onFocusConsumed }) {
+export default function GanttChart({ initialDate, focusReservationId, onFocusConsumed, refreshToken = 0, onRefreshed, onReservationsChanged }) {
   const [selectedDate, setSelectedDate] = useState(
     initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) ? initialDate : format(new Date(), 'yyyy-MM-dd')
   );
@@ -84,6 +112,10 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
   const [drag, setDrag] = useState(null); // {id, mode, startPx, origStart, origEnd, origRowIdx, newStart, newEnd, newRowIdx, moved, conflict}
   const [modal, setModal] = useState({ open: false, reservation: null, defaultTableId: null, defaultStartTime: null });
   const [autoFitting, setAutoFitting] = useState(false);
+  // Review/save window for Auto Fit & Manual Fit. The proposed placement is
+  // staged here WITHOUT persisting so the admin can recheck it and send a
+  // WhatsApp/Email confirmation before the assignment is finalized.
+  const [fitReview, setFitReview] = useState({ open: false, reservation: null, proposed: null });
   // Fallback when the focused reservation isn't in the current day's list yet
   // (wrong date, still loading, or filter mismatch) — loaded by id.
   const [focusedFallback, setFocusedFallback] = useState(null);
@@ -116,6 +148,15 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
     }
   }, []);
 
+  const onRefreshedRef = useRef(onRefreshed);
+  useEffect(() => { onRefreshedRef.current = onRefreshed; }, [onRefreshed]);
+  const onReservationsChangedRef = useRef(onReservationsChanged);
+  useEffect(() => { onReservationsChangedRef.current = onReservationsChanged; }, [onReservationsChanged]);
+
+  const notifyReservationsChanged = useCallback(() => {
+    if (onReservationsChangedRef.current) onReservationsChangedRef.current();
+  }, []);
+
   const fetchReservations = useCallback(async () => {
     setLoading(true);
     try {
@@ -126,6 +167,7 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
         $autoCancel: false,
       });
       setReservations(records);
+      if (onRefreshedRef.current) onRefreshedRef.current();
     } catch (err) {
       console.error('Failed to load reservations', err);
       toast.error('Failed to load reservations');
@@ -133,6 +175,30 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
       setLoading(false);
     }
   }, [selectedDate]);
+
+  // Persist a reviewed fit proposal (from the FitReviewDialog "Save &
+  // Confirm" action) and sync the grid, focus panel, and parent pending
+  // panel. Auto Fit and Manual Fit only stage proposals — this is where
+  // the assignment is actually finalized.
+  const confirmFitSaved = useCallback((updated) => {
+    setFocusedFallback(updated);
+    setReservations((prev) => {
+      const idx = prev.findIndex((r) => r.id === updated.id);
+      if (idx === -1) return prev;
+      const next = prev.slice();
+      next[idx] = updated;
+      return next;
+    });
+    notifyReservationsChanged();
+    fetchReservations();
+  }, [notifyReservationsChanged, fetchReservations]);
+
+  // External refresh trigger from the parent Reservations toolbar.
+  useEffect(() => {
+    if (!refreshToken) return undefined;
+    fetchReservations();
+    return undefined;
+  }, [refreshToken, fetchReservations]);
 
   useEffect(() => {
     pb.collection('restaurant_hours').getList(1, 1, { $autoCancel: false })
@@ -142,12 +208,37 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
   }, [fetchTables]);
 
   useEffect(() => {
+    let cancelled = false;
+    let unsubReservations = null;
+    let unsubTables = null;
+
     fetchReservations();
-    void pb.collection('table_reservations').subscribe('*', () => fetchReservations()).catch((error) => console.error('Realtime subscription failed', error));
-    void pb.collection('table_configurations').subscribe('*', () => fetchTables()).catch((error) => console.error('Realtime subscription failed', error));
+
+    // Use the per-listener unsubscribe returned by subscribe(). Never call
+    // bare collection.unsubscribe('*') — that kills Admin pending-panel and
+    // GlobalReservationNotifications listeners too.
+    void pb
+      .collection('table_reservations')
+      .subscribe('*', () => { if (!cancelled) fetchReservations(); }, { requestKey: 'gantt-reservations-rt' })
+      .then((unsub) => {
+        if (cancelled) { try { unsub?.(); } catch { /* ignore */ } return; }
+        unsubReservations = unsub;
+      })
+      .catch((error) => console.error('Realtime subscription failed', error));
+
+    void pb
+      .collection('table_configurations')
+      .subscribe('*', () => { if (!cancelled) fetchTables(); }, { requestKey: 'gantt-tables-rt' })
+      .then((unsub) => {
+        if (cancelled) { try { unsub?.(); } catch { /* ignore */ } return; }
+        unsubTables = unsub;
+      })
+      .catch((error) => console.error('Realtime subscription failed', error));
+
     return () => {
-      pb.collection('table_reservations').unsubscribe('*').catch(() => {});
-      pb.collection('table_configurations').unsubscribe('*').catch(() => {});
+      cancelled = true;
+      try { if (typeof unsubReservations === 'function') unsubReservations(); } catch { /* ignore */ }
+      try { if (typeof unsubTables === 'function') unsubTables(); } catch { /* ignore */ }
     };
   }, [fetchReservations, fetchTables]);
 
@@ -281,84 +372,142 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
         });
       };
 
-      // Prefer tables whose capacity fits the party (smallest first so we
-      // don't waste large tables); fall back to any table if none fit.
+      // Auto Fit must never seat a party on a table whose capacity is too
+      // small. Prefer a single table that fits (smallest first so we don't
+      // waste large tables); if none is free, combine tables and use the
+      // SUMMED capacity to seat the party. Conflict prevention is enforced
+      // via conflictsOn for every candidate (single or combined).
+      const cap = (t) => t.capacity || 4;
       const fitting = sortedTables
-        .filter((t) => (t.capacity || 4) >= partySize)
-        .sort((a, b) => (a.capacity || 4) - (b.capacity || 4));
-      const others = sortedTables
-        .filter((t) => (t.capacity || 4) < partySize)
-        .sort((a, b) => (a.capacity || 4) - (b.capacity || 4));
-      const candidateTables = [...fitting, ...others];
+        .filter((t) => cap(t) >= partySize)
+        .sort((a, b) => cap(a) - cap(b));
+      // All tables, smallest first — used to build combined sets.
+      const allTables = [...sortedTables].sort((a, b) => cap(a) - cap(b));
 
-      if (candidateTables.length === 0) {
+      if (allTables.length === 0) {
         toast.error('No tables configured. Add tables in the Tables tab first.');
         return;
       }
 
-      const findTableAt = (s, e) => {
-        for (const t of candidateTables) {
-          if (!conflictsOn(res.id, s, e, [t.id])) return t;
+      // Largest party the restaurant could seat by combining every table.
+      const maxCombinedCapacity = allTables.reduce((sum, t) => sum + cap(t), 0);
+
+      // Find a single free table at (s,e) that individually fits the party.
+      const findSingleFittingAt = (s, e) => {
+        for (const t of fitting) {
+          if (!conflictsOn(res.id, s, e, [t.id])) return [t];
         }
         return null;
       };
 
-      // 1) Try the requested time first.
-      let chosen = findTableAt(reqStart, reqStart + duration);
-      let chosenStart = reqStart;
-      let chosenEnd = reqStart + duration;
-
-      // 2) If blocked, search outward in 30-min steps (earlier and later),
-      //    staying inside the lunch/dinner windows and never spanning the
-      //    13:00–17:00 closed gap.
-      if (!chosen) {
-        const tried = new Set([0]);
-        let found = false;
-        for (let step = 30; step <= 150 && !found; step += 30) {
-          for (const sign of [1, -1]) {
-            const key = sign * step;
-            if (tried.has(key)) continue;
-            tried.add(key);
-            let s = reqStart + sign * step;
-            let e = s + duration;
-            // Clamp into serving windows.
-            if (s < LUNCH_START) { s = LUNCH_START; e = s + duration; }
-            if (s >= LUNCH_END && s < DINNER_START) { s = DINNER_START; e = s + duration; }
-            if (e > DINNER_END) continue;
-            // Reject blocks that span the closed gap.
-            if (s < LUNCH_END && e > LUNCH_END && e <= DINNER_START) e = LUNCH_END;
-            if (s < LUNCH_END && e > DINNER_START) continue;
-            if (s >= LUNCH_END && s < DINNER_START) continue;
-            if (e - s < 30) continue;
-            const t = findTableAt(s, e);
-            if (t) { chosen = t; chosenStart = s; chosenEnd = e; found = true; break; }
+      // Find a free combined set (2-3 tables) whose summed capacity fits.
+      const findCombinedFittingAt = (s, e) => {
+        for (let i = 0; i < allTables.length; i++) {
+          for (let j = i + 1; j < allTables.length; j++) {
+            if (cap(allTables[i]) + cap(allTables[j]) < partySize) continue;
+            const ids = [allTables[i].id, allTables[j].id];
+            if (!conflictsOn(res.id, s, e, ids)) return [allTables[i], allTables[j]];
           }
         }
+        for (let i = 0; i < allTables.length; i++) {
+          for (let j = i + 1; j < allTables.length; j++) {
+            for (let k = j + 1; k < allTables.length; k++) {
+              if (cap(allTables[i]) + cap(allTables[j]) + cap(allTables[k]) < partySize) continue;
+              const ids = [allTables[i].id, allTables[j].id, allTables[k].id];
+              if (!conflictsOn(res.id, s, e, ids)) return [allTables[i], allTables[j], allTables[k]];
+            }
+          }
+        }
+        return null;
+      };
+
+      // Prefer a single fitting table; fall back to a combined set.
+      const findFittingAt = (s, e) => findSingleFittingAt(s, e) || findCombinedFittingAt(s, e);
+
+      // Prefer the window that contains the requested start (lunch or dinner).
+      const preferDinner = reqStart >= DINNER_START || (reqStart > LUNCH_END && reqStart < DINNER_START && reqStart >= (LUNCH_END + DINNER_START) / 2);
+      const primaryWindow = preferDinner
+        ? { start: DINNER_START, end: DINNER_END }
+        : { start: LUNCH_START, end: LUNCH_END };
+      const secondaryWindow = preferDinner
+        ? { start: LUNCH_START, end: LUNCH_END }
+        : { start: DINNER_START, end: DINNER_END };
+
+      const clampStartToWindow = (s, win) => Math.max(win.start, Math.min(win.end - COL_MINUTES, s));
+      const endFor = (s, win) => {
+        let e = Math.min(s + duration, win.end);
+        if (e - s < COL_MINUTES) e = s + COL_MINUTES;
+        return e;
+      };
+
+      // 1) Try the requested time first inside the preferred window.
+      let chosenStart = clampStartToWindow(reqStart, primaryWindow);
+      let chosenEnd = endFor(chosenStart, primaryWindow);
+      if (chosenEnd > primaryWindow.end) {
+        chosenStart = Math.max(primaryWindow.start, primaryWindow.end - duration);
+        chosenEnd = endFor(chosenStart, primaryWindow);
+      }
+      let chosen = findFittingAt(chosenStart, chosenEnd);
+
+      // 2) Search outward in 30-min steps within the preferred window, then the other.
+      if (!chosen) {
+        const tryWindow = (win) => {
+          for (let step = 0; step <= 240 && !chosen; step += 30) {
+            for (const sign of step === 0 ? [0] : [1, -1]) {
+              let s = clampStartToWindow(reqStart + sign * step, win);
+              let e = endFor(s, win);
+              if (e > win.end || e - s < COL_MINUTES) continue;
+              const t = findFittingAt(s, e);
+              if (t) { chosen = t; chosenStart = s; chosenEnd = e; return; }
+            }
+          }
+        };
+        tryWindow(primaryWindow);
+        if (!chosen) tryWindow(secondaryWindow);
       }
 
       if (!chosen) {
-        toast.error('No free table or time slot found for this reservation. Try Manual Fit.');
+        // No single table or combination can seat this party at any free
+        // slot. Surface the capacity gap so the admin knows why.
+        if (maxCombinedCapacity < partySize) {
+          toast.error(
+            `No table can seat a party of ${partySize}. The largest combination available seats ${maxCombinedCapacity}. Try Manual Fit or add a bigger table.`,
+            { duration: 9000 },
+          );
+        } else {
+          toast.error(
+            `No free table or time slot found for a party of ${partySize}. All fitting tables are booked — try Manual Fit.`,
+            { duration: 9000 },
+          );
+        }
         return;
       }
 
-      const data = {
-        assignedTable: chosen.id,
-        assignedTables: [chosen.id],
-        reservationTime: toStr(chosenStart),
-        endTime: toStr(chosenEnd),
-        status: 'Approved',
-      };
-      await pb.collection('table_reservations').update(res.id, data, { $autoCancel: false });
-      toast.success(`Auto-fit: ${res.guestName} → ${chosen.name} at ${toStr(chosenStart)}–${toStr(chosenEnd)}`);
-      setFocusedFallback(null);
-      if (onFocusConsumed) onFocusConsumed();
-      // Jump calendar to the placed date so the new block is visible.
-      // Changing selectedDate re-fetches via the effect; only call fetch
-      // directly when the date is already correct.
+      const chosenCapacity = chosen.reduce((sum, t) => sum + cap(t), 0);
+      const chosenNames = chosen.map((t) => t.name).join(' + ');
+      const chosenIds = chosen.map((t) => t.id);
+      // Do NOT silently finalize the fit. Stage the proposed placement in the
+      // review/save window so the admin can recheck it and send a WhatsApp or
+      // Email confirmation before the assignment is persisted.
+      setFitReview({
+        open: true,
+        reservation: res,
+        proposed: {
+          assignedTableIds: chosenIds,
+          startTime: toStr(chosenStart),
+          endTime: toStr(chosenEnd),
+          status: 'Approved',
+        },
+      });
+      toast(
+        `Auto-fit proposal ready for ${res.guestName} → ${chosenNames} at ${toStr(chosenStart)}–${toStr(chosenEnd)}. Review and save to confirm.`,
+        { duration: 7000 },
+      );
+      // Jump to the reservation's date so the placement is visible on the
+      // timeline, but do not persist or touch the pending panel until the
+      // admin confirms in the review dialog.
       if (dateStr && dateStr !== selectedDate) {
         setSelectedDate(dateStr);
-      } else {
-        fetchReservations();
       }
     } catch (err) {
       console.error('[GanttChart] autoFit failed', err);
@@ -373,7 +522,9 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
   // enforced inside the modal on save.
   const manualFit = (res) => {
     if (!res) return;
-    setModal({ open: true, reservation: res, defaultTableId: null, defaultStartTime: null });
+    // fitMode routes the modal's "Save" through the review/save window
+    // instead of persisting directly, so Manual Fit is never silently finalized.
+    setModal({ open: true, reservation: res, defaultTableId: null, defaultStartTime: null, fitMode: true });
   };
 
   // ---- Drag handlers ----
@@ -425,17 +576,8 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
     // Snap to 30-min boundaries
     newStart = Math.round(newStart / COL_MINUTES) * COL_MINUTES;
     newEnd = Math.round(newEnd / COL_MINUTES) * COL_MINUTES;
-    // Clamp to serving windows (allow start in lunch/dinner, end within range)
-    newStart = Math.max(LUNCH_START, Math.min(DINNER_END - COL_MINUTES, newStart));
-    newEnd = Math.max(newStart + COL_MINUTES, Math.min(DINNER_END, newEnd));
-    // Prevent block from spanning the closed gap
-    if (newStart < LUNCH_END && newEnd > LUNCH_END && newEnd <= DINNER_START) {
-      if (st.mode === 'resize-end' || st.mode === 'move') newEnd = LUNCH_END;
-    }
-    if (newStart < DINNER_START && newStart > LUNCH_END) {
-      newStart = st.mode === 'resize-start' ? LUNCH_END : DINNER_START;
-      if (newEnd <= newStart) newEnd = newStart + COL_MINUTES;
-    }
+    // Clamp to a single serving window (lunch 11–14 or dinner 17–21)
+    [newStart, newEnd] = clampToServingWindow(newStart, newEnd);
 
     // Determine target row from pointer Y (only for move; multi-table blocks keep row)
     let newRowIdx = st.origRowIdx;
@@ -487,7 +629,10 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
       data.assignedTables = [newTid];
     }
     pb.collection('table_reservations').update(st.id, data, { $autoCancel: false })
-      .then(() => toast.success('Reservation updated'))
+      .then(() => {
+        toast.success('Reservation updated');
+        notifyReservationsChanged();
+      })
       .catch((err) => {
         console.error(err);
         toast.error('Failed to update reservation');
@@ -516,6 +661,7 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
     try {
       await pb.collection('table_reservations').update(res.id, { status: 'Declined' }, { $autoCancel: false });
       toast.success('Reservation cancelled');
+      notifyReservationsChanged();
     } catch (err) {
       console.error(err);
       toast.error('Failed to cancel reservation');
@@ -553,8 +699,15 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
             <div className="font-serif font-bold text-primary text-base">{format(selectedDay, 'EEEE, MMM d, yyyy')}</div>
             {isClosedDay && <span className="text-xs font-bold text-red-600">Restaurant closed this day</span>}
           </div>
-          <Button variant="outline" size="icon" onClick={fetchReservations} disabled={loading} className="h-10 w-10" aria-label="Refresh">
+          <Button
+            variant="outline"
+            onClick={fetchReservations}
+            disabled={loading}
+            className="h-10 gap-2"
+            aria-label="Refresh reservations"
+          >
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            <span className="hidden sm:inline">{loading ? 'Refreshing…' : 'Refresh'}</span>
           </Button>
         </div>
       </div>
@@ -613,20 +766,22 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
                   Tables
                 </div>
                 <div className="relative" style={{ width: timelineWidth, height: 34 }}>
-                  {COL_LABELS.map((label, i) => (
-                    <div
-                      key={label}
-                      className="absolute top-0 h-full flex items-center justify-center text-[11px] font-semibold text-muted-foreground border-l border-border/60"
-                      style={{ left: i * COL_WIDTH, width: COL_WIDTH }}
-                    >
-                      {label}
-                    </div>
-                  ))}
-                  {/* Closed gap divider */}
-                  <div
-                    className="absolute top-0 h-full flex items-center justify-center text-[9px] font-bold text-red-500/80 bg-red-500/5 border-x border-red-400/40"
-                    style={{ left: DINNER_COL_INDEX * COL_WIDTH - 0, width: 0 }}
-                  />
+                  {COL_LABELS.map((label, i) => {
+                    // Gap column sits between lunch end (index 6 = 14:00) and dinner start (index 7 = 17:00)
+                    const isGapEdge = i === 6 || i === 7;
+                    return (
+                      <div
+                        key={`${label}-${i}`}
+                        className={cn(
+                          'absolute top-0 h-full flex items-center justify-center text-[11px] font-semibold border-l border-border/60',
+                          isGapEdge ? 'bg-muted/40 text-muted-foreground' : 'text-muted-foreground',
+                        )}
+                        style={{ left: i * COL_WIDTH, width: i === COL_LABELS.length - 1 ? undefined : COL_WIDTH }}
+                      >
+                        {label}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -660,32 +815,32 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
                       style={{ width: timelineWidth, height: ROW_HEIGHT }}
                       onClick={(e) => onRowBackgroundClick(e, table.id)}
                     >
-                      {/* grid columns */}
-                      {COL_LABELS.map((_, i) => (
-                        <div
-                          key={i}
-                          className={cn(
-                            'absolute top-0 h-full border-l border-border/40',
-                            i >= DINNER_COL_INDEX ? 'bg-blue-50/20' : 'bg-amber-50/10',
-                          )}
-                          style={{ left: i * COL_WIDTH, width: COL_WIDTH }}
-                        />
-                      ))}
-                      {/* closed gap marker band */}
-                      <div
-                        className="absolute top-0 h-full flex items-center justify-center text-[9px] font-bold text-red-400/70 bg-[repeating-linear-gradient(45deg,transparent,transparent_4px,rgba(239,68,68,0.06)_4px,rgba(239,68,68,0.06)_8px)]"
-                        style={{ left: (DINNER_COL_INDEX - 1) * COL_WIDTH, width: COL_WIDTH }}
-                      >
-                        Closed
-                      </div>
+                      {/* grid columns — gap column is the closed period between lunch and dinner */}
+                      {Array.from({ length: TOTAL_SPAN / COL_MINUTES }).map((_, i) => {
+                        const off = i * COL_MINUTES;
+                        const isGap = off >= LUNCH_SPAN && off < LUNCH_SPAN + GAP_SPAN;
+                        return (
+                          <div
+                            key={i}
+                            className={cn(
+                              'absolute top-0 h-full border-l border-border/40',
+                              isGap ? 'bg-muted/50' : 'bg-amber-50/10',
+                            )}
+                            style={{ left: i * COL_WIDTH, width: COL_WIDTH }}
+                          />
+                        );
+                      })}
 
                       {/* Blocks for this table */}
                       {tableBlocks.get(table.id)?.map((res) => {
                         const isDragging = drag && drag.id === res.id;
                         const style = STATUS_STYLE[res.status] || STATUS_STYLE.Pending;
                         const left = timeToX(res.reservationTime);
+                        // Skip blocks that fall fully outside both serving windows.
+                        if (left >= timelineWidth) return null;
                         let endX = timeToX(res.endTime);
                         if (endX <= left) endX = left + COL_WIDTH;
+                        if (endX > timelineWidth) endX = timelineWidth;
                         const width = Math.max(COL_WIDTH - 2, endX - left);
                         const partySize = res.partySize || res.numberOfGuests || 0;
                         return (
@@ -775,9 +930,40 @@ export default function GanttChart({ initialDate, focusReservationId, onFocusCon
         defaultTableId={modal.defaultTableId}
         defaultStartTime={modal.defaultStartTime}
         allReservations={reservations}
-        onSaved={() => { fetchReservations(); if (modal.reservation && onFocusConsumed) onFocusConsumed(); }}
-        onDeleted={fetchReservations}
+        fitMode={modal.fitMode}
+        onProposeFit={(data) => {
+          setFitReview({
+            open: true,
+            reservation: data.reservation,
+            proposed: {
+              assignedTableIds: data.assignedTables,
+              startTime: data.startTime,
+              endTime: data.endTime,
+              status: data.status,
+            },
+          });
+        }}
+        onSaved={() => {
+          fetchReservations();
+          notifyReservationsChanged();
+          if (modal.reservation && onFocusConsumed) onFocusConsumed();
+        }}
+        onDeleted={() => {
+          fetchReservations();
+          notifyReservationsChanged();
+        }}
       />
+
+      {fitReview.open && fitReview.reservation && fitReview.proposed && (
+        <FitReviewDialog
+          open={fitReview.open}
+          onOpenChange={(o) => setFitReview((f) => ({ ...f, open: o }))}
+          reservation={fitReview.reservation}
+          proposed={fitReview.proposed}
+          tables={sortedTables}
+          onSaved={confirmFitSaved}
+        />
+      )}
     </div>
   );
 }
@@ -812,6 +998,82 @@ function UnassignedList({ reservations, onEdit }) {
   );
 }
 
+/** Digits-only phone for wa.me links (strip spaces, +, dashes, etc.). */
+function normalizeWhatsAppPhone(phone) {
+  if (!phone || typeof phone !== 'string') return '';
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 8 ? digits : '';
+}
+
+function buildReservationContactMessage(r, assignedTables) {
+  const partySize = r.partySize || r.numberOfGuests || 0;
+  const dateStr = r.reservationDate
+    ? (() => {
+        try {
+          return format(parseISO((r.reservationDate || '').slice(0, 10)), 'MMM d, yyyy');
+        } catch {
+          return (r.reservationDate || '').slice(0, 10);
+        }
+      })()
+    : '—';
+  const timeStr = r.reservationTime
+    ? `${r.reservationTime}${r.endTime ? `–${r.endTime}` : ''}`
+    : '—';
+  const tableStr = assignedTables.length > 0
+    ? assignedTables.map((t) => `${t.name}${t.room ? ` (${t.room})` : ''}`).join(', ')
+    : 'to be assigned';
+  const code = r.reservationCode || 'N/A';
+  const guest = r.guestName || 'Guest';
+
+  return (
+    `Dear ${guest},\n\n` +
+    `Thank you for your reservation at Tripti Genusswelt.\n\n` +
+    `Reservation details:\n` +
+    `• Reference: ${code}\n` +
+    `• Date: ${dateStr}\n` +
+    `• Time: ${timeStr}\n` +
+    `• Guests: ${partySize}\n` +
+    `• Table: ${tableStr}\n\n` +
+    `We look forward to welcoming you.\n\n` +
+    `Kind regards,\nTripti Genusswelt`
+  );
+}
+
+function buildFitConfirmationMessage(r, assignedTables, status) {
+  const partySize = r.partySize || r.numberOfGuests || 0;
+  const dateStr = r.reservationDate
+    ? (() => {
+        try {
+          return format(parseISO((r.reservationDate || '').slice(0, 10)), 'MMM d, yyyy');
+        } catch {
+          return (r.reservationDate || '').slice(0, 10);
+        }
+      })()
+    : '—';
+  const timeStr = r.reservationTime
+    ? `${r.reservationTime}${r.endTime ? `–${r.endTime}` : ''}`
+    : '—';
+  const tableStr = assignedTables.length > 0
+    ? assignedTables.map((t) => `${t.name}${t.room ? ` (${t.room})` : ''}`).join(', ')
+    : 'to be assigned';
+  const code = r.reservationCode || 'N/A';
+  const guest = r.guestName || 'Guest';
+  const style = STATUS_STYLE[status] || STATUS_STYLE.Pending;
+  return (
+    `Dear ${guest},\n\n` +
+    `Your reservation at Tripti Genusswelt is ${style.label.toLowerCase()}.\n\n` +
+    `Reservation details:\n` +
+    `• Reference: ${code}\n` +
+    `• Date: ${dateStr}\n` +
+    `• Time: ${timeStr}\n` +
+    `• Guests: ${partySize}\n` +
+    `• Table: ${tableStr}\n` +
+    `• Status: ${style.label}\n\n` +
+    `We look forward to welcoming you.\n\n` +
+    `Kind regards,\nTripti Genusswelt`
+  );
+}
+
 function FocusReservationPanel({
   reservation, tables, autoFitting, onAutoFit, onManualFit, onDismiss,
 }) {
@@ -824,6 +1086,35 @@ function FocusReservationPanel({
     : (r.assignedTable ? [r.assignedTable] : []);
   const assignedTables = tables.filter((t) => assignedTableIds.includes(t.id));
   const style = STATUS_STYLE[r.status] || STATUS_STYLE.Pending;
+
+  const waPhone = normalizeWhatsAppPhone(r.phone);
+  const guestEmail = (r.email || '').trim();
+  const contactMessage = buildReservationContactMessage(r, assignedTables);
+  // Prefer first multi-assigned table, then legacy single assignedTable — same
+  // table context the reservation list passes into openGmailCompose.
+  const emailTable =
+    assignedTables[0]
+    || tables.find((t) => t.id === r.assignedTable)
+    || null;
+  const emailStatus = (r.status || 'pending').toLowerCase();
+
+  const openWhatsApp = () => {
+    if (!waPhone) {
+      toast.error('No valid phone number for WhatsApp');
+      return;
+    }
+    const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(contactMessage)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const openEmail = () => {
+    if (!guestEmail) {
+      toast.error('No email address on this reservation');
+      return;
+    }
+    // Same Gmail compose + template logic as Admin reservation lists.
+    void openGmailCompose(r, emailStatus, emailTable);
+  };
 
   return (
     <div className="bg-card border-2 border-secondary rounded-2xl p-5 shadow-lg animate-in fade-in slide-in-from-top-2 duration-300">
@@ -884,6 +1175,40 @@ function FocusReservationPanel({
         </div>
       )}
 
+      <div className="flex flex-col sm:flex-row gap-3 mb-3">
+        <Button
+          type="button"
+          onClick={openWhatsApp}
+          disabled={!waPhone}
+          variant="outline"
+          className="flex-1 border-emerald-600/40 text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 disabled:opacity-50"
+          title={waPhone ? 'Open WhatsApp with prefilled message' : 'No phone number available'}
+        >
+          <MessageCircle className="h-4 w-4 mr-2" />
+          WhatsApp
+        </Button>
+        <Button
+          type="button"
+          onClick={openEmail}
+          disabled={!guestEmail}
+          variant="outline"
+          className="flex-1 border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-50"
+          title={guestEmail ? 'Open Gmail with auto-generated reservation message' : 'No email address available'}
+        >
+          <Mail className="h-4 w-4 mr-2" />
+          Email
+        </Button>
+      </div>
+      {(!waPhone || !guestEmail) && (
+        <p className="text-[11px] text-muted-foreground mb-3">
+          {!waPhone && !guestEmail
+            ? 'WhatsApp and Email need a phone number and email on this reservation.'
+            : !waPhone
+              ? 'WhatsApp is unavailable — no valid phone number on this reservation.'
+              : 'Email is unavailable — no email address on this reservation.'}
+        </p>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-3">
         <Button
           onClick={onAutoFit}
@@ -901,6 +1226,207 @@ function FocusReservationPanel({
         Auto Fit places this reservation on the first free table that fits the party (conflicts prevented). Manual Fit lets you choose the table and time on the calendar.
       </p>
     </div>
+  );
+}
+
+function FitReviewDialog({ open, onOpenChange, reservation, proposed, tables, onSaved }) {
+  const [saving, setSaving] = useState(false);
+  const r = reservation;
+  const assignedTableIds = (proposed && Array.isArray(proposed.assignedTableIds)) ? proposed.assignedTableIds : [];
+  const assignedTables = tables.filter((t) => assignedTableIds.includes(t.id));
+  const partySize = r ? (r.partySize || r.numberOfGuests || 0) : 0;
+  const status = (proposed && proposed.status) || (r && r.status) || 'Pending';
+  const style = STATUS_STYLE[status] || STATUS_STYLE.Pending;
+  const startTime = (proposed && proposed.startTime) || (r && r.reservationTime) || '—';
+  const endTime = (proposed && proposed.endTime) || (r && r.endTime) || '';
+  const dateStr = r && r.reservationDate
+    ? (() => {
+        try {
+          return format(parseISO((r.reservationDate || '').slice(0, 10)), 'EEEE, MMM d, yyyy');
+        } catch {
+          return (r.reservationDate || '').slice(0, 10);
+        }
+      })()
+    : '—';
+  const timeStr = `${startTime}${endTime ? `–${endTime}` : ''}`;
+  const code = (r && r.reservationCode) || 'N/A';
+  const guest = (r && r.guestName) || 'Guest';
+
+  // Merged record so the existing Gmail composer + message builder reflect
+  // the PROPOSED assignment (new time/tables/status), not the original.
+  const merged = r
+    ? {
+        ...r,
+        reservationTime: startTime,
+        endTime: endTime,
+        assignedTables: assignedTableIds,
+        assignedTable: assignedTableIds[0] || '',
+        status,
+      }
+    : r;
+  const emailTable = assignedTables[0] || tables.find((t) => t.id === assignedTableIds[0]) || null;
+  const message = buildFitConfirmationMessage(merged || {}, assignedTables, status);
+  const waPhone = normalizeWhatsAppPhone(r ? r.phone : '');
+  const guestEmail = r ? (r.email || '').trim() : '';
+
+  const openWhatsApp = () => {
+    if (!waPhone) {
+      toast.error('No valid phone number for WhatsApp');
+      return;
+    }
+    const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const openEmail = () => {
+    if (!guestEmail) {
+      toast.error('No email address on this reservation');
+      return;
+    }
+    // Same Gmail compose + template logic as Admin reservation lists, fed
+    // the proposed assignment so the confirmation text matches the fit.
+    void openGmailCompose(merged, status.toLowerCase(), emailTable);
+  };
+
+  const handleSave = async () => {
+    if (!r || !proposed || saving) return;
+    if (assignedTableIds.length === 0) {
+      toast.error('No table assigned in this proposal.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const data = {
+        assignedTable: assignedTableIds[0] || '',
+        assignedTables: assignedTableIds,
+        reservationTime: proposed.startTime,
+        endTime: proposed.endTime,
+        status: proposed.status || 'Approved',
+      };
+      const updated = await pb.collection('table_reservations').update(r.id, data, { $autoCancel: false });
+      toast.success(`Reservation saved: ${r.guestName} → ${assignedTables.map((t) => t.name).join(', ')} at ${proposed.startTime}–${proposed.endTime}`);
+      if (onSaved) onSaved(updated);
+      onOpenChange(false);
+    } catch (err) {
+      console.error('[FitReviewDialog] save failed', err);
+      toast.error(err?.message || 'Failed to save reservation');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
+      <DialogContent className="sm:max-w-[520px] max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Review &amp; Save Table Assignment</DialogTitle>
+          <DialogDescription>
+            Please recheck the proposed assignment below. You can send a WhatsApp or Email confirmation to the guest, then save to finalize — or cancel to return without changes.
+          </DialogDescription>
+        </DialogHeader>
+
+        {r && proposed && (
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-3">
+              <span className={cn('h-3 w-3 rounded-full shrink-0', style.dot)} />
+              <div className="min-w-0">
+                <h3 className="text-lg font-serif font-bold text-primary leading-tight truncate">{guest}</h3>
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Hash className="h-3 w-3" /> {code}
+                  <span className="mx-1">·</span>
+                  <span className="font-semibold">{style.label}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <DetailRow icon={<Users className="h-4 w-4" />} label="Number of persons" value={`${partySize} guest${partySize !== 1 ? 's' : ''}`} />
+              <DetailRow icon={<CalendarClock className="h-4 w-4" />} label="Date & time" value={`${dateStr} · ${timeStr}`} notranslate />
+              <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone number" value={(r.phone) || '—'} />
+              <DetailRow icon={<Mail className="h-4 w-4" />} label="Email" value={(r.email) || '—'} />
+              <DetailRow
+                icon={<LayoutGridIcon />}
+                label="Assigned table"
+                value={assignedTables.length > 0
+                  ? assignedTables.map((t) => `${t.name} (${t.room}${t.capacity ? ` · ${t.capacity}p` : ''})`).join(', ')
+                  : 'Unassigned'}
+              />
+              <DetailRow icon={<Sparkles className="h-4 w-4" />} label="Status" value={style.label} />
+            </div>
+
+            {r.adminNotes && (
+              <div className="text-sm bg-muted/30 border border-border/60 rounded-lg p-3">
+                <span className="font-semibold text-foreground">Special requests: </span>
+                <span className="text-muted-foreground">{r.adminNotes}</span>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Send confirmation to guest</p>
+              {/* Default to the Email tab so the admin lands on Gmail compose
+                  right after saving an Auto/Manual Fit. WhatsApp remains a
+                  click away via the other tab. Nothing is sent automatically. */}
+              <Tabs defaultValue="email" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="email" className="gap-1.5">
+                    <Mail className="h-4 w-4" /> Email
+                  </TabsTrigger>
+                  <TabsTrigger value="whatsapp" className="gap-1.5">
+                    <MessageCircle className="h-4 w-4" /> WhatsApp
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="email" className="mt-3">
+                  <Button
+                    type="button"
+                    onClick={openEmail}
+                    disabled={!guestEmail}
+                    variant="outline"
+                    className="w-full border-primary/30 text-primary hover:bg-primary/5 disabled:opacity-50"
+                    title={guestEmail ? 'Open Gmail with auto-generated confirmation' : 'No email address available'}
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    {guestEmail ? 'Open Gmail Confirmation' : 'No email on file'}
+                  </Button>
+                  {!guestEmail && (
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      Email is unavailable — no email address on this reservation.
+                    </p>
+                  )}
+                </TabsContent>
+                <TabsContent value="whatsapp" className="mt-3">
+                  <Button
+                    type="button"
+                    onClick={openWhatsApp}
+                    disabled={!waPhone}
+                    variant="outline"
+                    className="w-full border-emerald-600/40 text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 disabled:opacity-50"
+                    title={waPhone ? 'Open WhatsApp with prefilled confirmation' : 'No phone number available'}
+                  >
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    {waPhone ? 'Open WhatsApp Confirmation' : 'No phone on file'}
+                  </Button>
+                  {!waPhone && (
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      WhatsApp is unavailable — no valid phone number on this reservation.
+                    </p>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving} className="sm:mr-auto">
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving} className="min-w-[140px] bg-emerald-600 hover:bg-emerald-700 text-white">
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+            Save &amp; Confirm
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,7 +1,7 @@
 import { SELECTION_RECT_ID, isInsideEditorUi, getEditId } from '../../constants/selectors.js';
 import { EDIT_BACKGROUND_COLOR, Z_INDEX_EDITOR_OVERLAY, EDIT_BORDER_COLOR } from '../../constants/theme.js';
 import { MIN_SELECTION_CANDIDATE_SIZE, MAX_SELECTED_ELEMENTS } from '../../constants/layout.js';
-import { getAppRoot } from '../../utils/dom-utils.js';
+import { getAppRoot, getOpenModals } from '../../utils/dom-utils.js';
 import { orderSelection } from '../../state/multi-select-state.js';
 
 /** Set on `<body>` for the duration of a selection gesture, to keep the browser from painting text over it. */
@@ -86,7 +86,9 @@ function intersectingChildren(element, rect) {
  */
 export function collectSelection(rect) {
 	const selected = [];
-	const queue = [...getAppRoot().children];
+	const openModals = getOpenModals();
+	const roots = openModals.length ? openModals : [getAppRoot()];
+	const queue = roots.flatMap((root) => [...root.children]);
 
 	while (queue.length && selected.length < MAX_SELECTED_ELEMENTS) {
 		const element = queue.shift();

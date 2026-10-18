@@ -12,13 +12,15 @@ import pb from '@/lib/pocketbaseClient.js';
 /* ─── Category config ─────────────────────────────────────────────────────── */
 const CATEGORY_DEFS = [
   { id: 'Appetizers', tKey: 'cat_appetizers' },
-  { id: 'Main Courses', tKey: 'cat_main_courses' },
-  { id: 'Sides & Accompaniments', tKey: 'cat_accompaniments' },
-  { id: 'Snacks', tKey: 'cat_sides_soups' },
+  { id: 'South Indian Classics', tKey: 'cat_south_indian' },
+  { id: 'Biryani', tKey: 'cat_biryani' },
+  { id: 'Curries', tKey: 'cat_curries' },
+  { id: 'Thalis', tKey: 'cat_thalis' },
+  { id: 'Soups', tKey: 'cat_soups' },
+  { id: 'Salads', tKey: 'cat_salads' },
+  { id: 'Drinks', tKey: 'cat_drinks' },
   { id: 'Desserts', tKey: 'cat_desserts' },
-  { id: 'Kids Menu', tKey: 'cat_kinder_menu' },
-  { id: 'Beverages', tKey: 'cat_beverages' },
-  { id: 'Breakfast', tKey: 'cat_breakfast' },
+  { id: 'One-pot rice specials', tKey: 'cat_onepot_rice' },
 ];
 
 // Returns the translated display label for a category definition.
@@ -26,47 +28,67 @@ const catLabel = (cat, t) => (cat && cat.tKey ? t(cat.tKey) : cat?.label || cat?
 
 /* ─── Static fallback data ────────────────────────────────────────────────── */
 const STATIC_ITEMS = [
-  { id: 's1', nameEN: 'Samosa', nameDE: 'Samosa', descriptionEN: 'Crispy pastry filled with spiced potatoes and peas, served with mint chutney.', descriptionDE: 'Knuspriges Gebäck mit gewürzten Kartoffeln und Erbsen, serviert mit Minzchutney.', price: 5.90, category: 'Appetizers', isVegetarian: true, image: null },
-  { id: 's2', nameEN: 'Onion Bhaji', nameDE: 'Zwiebel-Bhaji', descriptionEN: 'Golden fried onion fritters with herbs and spices.', descriptionDE: 'Goldbraun gebratene Zwiebelküchlein mit Kräutern und Gewürzen.', price: 6.50, category: 'Appetizers', isVegetarian: true, image: null },
-  { id: 's3', nameEN: 'Seekh Kebab', nameDE: 'Seekh Kebab', descriptionEN: 'Minced lamb skewers marinated in aromatic spices, grilled to perfection.', descriptionDE: 'Lammhackfleisch-Spieße, in aromatischen Gewürzen mariniert und gegrillt.', price: 9.90, category: 'Appetizers', isVegetarian: false, image: null },
-  { id: 's4', nameEN: 'Chicken Tikka', nameDE: 'Hühnchen Tikka', descriptionEN: 'Tender chicken chunks marinated in yogurt and spices, cooked in tandoor.', descriptionDE: 'Zartes Hühnchenfleisch in Joghurt und Gewürzen mariniert, im Tandoor gegart.', price: 10.50, category: 'Appetizers', isVegetarian: false, image: null },
-  { id: 's5', nameEN: 'Paneer Tikka', nameDE: 'Paneer Tikka', descriptionEN: 'Indian cottage cheese marinated in spices, grilled with peppers and onions.', descriptionDE: 'Indischer Frischkäse in Gewürzen mariniert, mit Paprika und Zwiebeln gegrillt.', price: 9.50, category: 'Appetizers', isVegetarian: true, image: null },
-  { id: 's6', nameEN: 'Vegetable Pakora', nameDE: 'Gemüse Pakora', descriptionEN: 'Assorted vegetable fritters in spiced gram flour batter, served with chutney.', descriptionDE: 'Gemischte Gemüsefritter in gewürztem Kichererbsenmehl, serviert mit Chutney.', price: 7.50, category: 'Appetizers', isVegetarian: true, image: null },
-  { id: 's7', nameEN: 'Fish Amritsari', nameDE: 'Fisch Amritsari', descriptionEN: 'Crispy fried fish fillets marinated in Punjabi spices and carom seeds.', descriptionDE: 'Knusprig gebratene Fischfilets in Punjabi-Gewürzen und Ajowan-Samen mariniert.', price: 11.90, category: 'Appetizers', isVegetarian: false, image: null },
+  // Appetizers (all served with mint chutney)
+  { id: 'a1', nameEN: 'Chicken Pakoda NV', nameDE: 'Chicken Pakoda NV', descriptionEN: 'Crispy spiced chicken fritters, served with mint chutney.', descriptionDE: 'Knusprige, gewürzte Hähnchenfrittier, serviert mit Minzchutney.', price: 8.50, category: 'Appetizers', isVegetarian: false, image: null },
+  { id: 'a2', nameEN: 'Onion Pakoda', nameDE: 'Onion Pakoda', descriptionEN: 'Golden fried onion fritters with herbs and spices, served with mint chutney.', descriptionDE: 'Goldbraun gebratene Zwiebelfrittier mit Kräutern und Gewürzen, serviert mit Minzchutney.', price: 5.90, category: 'Appetizers', isVegetarian: true, image: null },
+  { id: 'a3', nameEN: 'Sabji Pakoda', nameDE: 'Sabji Pakoda', descriptionEN: 'Assorted vegetable fritters in spiced gram flour, served with mint chutney.', descriptionDE: 'Gemischte Gemüsefrittier in gewürztem Kichererbsenmehl, serviert mit Minzchutney.', price: 5.90, category: 'Appetizers', isVegetarian: true, image: null },
+  { id: 'a4', nameEN: 'Paneer Bajji', nameDE: 'Paneer Bajji', descriptionEN: 'Indian cottage cheese slices in a spiced batter, served with mint chutney.', descriptionDE: 'Indischer Frischkäse in gewürztem Teig, serviert mit Minzchutney.', price: 6.90, category: 'Appetizers', isVegetarian: true, image: null },
+  { id: 'a5', nameEN: 'Aloo Bajji', nameDE: 'Aloo Bajji', descriptionEN: 'Spiced potato slices dipped in batter and fried, served with mint chutney.', descriptionDE: 'Gewürzte Kartoffelscheiben im Teig frittiert, serviert mit Minzchutney.', price: 5.50, category: 'Appetizers', isVegetarian: true, image: null },
+  { id: 'a6', nameEN: 'Mirchi Bajji', nameDE: 'Mirchi Bajji', descriptionEN: 'Green chilies stuffed and fried in a spiced batter, served with mint chutney.', descriptionDE: 'Gefüllte grüne Chilis in gewürztem Teig frittiert, serviert mit Minzchutney.', price: 5.90, category: 'Appetizers', isVegetarian: true, image: null },
+  { id: 'a7', nameEN: 'Egg Bajji E', nameDE: 'Egg Bajji E', descriptionEN: 'Hard-boiled eggs in spiced batter, fried golden, served with mint chutney.', descriptionDE: 'Hartgekochte Eier in gewürztem Teig goldbraun frittiert, serviert mit Minzchutney.', price: 6.50, category: 'Appetizers', isVegetarian: false, image: null },
 
-  { id: 'm1', nameEN: 'Butter Chicken', nameDE: 'Butter Chicken', descriptionEN: 'Tender chicken in a rich, creamy tomato sauce with aromatic spices and butter.', descriptionDE: 'Zartes Hühnchen in einer reichhaltigen, cremigen Tomatensauce mit aromatischen Gewürzen.', price: 17.90, category: 'Main Courses', isVegetarian: false, image: null },
-  { id: 'm2', nameEN: 'Palak Paneer', nameDE: 'Palak Paneer', descriptionEN: 'Fresh cottage cheese in a silky spinach sauce seasoned with ginger and garlic.', descriptionDE: 'Frischer Käse in einer seidigen Spinatsauce mit Ingwer und Knoblauch.', price: 16.50, category: 'Main Courses', isVegetarian: true, image: null },
-  { id: 'm3', nameEN: 'Lamb Rogan Josh', nameDE: 'Lamm Rogan Josh', descriptionEN: 'Slow-cooked tender lamb in a Kashmiri spice sauce, full of depth and warmth.', descriptionDE: 'Langsam geschmortes Lammfleisch in einer Kaschmir-Gewürzsauce.', price: 19.90, category: 'Main Courses', isVegetarian: false, image: null },
-  { id: 'm4', nameEN: 'Dal Makhani', nameDE: 'Dal Makhani', descriptionEN: 'Black lentils slow-cooked overnight with butter and cream, smoky and velvety.', descriptionDE: 'Schwarze Linsen, über Nacht mit Butter und Rahm geschmort.', price: 15.90, category: 'Main Courses', isVegetarian: true, image: null },
-  { id: 'm5', nameEN: 'Chicken Biryani', nameDE: 'Hühnchen Biryani', descriptionEN: 'Fragrant basmati rice layered with spiced chicken and caramelised onions.', descriptionDE: 'Duftender Basmati-Reis mit gewürztem Hühnchen und karamellisierten Zwiebeln.', price: 18.50, category: 'Main Courses', isVegetarian: false, image: null },
-  { id: 'm6', nameEN: 'Vegetable Korma', nameDE: 'Gemüse Korma', descriptionEN: 'Mixed vegetables in a mild, creamy sauce with cashews and aromatic spices.', descriptionDE: 'Gemischtes Gemüse in einer milden, cremigen Sauce mit Cashewnüssen.', price: 15.50, category: 'Main Courses', isVegetarian: true, image: null },
-  { id: 'm7', nameEN: 'Prawn Masala', nameDE: 'Garnelen Masala', descriptionEN: 'Juicy prawns cooked in a tangy tomato and onion masala with coastal spices.', descriptionDE: 'Saftige Garnelen in einem würzigen Tomaten-Zwiebel-Masala mit Küstengewürzen.', price: 20.90, category: 'Main Courses', isVegetarian: false, image: null },
-  { id: 'm8', nameEN: 'Aloo Gobi', nameDE: 'Aloo Gobi', descriptionEN: 'Classic dry-style cauliflower and potato curry with turmeric, cumin and coriander.', descriptionDE: 'Klassisches trockenes Blumenkohl-Kartoffel-Curry mit Kurkuma und Kreuzkümmel.', price: 14.90, category: 'Main Courses', isVegetarian: true, image: null },
+  // South Indian Classics
+  { id: 'si1', nameEN: 'Idly', nameDE: 'Idly', descriptionEN: 'Steamed rice cakes served with sambar and peanut, coconut, ginger and tomato chutneys.', descriptionDE: 'Gedämpfte Reisküchlein, serviert mit Sambar und Erdnuss-, Kokos-, Ingwer- und Tomatenchutney.', price: 7.50, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si2', nameEN: 'Plain Dosa', nameDE: 'Plain Dosa', descriptionEN: 'Crispy rice and lentil crepe served with chutney and sambar.', descriptionDE: 'Knuspriger Reis-Linsen-Crêpe, serviert mit Chutney und Sambar.', price: 8.50, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si3', nameEN: 'Masala Dosa', nameDE: 'Masala Dosa', descriptionEN: 'Crispy dosa stuffed with spiced potato masala, served with chutney and sambar.', descriptionDE: 'Knusprige Dosa gefüllt mit gewürztem Kartoffelmasala, serviert mit Chutney und Sambar.', price: 9.90, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si4', nameEN: 'Pesarattu', nameDE: 'Pesarattu', descriptionEN: 'Green gram savoury pancake served with upma.', descriptionDE: 'Herzhafter Pfannkuchen aus Mungbohnen, serviert mit Upma.', price: 9.50, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si5', nameEN: 'Garelu', nameDE: 'Garelu', descriptionEN: 'Crispy lentil vadas served with chutney.', descriptionDE: 'Knusprige Linsen-Vadas, serviert mit Chutney.', price: 7.90, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si6', nameEN: 'Masala Vada', nameDE: 'Masala Vada', descriptionEN: 'Spiced chana dal vadas with onion and herbs.', descriptionDE: 'Gewürzte Chana-Dal-Vadas mit Zwiebeln und Kräutern.', price: 7.90, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si7', nameEN: 'Idiyappam', nameDE: 'Idiyappam', descriptionEN: 'Delicate rice flour string hoppers.', descriptionDE: 'Zarte Reisnudel-Nester aus Reismehl.', price: 8.50, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si8', nameEN: 'Appam', nameDE: 'Appam', descriptionEN: 'Lacy soft rice pancakes with a tender centre.', descriptionDE: 'Zarte Reispfannkuchen mit weicher Mitte.', price: 8.50, category: 'South Indian Classics', isVegetarian: true, image: null },
+  { id: 'si9', nameEN: 'Mini Tiffin', nameDE: 'Mini Tiffin', descriptionEN: 'Small portions of dosa, idly, vada, kesari and pongal.', descriptionDE: 'Kleine Portionen von Dosa, Idly, Vada, Kesari und Pongal.', price: 11.90, category: 'South Indian Classics', isVegetarian: true, image: null },
 
-  { id: 'sa1', nameEN: 'Garlic Naan', nameDE: 'Knoblauch Naan', descriptionEN: 'Soft leavened bread topped with garlic and coriander, baked in the tandoor.', descriptionDE: 'Weiches Hefebrot mit Knoblauch und Koriander im Tandoor gebacken.', price: 4.50, category: 'Sides & Accompaniments', isVegetarian: true, image: null },
-  { id: 'sa2', nameEN: 'Paratha', nameDE: 'Paratha', descriptionEN: 'Whole-wheat flaky flatbread, layered and pan-fried to golden perfection.', descriptionDE: 'Vollkorn-Blätterteigbrot, geschichtet und goldbraun gebraten.', price: 4.00, category: 'Sides & Accompaniments', isVegetarian: true, image: null },
-  { id: 'sa3', nameEN: 'Raita', nameDE: 'Raita', descriptionEN: 'Cool yogurt with cucumber, mint, and a touch of cumin — the perfect accompaniment.', descriptionDE: 'Kühler Joghurt mit Gurke, Minze und Kreuzkümmel.', price: 3.50, category: 'Sides & Accompaniments', isVegetarian: true, image: null },
-  { id: 'sa4', nameEN: 'Steamed Basmati', nameDE: 'Gedämpfter Basmati', descriptionEN: 'Fluffy long-grain basmati rice steamed with whole spices.', descriptionDE: 'Lockerer Langkorn-Basmati-Reis mit ganzen Gewürzen gedämpft.', price: 3.90, category: 'Sides & Accompaniments', isVegetarian: true, image: null },
+  // Biryani
+  { id: 'bi1', nameEN: 'Veg dum Biryani', nameDE: 'Veg dum Biryani', descriptionEN: 'Fragrant basmati rice layered with vegetables and spices, served with raita.', descriptionDE: 'Duftender Basmati-Reis mit Gemüse und Gewürzen, serviert mit Raita.', price: 14.50, category: 'Biryani', isVegetarian: true, image: null },
+  { id: 'bi2', nameEN: 'Chicken dum Biryani NV', nameDE: 'Chicken dum Biryani NV', descriptionEN: 'Basmati rice layered with spiced chicken, cooked dum-style, served with raita.', descriptionDE: 'Basmati-Reis mit gewürztem Hähnchen, im Dum-Stil gegart, serviert mit Raita.', price: 16.90, category: 'Biryani', isVegetarian: false, image: null },
+  { id: 'bi3', nameEN: 'Mutton dum Biryani NV', nameDE: 'Mutton dum Biryani NV', descriptionEN: 'Basmati rice layered with tender spiced mutton, served with raita.', descriptionDE: 'Basmati-Reis mit zartem gewürztem Lammfleisch, serviert mit Raita.', price: 18.50, category: 'Biryani', isVegetarian: false, image: null },
 
-  { id: 'sn1', nameEN: 'Dal Soup', nameDE: 'Dal-Suppe', descriptionEN: 'Light yellow lentil soup tempered with mustard seeds, curry leaves and ginger.', descriptionDE: 'Leichte gelbe Linsensuppe mit Senfkörnern, Curryblättern und Ingwer.', price: 5.90, category: 'Snacks', isVegetarian: true, image: null },
-  { id: 'sn2', nameEN: 'Mulligatawny Soup', nameDE: 'Mulligatawny-Suppe', descriptionEN: 'Hearty chicken and lentil soup with apples and coconut milk.', descriptionDE: 'Herzhafte Hühnchen-Linsen-Suppe mit Äpfeln und Kokosmilch.', price: 6.90, category: 'Snacks', isVegetarian: false, image: null },
-  { id: 'sn3', nameEN: 'Pappadum Basket', nameDE: 'Pappadum-Korb', descriptionEN: 'Crispy lentil wafers served with three house chutneys.', descriptionDE: 'Knusprige Linsenfladen mit drei Hauschautneys.', price: 4.90, category: 'Snacks', isVegetarian: true, image: null },
+  // Curries
+  { id: 'c1', nameEN: 'Butter Chicken NV', nameDE: 'Butter Chicken NV', descriptionEN: 'Tender chicken in a rich, creamy tomato sauce with aromatic spices.', descriptionDE: 'Zartes Hühnchen in einer reichhaltigen, cremigen Tomatensauce mit aromatischen Gewürzen.', price: 17.90, category: 'Curries', isVegetarian: false, image: null },
+  { id: 'c2', nameEN: 'Kadai Paneer', nameDE: 'Kadai Paneer', descriptionEN: 'Paneer and peppers cooked in a spicy kadai masala.', descriptionDE: 'Paneer und Paprika in würziger Kadai-Masala gegart.', price: 15.90, category: 'Curries', isVegetarian: true, image: null },
+  { id: 'c3', nameEN: 'Mutton Marag NV', nameDE: 'Mutton Marag NV', descriptionEN: 'Hyderabadi-style mutton stew, served with Idiyappam or Appam.', descriptionDE: 'Lamm-Eintopf nach Hyderabadi-Art, serviert mit Idiyappam oder Appam.', price: 19.50, category: 'Curries', isVegetarian: false, image: null },
 
-  { id: 'd1', nameEN: 'Gulab Jamun', nameDE: 'Gulab Jamun', descriptionEN: 'Soft milk-solid dumplings soaked in rose-cardamom sugar syrup.', descriptionDE: 'Weiche Milchklöße in Rosen-Kardamom-Zuckersirup.', price: 5.90, category: 'Desserts', isVegetarian: true, image: null },
-  { id: 'd2', nameEN: 'Kulfi', nameDE: 'Kulfi', descriptionEN: 'Traditional Indian ice cream with pistachio and cardamom.', descriptionDE: 'Traditionelles indisches Eis mit Pistazien und Kardamom.', price: 6.50, category: 'Desserts', isVegetarian: true, image: null },
-  { id: 'd3', nameEN: 'Rasmalai', nameDE: 'Rasmalai', descriptionEN: 'Delicate cheese dumplings in sweetened saffron-cardamom milk.', descriptionDE: 'Zarte Käseklöße in gesüßter Safran-Kardamom-Milch.', price: 6.90, category: 'Desserts', isVegetarian: true, image: null },
+  // Thalis
+  { id: 't1', nameEN: 'Veg Thali', nameDE: 'Veg Thali', descriptionEN: 'Dal with veg, a fry, white rice, sambar, sweet and pickle.', descriptionDE: 'Dal mit Gemüse, einer Beilage, weißem Reis, Sambar, Süßigkeit und Pickle.', price: 16.50, category: 'Thalis', isVegetarian: true, image: null },
+  { id: 't2', nameEN: 'Non-Veg Thali NV', nameDE: 'Non-Veg Thali NV', descriptionEN: 'Curry, fry, white rice, rasam, sweet and pickle.', descriptionDE: 'Curry, Beilage, weißer Reis, Rasam, Süßigkeit und Pickle.', price: 18.90, category: 'Thalis', isVegetarian: false, image: null },
 
-  { id: 'k1', nameEN: 'Chicken Nuggets & Fries', nameDE: 'Chicken Nuggets & Pommes', descriptionEN: 'Crispy baked chicken nuggets with golden fries and ketchup.', descriptionDE: 'Knusprige Hühnchen-Nuggets mit goldenen Pommes und Ketchup.', price: 8.90, category: 'Kids Menu', isVegetarian: false, image: null },
-  { id: 'k2', nameEN: 'Mini Paneer Wrap', nameDE: 'Mini Paneer Wrap', descriptionEN: 'Soft wrap with mild paneer, cucumber and sweet chutney.', descriptionDE: 'Weicher Wrap mit mildem Paneer, Gurke und süßem Chutney.', price: 7.90, category: 'Kids Menu', isVegetarian: true, image: null },
-  { id: 'k3', nameEN: 'Mini Dal & Rice', nameDE: 'Mini Dal & Reis', descriptionEN: 'Gentle yellow dal with basmati rice and a side of yogurt.', descriptionDE: 'Milder gelber Dal mit Basmati-Reis und Joghurt.', price: 7.50, category: 'Kids Menu', isVegetarian: true, image: null },
+  // Soups
+  { id: 'so1', nameEN: 'Dal Soup', nameDE: 'Dal-Suppe', descriptionEN: 'Light yellow lentil soup tempered with spices.', descriptionDE: 'Leichte gelbe Linsensuppe, mit Gewürzen abgeschmeckt.', price: 4.90, category: 'Soups', isVegetarian: true, image: null },
+  { id: 'so2', nameEN: 'Rasam', nameDE: 'Rasam', descriptionEN: 'Tangy spiced tamarind-pepper soup.', descriptionDE: 'Würzige Tamarinden-Pfeffer-Suppe.', price: 4.50, category: 'Soups', isVegetarian: true, image: null },
+  { id: 'so3', nameEN: 'Chicken Soup NV', nameDE: 'Chicken Soup NV', descriptionEN: 'Hearty chicken broth with aromatic spices.', descriptionDE: 'Herzhafte Hühnerbrühe mit aromatischen Gewürzen.', price: 5.90, category: 'Soups', isVegetarian: false, image: null },
 
-  { id: 'b1', nameEN: 'Mango Lassi', nameDE: 'Mango Lassi', descriptionEN: 'Chilled yogurt drink blended with sweet Alphonso mango and a hint of cardamom.', descriptionDE: 'Gekühltes Joghurtgetränk mit süßer Alphonso-Mango und Kardamom.', price: 4.50, category: 'Beverages', isVegetarian: true, image: null },
-  { id: 'b2', nameEN: 'Masala Chai', nameDE: 'Masala Chai', descriptionEN: 'Spiced tea brewed with ginger, cardamom, cinnamon and milk.', descriptionDE: 'Gewürztee mit Ingwer, Kardamom, Zimt und Milch.', price: 3.50, category: 'Beverages', isVegetarian: true, image: null },
-  { id: 'b3', nameEN: 'Fresh Lime Soda', nameDE: 'Frische Limette Soda', descriptionEN: 'Sparkling water with freshly squeezed lime and a pinch of black salt.', descriptionDE: 'Sprudelwasser mit frisch gepresster Limette und einer Prise schwarzem Salz.', price: 3.50, category: 'Beverages', isVegetarian: true, image: null },
-  { id: 'b4', nameEN: 'Rose Sharbat', nameDE: 'Rosen-Sharbat', descriptionEN: 'Chilled rose-petal syrup drink with basil seeds and milk.', descriptionDE: 'Gekühltes Rosenblüten-Sirupgetränk mit Basilikumsamen und Milch.', price: 4.00, category: 'Beverages', isVegetarian: true, image: null },
+  // Salads
+  { id: 'sa1', nameEN: 'Tawa Chicken Salad NV', nameDE: 'Tawa Chicken Salad NV', descriptionEN: 'Grilled tawa chicken tossed with fresh salad greens.', descriptionDE: 'Gegrilltes Tawa-Hähnchen auf frischen Salatblättern.', price: 9.50, category: 'Salads', isVegetarian: false, image: null },
+  { id: 'sa2', nameEN: 'Green Salad', nameDE: 'Green Salad', descriptionEN: 'Fresh seasonal greens with cucumber, tomato and onion.', descriptionDE: 'Frisches Saisongemüse mit Gurke, Tomate und Zwiebel.', price: 6.50, category: 'Salads', isVegetarian: true, image: null },
 
-  { id: 'br1', nameEN: 'Masala Omelette', nameDE: 'Masala-Omelett', descriptionEN: 'Fluffy eggs cooked with onion, tomato, green chili and coriander.', descriptionDE: 'Lockere Eier mit Zwiebeln, Tomaten, grüner Chili und Koriander.', price: 9.90, category: 'Breakfast', isVegetarian: true, image: null },
-  { id: 'br2', nameEN: 'Aloo Paratha', nameDE: 'Aloo Paratha', descriptionEN: 'Whole-wheat flatbread stuffed with spiced mashed potatoes, served with butter.', descriptionDE: 'Vollkornfladenbrot mit gewürztem Kartoffelpüree, serviert mit Butter.', price: 10.50, category: 'Breakfast', isVegetarian: true, image: null },
+  // Drinks
+  { id: 'dr1', nameEN: 'Indian Tea', nameDE: 'Indischer Tee', descriptionEN: 'Spiced Indian tea brewed with milk.', descriptionDE: 'Gewürzter indischer Tee, mit Milch gebrüht.', price: 2.90, category: 'Drinks', isVegetarian: true, image: null },
+  { id: 'dr2', nameEN: 'Sweet Lassi', nameDE: 'Sweet Lassi', descriptionEN: 'Chilled sweet yogurt drink.', descriptionDE: 'Gekühltes süßes Joghurtgetränk.', price: 3.90, category: 'Drinks', isVegetarian: true, image: null },
+  { id: 'dr3', nameEN: 'Salt Lassi', nameDE: 'Salt Lassi', descriptionEN: 'Chilled salty yogurt drink with cumin.', descriptionDE: 'Gekühltes salziges Joghurtgetränk mit Kreuzkümmel.', price: 3.90, category: 'Drinks', isVegetarian: true, image: null },
+  { id: 'dr4', nameEN: 'Mango Lassi', nameDE: 'Mango Lassi', descriptionEN: 'Chilled yogurt drink blended with sweet mango.', descriptionDE: 'Gekühltes Joghurtgetränk mit süßer Mango.', price: 4.50, category: 'Drinks', isVegetarian: true, image: null },
+  { id: 'dr5', nameEN: 'Elderflower Juice (Holunder Saft)', nameDE: 'Elderflower Juice (Holunder Saft)', descriptionEN: 'Refreshing elderflower juice.', descriptionDE: 'Erfrischender Holundersaft.', price: 4.50, category: 'Drinks', isVegetarian: true, image: null },
+
+  // Desserts
+  { id: 'de1', nameEN: 'Gulab Jamun', nameDE: 'Gulab Jamun', descriptionEN: 'Soft milk-solid dumplings soaked in rose-cardamom sugar syrup.', descriptionDE: 'Weiche Milchklöße in Rosen-Kardamom-Zuckersirup.', price: 5.90, category: 'Desserts', isVegetarian: true, image: null },
+  { id: 'de2', nameEN: 'Laddu', nameDE: 'Laddu', descriptionEN: 'Sweet gram flour balls with ghee and nuts.', descriptionDE: 'Süße Kichererbsenmehl-Kugeln mit Ghee und Nüssen.', price: 5.50, category: 'Desserts', isVegetarian: true, image: null },
+  { id: 'de3', nameEN: 'Rava Kesari', nameDE: 'Rava Kesari', descriptionEN: 'Semolina pudding with ghee, saffron and nuts.', descriptionDE: 'Grießpudding mit Ghee, Safran und Nüssen.', price: 5.90, category: 'Desserts', isVegetarian: true, image: null },
+  { id: 'de4', nameEN: 'Payasam', nameDE: 'Payasam', descriptionEN: 'Traditional rice and milk pudding with jaggery and nuts.', descriptionDE: 'Traditioneller Reis-Milch-Pudding mit Jaggery und Nüssen.', price: 6.50, category: 'Desserts', isVegetarian: true, image: null },
+
+  // One-pot rice specials
+  { id: 'op1', nameEN: 'Dal Rice', nameDE: 'Dal Rice', descriptionEN: 'Rice cooked with spiced dal.', descriptionDE: 'Reis mit gewürztem Dal gekocht.', price: 9.90, category: 'One-pot rice specials', isVegetarian: true, image: null },
+  { id: 'op2', nameEN: 'Bisibelebath', nameDE: 'Bisibelebath', descriptionEN: 'Spicy rice and lentil dish with vegetables and tamarind.', descriptionDE: 'Würzige Reis-Linsen-Speise mit Gemüse und Tamarinde.', price: 10.90, category: 'One-pot rice specials', isVegetarian: true, image: null },
+  { id: 'op3', nameEN: 'Pongal', nameDE: 'Pongal', descriptionEN: 'Creamy rice and moong dal with pepper and ghee.', descriptionDE: 'Cremiger Reis mit Mungbohnen, Pfeffer und Ghee.', price: 9.50, category: 'One-pot rice specials', isVegetarian: true, image: null },
+  { id: 'op4', nameEN: 'Uppma & Kesari', nameDE: 'Uppma & Kesari', descriptionEN: 'Savoury semolina upma served with sweet rava kesari.', descriptionDE: 'Herzhaftes Grieß-Upma mit süßem Rava-Kesari.', price: 9.90, category: 'One-pot rice specials', isVegetarian: true, image: null },
 ];
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */

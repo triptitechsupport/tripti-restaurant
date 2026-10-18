@@ -2,7 +2,7 @@ import { ICON_SPARKLES } from '../../constants/icons.js';
 import { ANNOTATION_MARKER_STYLES } from './styles.js';
 import { getEditId } from '../../constants/selectors.js';
 import { setComments } from '../../state/annotation-state.js';
-import { getAppRoot } from '../../utils/dom-utils.js';
+import { getAppRoot, isolateEditorUiEvents } from '../../utils/dom-utils.js';
 import {
 	showHoverOutline, holdHoverOutline, releaseHoverOutline, lockHoverOutline,
 	HOVER_OUTLINE_CLASS, LOCKED_OUTLINE_CLASS,
@@ -251,6 +251,7 @@ function createMarkerEntry({ comment, targets, relativeX, relativeY, fixed, rout
 		onMarkerClick(comment, event.clientX, event.clientY);
 	});
 
+	isolateEditorUiEvents(marker);
 	document.body.appendChild(marker);
 
 	_markers.push(entry);

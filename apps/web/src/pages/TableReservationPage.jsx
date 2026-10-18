@@ -16,7 +16,6 @@ import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
@@ -33,8 +32,8 @@ const isTimeSlotValid = (selectedDate, timeString) => {
 };
 
 const TIME_SLOTS = [
-  "11:00", "11:30", "12:00", "12:30", "13:00",
-  "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30"
+  "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
+  "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30",
 ];
 
 export default function TableReservationPage() {
@@ -43,6 +42,7 @@ export default function TableReservationPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [closedWeekday, setClosedWeekday] = useState(3); // default Wednesday
   const [closedDates, setClosedDates] = useState([]);
+  const [specialRequestsPlaceholder, setSpecialRequestsPlaceholder] = useState('');
 
   useEffect(() => {
     pb.collection('restaurant_hours').getList(1, 1, { $autoCancel: false })
@@ -51,7 +51,18 @@ export default function TableReservationPage() {
     pb.collection('closed_dates').getFullList({ $autoCancel: false })
       .then(setClosedDates)
       .catch(() => { });
-  }, []);
+    pb.collection('reservation_form_settings').getList(1, 1, { $autoCancel: false })
+      .then((res) => {
+        if (res.items.length > 0) {
+          setSpecialRequestsPlaceholder(
+            language === 'de'
+              ? (res.items[0].specialRequestsPlaceholderDE || '')
+              : (res.items[0].specialRequestsPlaceholderEN || ''),
+          );
+        }
+      })
+      .catch(() => { });
+  }, [language]);
 
   const reservationSchema = useMemo(() => z.object({
     guestName: z.string().min(2, t('guestNameErr')),
@@ -64,7 +75,6 @@ export default function TableReservationPage() {
     date: z.date({ required_error: t('dateErr') }),
     time: z.string().min(1, t('timeErr')),
     guests: z.string().min(1, t('guestsErr')),
-    kidsUnder3: z.boolean().default(false),
     specialRequests: z.string().max(250, 'Max 250 characters').optional(),
   }).superRefine((data, ctx) => {
     if (data.date && data.time) {
@@ -81,14 +91,12 @@ export default function TableReservationPage() {
   const { register, handleSubmit, control, formState: { errors }, setValue, watch, trigger } = useForm({
     resolver: zodResolver(reservationSchema),
     defaultValues: {
-      kidsUnder3: false,
       specialRequests: '',
     }
   });
 
   const selectedDate = watch('date');
   const selectedTime = watch('time');
-  const kidsUnder3 = watch('kidsUnder3');
   const specialRequests = watch('specialRequests') || '';
 
   const handleDateSelect = (date) => {
@@ -113,7 +121,6 @@ export default function TableReservationPage() {
         paymentStatus: 'unpaid',
         childrenChairsNeeded: false,
         numberOfChildrenChairs: 0,
-        kidsUnder3: data.kidsUnder3,
         specialRequests: data.specialRequests || '',
       };
 
@@ -351,31 +358,6 @@ export default function TableReservationPage() {
                   <div className="h-px bg-secondary/50 flex-1"></div>
                 </div>
 
-                {/* Kids under 3 Card */}
-                <motion.div
-                  whileHover={{ scale: 1.01 }}
-                  className="group relative flex flex-row items-center justify-between gap-6 p-6 md:p-8 rounded-3xl border border-primary/20 bg-gradient-to-br from-card to-primary/5 hover:border-secondary/50 hover:shadow-md hover:shadow-secondary/10 transition-all duration-500 overflow-hidden"
-                >
-                  <div className="absolute -top-12 -right-12 w-24 h-24 bg-secondary/20 rounded-full blur-2xl group-hover:bg-secondary/30 transition-colors duration-500 pointer-events-none" />
-
-                  <div className="relative z-10">
-                    <Label className="text-lg md:text-xl font-serif font-bold text-primary cursor-pointer flex items-center gap-2" htmlFor="kidsUnder3">
-                      {t('kidsField')}
-                    </Label>
-                  </div>
-
-                  <div className="flex items-center gap-4 ml-auto relative z-10 bg-background/80 p-2.5 rounded-2xl border border-border/60 shadow-sm backdrop-blur-sm">
-                    <Switch
-                      id="kidsUnder3"
-                      checked={kidsUnder3}
-                      onCheckedChange={(val) => {
-                        setValue('kidsUnder3', val, { shouldValidate: true });
-                      }}
-                      className="data-[state=checked]:bg-primary"
-                    />
-                  </div>
-                </motion.div>
-
                 {/* Special Requests */}
                 <div className="space-y-2">
                   <div className="relative">
@@ -384,7 +366,7 @@ export default function TableReservationPage() {
                       {...register('specialRequests')}
                       maxLength={250}
                       rows={4}
-                      placeholder={t('additionalRequestsPlaceholder')}
+                      placeholder={specialRequestsPlaceholder || t('additionalRequestsPlaceholder')}
                       className="w-full rounded-xl border border-input bg-background px-4 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-secondary/30 focus:border-primary/50 transition-all duration-200 resize-none"
                     />
                     <p className="text-sm text-muted-foreground text-right mt-1">{specialRequests.length}/250</p>

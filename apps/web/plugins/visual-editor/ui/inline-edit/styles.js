@@ -1,6 +1,7 @@
 import { EDIT_BORDER_COLOR, EDIT_BACKGROUND_COLOR, PANEL_BG, BORDER_COLOR, COLOR_WHITE, Z_INDEX_EDITOR_OVERLAY } from '../../constants/theme.js';
 import { ICON_TEXT_EDIT_CURSOR } from '../../constants/icons.js';
 import { HOVER_OUTLINE_STROKE_WIDTH } from '../../constants/layout.js';
+import { EDITOR_UI_SELECTOR } from '../../constants/selectors.js';
 
 /** Injected CSS for edit-mode hover outlines, contenteditable affordances, and the element-type tooltip. */
 export const EDIT_MODE_STYLES = `
@@ -76,5 +77,9 @@ export const EDIT_MODE_STYLES = `
 	.element-type-tooltip.active {
 		display: block;
 		animation: element-type-tooltip-fade-in 0.2s ease-out forwards;
+	}
+
+	${EDITOR_UI_SELECTOR} {
+		pointer-events: auto;
 	}
 `;

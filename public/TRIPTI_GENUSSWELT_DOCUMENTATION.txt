@@ -1,0 +1,734 @@
+================================================================================
+TRIPTI GENUSSWELT — RESTAURANT WEB APPLICATION
+Complete Implementation & Feature Documentation
+================================================================================
+Document version: 2026-09-27
+Purpose: Plain-text reference of every implemented feature, role, workflow,
+safeguard, and operational rule currently in the application.
+
+This document describes the application as it exists today. It is for
+reference only and does not change any application behavior.
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1.  Overview & Tech Stack
+2.  User Roles & Permissions
+3.  Login Routes & Access Protection
+4.  Session Separation & Simultaneous Login
+5.  Authentication / Logout / Redirect Behavior
+6.  Public / Customer-Facing Workflows
+7.  Admin Dashboard
+8.  Admin Data Explorer & Analysis
+9.  Waiter & Stock Manager Account Management
+10. Order Placement & Table Management
+11. Combined-Table Release (Shared & Linked Orders)
+12. KOT Printing — Rules, Formatting & Options
+13. Stock & Waste Management
+14. Inventory Alerts
+15. CSV Import / Export
+16. Lots, FIFO, Expiry, Barcode, Audit History & Deletion Rules
+17. Waiter Timesheets
+18. Staff Chat & Calls
+19. Responsive / Save / Delete Behavior
+20. Integrations & Operational Details
+21. Preserved Data & Safeguards Summary
+
+================================================================================
+1. OVERVIEW & TECH STACK
+================================================================================
+
+Tripti Genusswelt is a bilingual (German / English) restaurant management web
+application built for an Indian restaurant. It serves five distinct audiences
+from a single codebase:
+
+  • Customers (public website visitors)
+  • Admins (restaurant owners / managers)
+  • Waiters (front-of-house staff)
+  • Kitchen / KDS staff (back-of-house)
+  • Stock Managers (inventory & waste staff)
+
+Tech stack:
+  • Frontend: React + Vite + Tailwind CSS (port 3000)
+  • Database / Auth / File storage: PocketBase + SQLite (port 8090)
+  • Backend API: Express.js (port 3001) — used for outbound 3rd-party APIs,
+    secrets, and webhooks only
+  • Online Store: Hostinger ecommerce integration (enabled)
+  • Fonts: Playfair Display (headings) + Plus Jakarta Sans (body)
+  • Language: German is the default; English is selectable via a language
+    switcher in the header (and in the hamburger menu on desktop)
+
+The app is fully bilingual. Every user-facing string (page copy, headings,
+buttons, labels, placeholders, empty states, validation and error messages,
+toast notifications) is translated and follows the selected language.
+
+================================================================================
+2. USER ROLES & PERMISSIONS
+================================================================================
+
+There are five roles. Each role authenticates against its own PocketBase auth
+collection and has a strictly scoped set of permissions enforced by
+PocketBase access rules (the authorization layer).
+
+--------------------------------------------------------------------------------
+2.1 ADMIN (admin_users)
+--------------------------------------------------------------------------------
+  • Full control of the restaurant's digital operations.
+  • Can manage: menu items, categories, translations, online ordering
+    settings, table reservations, tables, KOTs, orders, logs, timesheets,
+    waiter accounts, stock manager accounts, stock items/lots/locations/
+    receipts/issues, waste records, print settings, marquee text, restaurant
+    hours, closed dates, PDF/image menus, reservation form placeholders,
+    site branding/logo, email templates, notification settings.
+  • Can access every staff dashboard (Waiter, KDS, Stock) using their own
+    admin session — no duplicate staff account is created.
+  • Always retains full KOT print access regardless of print settings.
+  • Can create / edit / delete waiter and stock manager accounts.
+  • Can approve / decline customer feedback and reservations.
+
+--------------------------------------------------------------------------------
+2.2 WAITER (waiter_users)
+--------------------------------------------------------------------------------
+  • Logs in with Username + Password.
+  • Can place orders for tables, manage active orders, send orders to the
+    kitchen, print KOTs (subject to print settings), mark items served,
+    end orders, free tables, settle payments, combine tables (shared or
+    linked), cancel pending tickets, and view order history.
+  • Can clock in / clock out (timesheets).
+  • Can use Staff Chat (private conversations with Admin and Kitchen; never
+    sees other waiters' conversations).
+  • Can send Quick Alerts to Kitchen / Admin.
+  • Cannot access the Admin Dashboard, KDS Dashboard, or Stock Dashboard.
+  • Cannot manage other accounts.
+
+--------------------------------------------------------------------------------
+2.3 KITCHEN / KDS (kds_users)
+--------------------------------------------------------------------------------
+  • Logs in with Username + Password.
+  • Views a live Kitchen Display of all active kitchen orders (KOTs),
+    grouped by parent Order, sorted first-come-first-served.
+  • Advances ticket status: pending → preparing → ready.
+  • Can reprint / resend KOTs (subject to print settings).
+  • Receives sound alerts when new orders arrive and escalation alerts for
+    delayed tickets (pending 5+ minutes).
+  • Can use Staff Chat (Admin + individual waiters via a searchable Waiters
+    dropdown) and send Quick Messages to waiters/admin.
+  • Cannot place orders, manage tables, or access Admin/Stock dashboards.
+
+--------------------------------------------------------------------------------
+2.4 STOCK MANAGER (stock_users)
+--------------------------------------------------------------------------------
+  • Logs in with Username + Password.
+  • Manages inventory: add/edit/delete stock items, adjust stock levels
+    (restock / correction / waste / initial), record waste, manage lots,
+    locations, goods-in (receipts), issues (FIFO), and barcodes.
+  • Can import / export stock items via CSV.
+  • Sees inventory alerts (low stock, out of stock, expiring soon, expired).
+  • Can print barcode labels.
+  • Cannot access Admin / Waiter / KDS dashboards.
+  • Account creation is admin-only (closed sign-up).
+
+--------------------------------------------------------------------------------
+2.5 CUSTOMER (users / guests)
+--------------------------------------------------------------------------------
+  • Public website visitors — no login required to browse the menu, view
+    hours, see approved feedback, or contact the restaurant.
+  • Can submit table reservation requests (pending admin approval).
+  • Can submit customer feedback (pending admin approval).
+  • Online ordering (cart / checkout) is available when the admin has
+    enabled it and within configured ordering hours.
+  • Guest dashboard shows the visitor's own reservations and orders.
+
+================================================================================
+3. LOGIN ROUTES & ACCESS PROTECTION
+================================================================================
+
+Login pages (publicly accessible):
+  • /admin-login   — Admin login (email + password)
+  • /waiter-login  — Waiter login (username + password)
+  • /kds-login     — Kitchen/KDS login (username + password)
+  • /stock-login   — Stock Manager login (username + password)
+
+Route protection:
+  • All /admin/* and /admin-dashboard routes are wrapped in
+    <ProtectedAdminRoute>, which requires a genuinely authenticated
+    admin_users record in the default PocketBase auth store — not merely
+    any logged-in user.
+  • Waiter, KDS, Stock, and guest/customer sessions are never admin_users,
+    so they are blocked from admin routes regardless of how they reached
+    them (direct URL or in-app navigation).
+  • Unauthorized attempts to reach an admin route show a toast
+    "Admin access required. Please sign in with an admin account." and
+    redirect to /admin-login.
+  • Waiter / KDS / Stock dashboards check their own auth store on mount
+    and redirect to their login page if not authenticated. An authenticated
+    admin may view any staff dashboard using their admin session.
+
+================================================================================
+4. SESSION SEPARATION & SIMULTANEOUS LOGIN
+================================================================================
+
+Each staff role uses its own isolated PocketBase LocalAuthStore so multiple
+roles can be signed in on the same device at the same time without
+clobbering each other:
+
+  • Default store (pb_auth): admin_users + guest/customer tokens
+  • pb_waiter_auth: waiter sessions
+  • pb_kds_auth:    KDS sessions
+  • pb_stock_auth:  Stock Manager sessions
+
+Key behaviors:
+  • A waiter logging in does NOT log out a simultaneously-signed-in KDS or
+    Stock Manager — their isolated stores are left untouched.
+  • A staff login clears only the shared default store (to wipe any stale
+    admin/guest token), preventing a staff member from reaching the Admin
+    Dashboard via a leftover admin session.
+  • An admin login clears stale staff tokens symmetrically but preserves
+    the admin's own session.
+  • AdminAuthContext subscribes to the default store's onChange event so
+    the admin-authenticated state always reflects the real store contents.
+  • Logout is an EXPLICIT user action only — never triggered by device
+    sleep, backgrounding, visibility changes, or token refresh failures.
+
+Result: Waiter and KDS (and Stock) can be signed in simultaneously; logging
+in, out, refreshing, or navigating as one role does not invalidate the other.
+
+================================================================================
+5. AUTHENTICATION / LOGOUT / REDIRECT BEHAVIOR
+================================================================================
+
+Login:
+  • Admin: authenticates against admin_users via email + password.
+  • Staff: authenticates against their role collection via username +
+    password using their isolated client.
+  • On success: a toast confirms login; the user is navigated to their
+    dashboard. Optional post-login hooks (e.g. waiter clock-in) run without
+    blocking the login.
+
+Logout:
+  • Admin logout clears the default store and returns to the homepage.
+  • Waiter logout: if a real waiter, clocks out the active timesheet,
+    unsubscribes realtime listeners, clears the waiter store, and redirects
+    to /waiter-login. An admin viewing the Waiter Dashboard simply returns
+    to /admin-dashboard without touching the admin session.
+  • KDS logout: unsubscribes, clears the kds store, redirects to /kds-login
+    (admin viewing returns to /admin-dashboard).
+  • Stock logout: unsubscribes, clears the stock store, redirects to
+    /stock-login (admin viewing returns to /admin-dashboard).
+
+Redirect safety net: after an in-app navigate to the login page, a timeout
+checks the actual URL and forces a hard redirect if a still-mounted
+subscriber intercepted the navigation.
+
+================================================================================
+6. PUBLIC / CUSTOMER-FACING WORKFLOWS
+================================================================================
+
+Homepage:
+  • Hero section with restaurant branding and call-to-action buttons.
+  • Infinite horizontal scrolling image gallery of menu items (auto-scrolls,
+    pauses on hover, shows item name overlay) — dynamically populated from
+    the menu_items collection.
+  • "Explore Full Menu" button and PDF menu links.
+  • Opening hours card (burgundy background, gold accents) showing
+    configurable hours and closure status.
+  • Customer feedback section: a submission form (name + message) on the
+    left and approved guest reviews on the right.
+  • Location / contact / directions section.
+  • Sticky marquee bar below the header showing admin-configured scrolling
+    text, or a red closure message when the restaurant is closed today.
+
+Menu page (/menu):
+  • Two-level carousel: the main carousel navigates categories; an inner
+    carousel navigates items within a category.
+  • Dietary filter bar: All Items / Vegetarian / Non-Veg / Full Menu (PDF).
+  • Left sidebar (desktop) with category checkboxes; mobile slide-in drawer.
+  • Responsive grid: 1 column mobile, 2 columns tablet, 3 columns desktop.
+  • Ordering mode (?order=1) shows add-to-cart controls when online
+    ordering is enabled.
+  • If the admin has uploaded a PDF or image menu and enabled it, the page
+    shows the PDF/image menu instead of the interactive carousel.
+
+Table reservation (/table-reservation):
+  • Form collects guest name, email, phone, date, time, party size,
+    children's chairs (optional), and special requests (admin-editable
+    placeholder text per language).
+  • Closed dates (weekday closure or holiday date ranges) are blocked on
+    the calendar with visual indicators.
+  • On submit, a reservation request is created with status "Pending" and a
+    unique reservation code; the guest is redirected to a confirmation page.
+
+Cart & checkout:
+  • Shopping cart with quantity controls; checkout collects delivery
+    details and processes the order through the Online Store integration.
+  • Online ordering can be disabled by the admin or restricted to certain
+    hours; when unavailable, clear messaging is shown.
+
+Legal pages: bilingual Privacy Policy and Terms of Service linked from the
+footer.
+
+================================================================================
+7. ADMIN DASHBOARD
+================================================================================
+
+The Admin Dashboard (/admin-dashboard, /admin, /admin/bookings) is the
+central control panel. Tabs / sections include:
+
+  • Orders — view and manage customer orders.
+  • KOTs — live view of all kitchen order tickets with delayed-state
+    highlighting and filters (status, delayed).
+  • Reservations — approve / decline / complete reservation requests;
+    assign tables; view a Gantt/timeline chart of reservations.
+  • Tables — configure tables, rooms, capacities, and table settings.
+  • Settings — online ordering toggle & hours, marquee text, restaurant
+    hours / closed weekday, closed dates (holiday ranges), PDF & image menu
+    uploads, site branding / logo, reservation form placeholders, email
+    templates, notification settings, KOT print settings.
+  • Logs — activity logs and system logs.
+  • Timesheets — waiter shift records with date/waiter filters and stats.
+  • Waiters — create / edit / delete waiter accounts.
+  • Stock Managers — create / edit / delete stock manager accounts.
+  • System Settings — translations management and other configurations.
+
+A Stock Alerts Panel appears near the top of the Admin Dashboard when
+inventory items are low, out of stock, expiring soon, or expired, with a
+button to open the Stock Dashboard.
+
+A sticky "pending reservations" attention panel blinks near the top of the
+viewport until all pending reservation requests are handled, then is
+removed from the DOM.
+
+================================================================================
+8. ADMIN DATA EXPLORER & ANALYSIS
+================================================================================
+
+Data Explorer:
+  • Lets the admin browse PocketBase collections and their records directly
+    from the UI (read-only inspection of app data).
+  • Internal hook-managed collections (e.g. kot_counters) are excluded from
+    the browsable list to avoid 403 noise; full KOT data remains visible
+    via the kitchen_orders collection.
+
+Analysis:
+  • Provides charts/summaries of operational data (orders, reservations,
+    KOTs, timesheets, stock) to help the admin understand performance.
+
+================================================================================
+9. WAITER & STOCK MANAGER ACCOUNT MANAGEMENT
+================================================================================
+
+Waiter accounts (admin-managed):
+  • Admin creates accounts with a Username (login ID), Display Name, and
+    Password. Username must be unique; password min 8 characters.
+  • Edit can change display name and reset password (leave blank to keep
+    current). Delete is confirmed with a dialog.
+  • Waiters log in with Username + Password on /waiter-login.
+
+Stock Manager accounts (admin-managed):
+  • Same pattern: Username, Display Name, Password. Unique username;
+    password min 8 characters.
+  • Edit / delete with confirmation dialogs.
+  • Stock Managers log in with Username + Password on /stock-login.
+
+Both account types use closed sign-up — only an admin can provision
+accounts. This keeps staff provisioning controlled.
+
+================================================================================
+10. ORDER PLACEMENT & TABLE MANAGEMENT
+================================================================================
+
+Order Placement (Waiter Dashboard, also available to Admin via Place Order):
+  • "New Order" tab: pick a table (or combine tables), browse menu items by
+    category, add items with quantity controls, set per-item spice level,
+    add order notes.
+  • "Order" tab: review items, choose Order Type (Walk-in; Pre-order is
+    commented out), confirm table, set notes, and "Send to Kitchen".
+  • "Active" tab: sub-tabs for Active Orders and Order History; filter by
+    kitchen status and table; refresh; view grouped order cards with
+    kitchen status, payment state, and per-item paid/unpaid indicators.
+
+Table management:
+  • Tables are configured by the admin (number, room, capacity).
+  • A waiter selects a table to open an order; the table is "locked" while
+    an order is open.
+  • Order lifecycle: open → items sent (KOTs created) → items served →
+    End Order (closes the order; table NOT freed yet) → settle payment →
+    Free Table (releases the table).
+  • Free Table is blocked if the order is still open or has an outstanding
+    balance.
+  • Cancel Ticket is available only while a KOT is "pending"; once
+    preparing/ready, cancellation is blocked with an explanatory message.
+
+================================================================================
+11. COMBINED-TABLE RELEASE (SHARED & LINKED ORDERS)
+================================================================================
+
+Two combination modes:
+
+  • Shared Order ("Shared"): one parent Order spans all member tables with
+    a single combined bill. The full table combination (e.g. "Tables 4 + 5
+    + 6") is read from table_group_members (the source of truth). Freeing
+    closes the entire group and deactivates all members.
+
+  • Linked / Combine Tables ("Linked"): each member table keeps its own
+    independent Order, KOTs, and payment. A group header shows an
+    informational combined total (clearly labelled "info") — payments are
+    NOT merged. "End All" ends every member whose tickets are all resolved;
+    "Free All" frees every member that is ended and fully settled.
+    Ineligible members are skipped, never force-closed or force-freed.
+
+Safeguards:
+  • Free Table resolves the real parent order and always releases
+    combination membership.
+  • Tables with open or unpaid orders are never freed.
+  • Automatic cleanup removes stale combinations that have no live unfreed
+    order.
+  • A manual "Release stuck combined tables" control clears orphaned
+    COMBINED badges.
+  • Tables actively in use during combination linking are protected from
+    being freed.
+  • Loading / success / error feedback and double-submit protection are
+    provided throughout.
+
+================================================================================
+12. KOT PRINTING — RULES, FORMATTING & OPTIONS
+================================================================================
+
+KOT (Kitchen Order Ticket) printing is used by Waiters, Admin (place-order),
+and KDS (reprint). The printed ticket follows these formatting rules:
+
+Paper & layout:
+  • 80 mm thermal paper width.
+  • Left-aligned content (headings, metadata, category headers, item rows,
+    spice/notes, and waiter name all align to the left edge).
+  • Font family: 'Arial Black', 'Courier New', monospace — applied to every
+    element. All text is bold black on white.
+
+Content & order:
+  • "KOT" heading at the very top (h1, ~2rem bold).
+  • Order date and time directly below the "KOT" heading
+    ("Date: … · Time: …").
+  • Whole-order note (if any) next.
+  • Items grouped by category, printed in the admin-configured print_order
+    (categories with an explicit order first, then unordered categories
+    alphabetically, then "Uncategorized" last).
+  • Each category section repeats the Order ID, room, and table so a torn
+    slip still carries full identity.
+  • Item rows show name (+ spice level in parentheses if not "None") and
+    quantity ("xN"). Per-item notes occupy a full-width row beneath the
+    item.
+  • NO prices and NO totals appear anywhere on the KOT.
+  • The waiter / placed-by name appears at the very end, after every
+    category, item, and note.
+
+Category cut separators:
+  • A "Separate categories for cutting" option (in the KOT print options
+    dialog) inserts a clearly visible dashed "— — — CUT HERE — — —"
+    boundary between each category section so the ticket can be physically
+    cut apart by category.
+  • Manual KOT prints default to category-separated mode (checkbox starts
+    checked). The choice resets for every fresh print so it cannot leak.
+  • When separation is off, a single horizontal rule separates sections
+    (continuous layout).
+  • Auto-print paths (no user interaction) bypass the dialog and use
+    default option values.
+
+Font sizes (reduced for compactness):
+  • h1 "KOT": ~2rem
+  • metadata / order ID / room-table / placed-by / datetime: ~0.9rem
+  • category header: ~1.25rem
+  • item name, quantity, spice, item notes: ~1.1rem (consistently reduced)
+
+Print permission gates:
+  • A restaurant-wide print master switch (admin-controlled). When off, no
+    waiter or KDS role can print or auto-print, regardless of individual
+    settings. Admins always retain full print access.
+  • Optional auto-print on KOT creation (prints every new KOT
+    automatically).
+  • Per-waiter print permissions (can only restrict, never expand).
+  • When printing is disabled, controls are hidden and explanatory notices
+    are shown; order status updates are unaffected.
+
+KOT identity:
+  • Each KOT carries the parent Order ID (WI00001 / PO00001 …) plus a
+    per-parent suffix (_001, _002 …) for additional tickets under the same
+    order. Reprints reuse the existing record — no new order or ticket is
+    created; printedAt and printCount are updated for duplicate-protection
+    consistency.
+
+================================================================================
+13. STOCK & WASTE MANAGEMENT
+================================================================================
+
+The Stock Dashboard (/stock-dashboard) is the inventory & waste control
+center for Stock Managers (and Admins). Tabs:
+
+  • Inventory — add / edit / delete stock items; search; low-stock filter;
+    adjust stock levels; print item barcodes; CSV import/export.
+  • Goods-In — record supplier receipts (bills) and create lots.
+  • Issue — issue stock to staff using FIFO lot selection.
+  • Lots — manage individual lots (qty, remaining, expiry, location,
+    barcode, status).
+  • Locations — manage the Room → Fridge → Rack → Box location tree.
+  • Barcodes — generate / print numeric barcode labels; lookup by scan.
+  • Waste — record waste (item, qty, reason, date, responsible, notes) and
+    view waste history with search and reason filter.
+  • History — full stock adjustment audit trail (date, item, type,
+    previous/new qty, change, reason, who).
+
+Stock item fields: name, category, unit, quantity, min stock, barcode
+(numeric), perishable, unit cost, prepared-at datetime, expiry datetime,
+linked menu item (optional), notes.
+
+Adjustment types: restock (+), correction, waste (−), initial count. Every
+level change is logged in stock_adjustments with previous/new qty, delta,
+reason, responsible user, and timestamp — old records are never silently
+edited.
+
+Waste recording: creates a waste_records entry and, if linked to a stock
+item, reduces its quantity and logs a waste adjustment. Waste reasons
+include spoiled, expired, damaged, over-preparation, spill, burnt,
+customer-return, other.
+
+================================================================================
+14. INVENTORY ALERTS
+================================================================================
+
+A reusable Stock Alerts Panel surfaces inventory problems on both the Admin
+Dashboard and the Stock Dashboard:
+
+  • Low stock — item quantity at or below its min stock level.
+  • Out of stock — quantity is zero.
+  • Expiring soon — lots expiring within 7 days (EXPIRY_WARN_DAYS).
+  • Expired — lots past their expiry date.
+
+Behavior:
+  • Fetches items + lots, then refreshes via realtime subscriptions plus a
+    polling fallback so alerts update after imports, adjustments, and
+    goods-in.
+  • Shows item/lot name, quantity, and days-left.
+  • Dismissible.
+  • Provides buttons to open the Stock Dashboard or switch to the relevant
+    tab (inventory / lots).
+  • Renders nothing when stock is healthy (no noise).
+
+================================================================================
+15. CSV IMPORT / EXPORT
+================================================================================
+
+Available for both menu items and stock items via a shared CsvImportExport
+component.
+
+Export:
+  • Downloads all records (using the authenticated client for the role) as
+    a CSV with all relevant fields.
+  • Stock export includes: name, category, unit, quantity, min stock,
+    barcode, perishable, unit cost, prepared/expiry dates, linked menu
+    item, notes.
+
+Import:
+  • Validates each row; shows row-level errors and a preview.
+  • Stock import validates: numeric-only barcodes, expiry ≥ preparation,
+    barcode uniqueness against existing items and lots (with in-batch
+    duplicate protection).
+  • Matched by ID, Name, or Barcode (update existing; create new).
+  • Creates an "initial count" audit adjustment per newly created item.
+  • Uses the authenticated PocketBase client for the role (stock managers
+    authenticate via the isolated stockPb client).
+
+================================================================================
+16. LOTS, FIFO, EXPIRY, BARCODE, AUDIT HISTORY & DELETION RULES
+================================================================================
+
+Lots:
+  • One lot per receipt line: quantity, remaining quantity, expiry,
+    supplier bill, location, barcode, status (active / issued / expired /
+    overridden), received date, prepared-at, notes.
+  • Linked to a stock item and optionally to a receipt and a location.
+
+FIFO issuing:
+  • Active lots with remaining quantity are sorted earliest-expiring first.
+  • Expired lots are excluded unless explicitly overridden (with a reason
+    and audit trail).
+  • allocateFifo fills the needed quantity across lots in order and reports
+    any short quantity and any quantity blocked by expired lots.
+
+Expiry:
+  • daysUntilExpiry / expiryState classify lots as ok / warning (≤7 days) /
+    expired / none.
+  • Expiry must be on or after the preparation date/time (validated on
+    item entry and CSV import).
+
+Barcodes:
+  • Numeric only (digits 0–9), max 40 digits, stored as text to preserve
+    leading zeros.
+  • Generated barcodes are unique against existing items and lots.
+  • Rendered as Code128 via JsBarcode onto canvas/SVG.
+  • Printed as barcode-only labels on 80 mm thermal / A4 layouts (no stock
+    tables, prices, or extra metadata — scanning the number resolves full
+    details in the Stock app).
+  • Barcode lookup by scan resolves to item and/or lot records.
+
+Audit history:
+  • Every stock level change is recorded in stock_adjustments (type, delta,
+    previous/new qty, reason, responsible user + id + role, notes,
+    timestamp).
+  • Waste records and stock issues are append-only from staff (update/delete
+    admin-only).
+  • Old records are never silently edited.
+
+Deletion rules:
+  • A stock item can be deleted by a stock manager or admin.
+  • Deletion is BLOCKED if any lot still has remaining quantity — the user
+    is told to issue or zero those lots first.
+  • On deletion, related rows (adjustments, lots, issues, waste) are
+    UNLINKED (stockItem set to null), not deleted — their denormalized
+    itemName is preserved so audit history survives.
+  • A final audit adjustment is logged noting the item removal.
+  • Barcode regeneration on an existing item is logged in stock history.
+
+================================================================================
+17. WAITER TIMESHEETS
+================================================================================
+
+  • Waiters clock in / clock out from the Waiter Dashboard header.
+  • Each shift records clock-in, clock-out, and computed duration.
+  • A live elapsed timer shows the current shift duration while clocked in.
+  • Clock-out on logout closes the active timesheet automatically.
+  • Admin Timesheets tab shows all shifts with date-range and waiter
+    filters, sort order, and summary stats (total shifts, completed,
+    in-progress, total hours).
+  • Only one active timesheet per waiter is allowed (enforced by a unique
+    partial index on open shifts).
+
+================================================================================
+18. STAFF CHAT & CALLS
+================================================================================
+
+StaffChat is a floating real-time chat widget shared by Admin, Waiter, and
+KDS dashboards.
+
+Messaging:
+  • Messages are user-specific: each stores senderId, recipientId,
+    senderRole, recipientRole, content, read flag, and an optional alert
+    flag.
+  • Admin and KDS see Admin and KDS as top-level conversation tabs, plus a
+    searchable "Waiters" dropdown that opens a private conversation with
+    each individual waiter.
+  • Waiters see Admin and KDS tabs and never see other waiters'
+    conversations (strict user-id matching).
+  • Unread badges, sound pings (toggleable), and auto-mark-as-read on open.
+  • Urgent alerts render with a red alert badge.
+
+Calls (WebRTC-style signaling via staff_calls):
+  • Admin/KDS can ring a single waiter (or role).
+  • Incoming call overlay with Accept / Decline.
+  • Active call bar shows peer, duration, mute toggle, and end call.
+  • Call state: idle → calling → connected → ended.
+
+Quick Alerts (Waiter) and Quick Messages (KDS):
+  • Waiter "Quick Alert" sends an urgent message to Kitchen and/or Admin.
+  • KDS "Quick Message" sends to a waiter or admin, optionally marked
+    urgent.
+
+================================================================================
+19. RESPONSIVE / SAVE / DELETE BEHAVIOR
+================================================================================
+
+Responsive design:
+  • Mobile-first layouts throughout. Touch targets meet 44px minimum.
+  • Menu page: 1/2/3 column grid by breakpoint; mobile slide-in category
+    drawer; swipe hints on mobile carousels.
+  • KDS: flex-wrap header with shrinking icons; horizontal order queue on
+    mobile, vertical on desktop; multi-KOT cards stack vertically on
+    mobile and side-by-side on desktop.
+  • Stock item-entry dialog: viewport-safe on mobile and desktop with an
+    internal scrollable content area; Save/Cancel pinned to a sticky footer
+    with safe-area padding so the buttons are always visible and reachable.
+  • Marquee bar is fixed below the sticky header with a spacer to prevent
+    content hiding behind it.
+
+Save behavior:
+  • Stock item save: after a successful save the dialog STAYS OPEN — in
+    add mode the form resets for the next entry; in edit mode the saved
+    values are retained for continued editing. Clear loading / validation /
+    success / error states with toast notifications. Double-submit
+    protection is enabled.
+  • All forms show inline validation errors and toast feedback.
+
+Delete behavior:
+  • Destructive actions (delete item, delete waiter/stock account, cancel
+    ticket, end order, free table) use confirmation dialogs.
+  • Stock item deletion respects the lot-remaining guard and unlink rule
+    (see section 16).
+  • Deleting a waiter or stock manager account is confirmed and cannot be
+    undone.
+
+================================================================================
+20. INTEGRATIONS & OPERATIONAL DETAILS
+================================================================================
+
+  • PocketBase (enabled): database, auth (per-role collections), file
+    storage (menu images, PDFs, logos), realtime subscriptions, and the
+    built-in mailer + pb_hooks for server-side email and event reactions.
+  • Express API (enabled, port 3001): used for outbound 3rd-party APIs,
+    secrets, and webhooks only. Not used for plain CRUD or auth (those go
+    through PocketBase). Does not run scheduled/cron jobs (instance
+    hibernates when idle).
+  • Online Store (enabled): powers cart, checkout, orders, and payment
+    state for customer online ordering. Offline payment is a store payment
+    method; online card providers are connected by the user in store
+    settings.
+  • Subscriptions / Integrated AI / Reach: NOT enabled in this build.
+  • Language: German default, English selectable; <html lang> is kept in
+    sync with the selected language.
+  • SEO: each public routed page includes its own <Helmet> block with a
+    unique title and meta description.
+  • Connection monitor: a top banner appears if the backend connection is
+    lost and attempts to reconnect.
+  • WhatsApp button: a floating contact button is available on public pages.
+
+Operational notes:
+  • All schema and seed changes are PocketBase migration files under
+    apps/pocketbase/pb_migrations/*.js — never applied via runtime API.
+  • Staff provisioning is admin-only (closed sign-up) for waiters, KDS, and
+    stock managers.
+  • Demo accounts exist for testing (credentials are revealed only in chat,
+    never in the UI): admin, waiter, kds, and stock manager.
+
+================================================================================
+21. PRESERVED DATA & SAFEGUARDS SUMMARY
+================================================================================
+
+Preserved across all features:
+  • All existing menu items, categories, reservations, orders, KOTs,
+    tables, translations, settings, logs, timesheets, stock items, lots,
+    locations, receipts, issues, waste records, adjustments, staff
+    accounts, and customer feedback.
+  • All PocketBase access rules, indexes, and per-role permission models.
+  • All audit history (stock adjustments, waste records, stock issues) —
+    old records are never silently edited or deleted.
+  • All existing credentials and login flows.
+
+Key safeguards:
+  • Strict role-based access — staff can never reach admin routes; each
+    role sees only its own data.
+  • Session isolation — simultaneous Waiter/KDS/Stock login without
+    clobbering; logout is explicit only.
+  • Combined-table release — never frees tables with open/unpaid orders;
+    stuck combinations are auto-cleaned and manually releasable.
+  • KOT printing — restaurant-wide and per-waiter permission gates; admins
+    always retain print access; reprints reuse records (no duplicate
+    orders).
+  • Stock deletion — blocked while lots have remaining quantity; related
+    history is unlinked, not deleted.
+  • CSV import — validates barcodes, expiry-vs-prep, and uniqueness before
+    applying.
+  • Inventory alerts — surface low/out/expiring/expired on both Admin and
+    Stock dashboards with realtime + polling refresh.
+  • Responsive dialogs — save/cancel always visible; viewport-safe on all
+    screen sizes.
+
+================================================================================
+END OF DOCUMENT
+================================================================================

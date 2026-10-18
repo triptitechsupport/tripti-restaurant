@@ -21,6 +21,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { ordersExportColumns } from '@/lib/csvConfigs.js';
 import MobileTableCard from '@/components/MobileTableCard.jsx';
 import { useIsMobile } from '@/hooks/use-mobile.jsx';
 
@@ -147,10 +149,22 @@ export default function OrderManagementTable() {
             className="pl-9 bg-card min-h-touch"
           />
         </div>
-        <Button variant="outline" onClick={fetchOrders} disabled={loading} className="shrink-0 min-h-touch">
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3 shrink-0">
+          <Button variant="outline" onClick={fetchOrders} disabled={loading} className="min-h-touch">
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <CsvImportExport
+            collection="orders"
+            entityLabel="orders"
+            exportFileName="orders.csv"
+            exportColumns={ordersExportColumns}
+            fetchRecords={async () => {
+              const records = await pb.collection('orders').getList(1, 500, { sort: '-created', $autoCancel: false });
+              return records.items;
+            }}
+          />
+        </div>
       </div>
 
       {loading ? (

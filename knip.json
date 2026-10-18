@@ -83,6 +83,7 @@
 				"plugins/vite-plugin-pocketbase-auth.js",
 				"plugins/vite-plugin-site-pages.js",
 				"postcss.config.js",
+				"public/checkout/index.html",
 				"src/api/EcommerceApi.js",
 				"src/api/InternalEcommerceSubscriptionsApi.js",
 				"src/App.jsx",

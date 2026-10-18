@@ -1,26 +1,26 @@
-import path from "node:path";
-import react from "@vitejs/plugin-react";
-import { createLogger, defineConfig } from "vite";
-import inlineEditPlugin from "./plugins/visual-editor/vite-plugin-react-inline-editor.js";
-import editModeDevPlugin from "./plugins/visual-editor/vite-plugin-edit-mode.js";
-import iframeRouteRestorationPlugin from "./plugins/vite-plugin-iframe-route-restoration.js";
-import sitePagesPlugin from "./plugins/vite-plugin-site-pages.js";
-import pocketbaseAuthPlugin from "./plugins/vite-plugin-pocketbase-auth.js";
-import sessionJournalPlugin from "./plugins/session-journal/vite-plugin-session-journal.js";
+import path from 'node:path';
+import react from '@vitejs/plugin-react';
+import { createLogger, defineConfig } from 'vite';
+import inlineEditPlugin from './plugins/visual-editor/vite-plugin-react-inline-editor.js';
+import editModeDevPlugin from './plugins/visual-editor/vite-plugin-edit-mode.js';
+import iframeRouteRestorationPlugin from './plugins/vite-plugin-iframe-route-restoration.js';
+import sitePagesPlugin from './plugins/vite-plugin-site-pages.js';
+import pocketbaseAuthPlugin from './plugins/vite-plugin-pocketbase-auth.js';
+import sessionJournalPlugin from './plugins/session-journal/vite-plugin-session-journal.js';
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from 'node:fs';
 
-const pkg = JSON.parse(readFileSync("./package.json", "utf-8"));
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const allDeps = Object.keys(pkg.dependencies || {});
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = process.env.NODE_ENV !== 'production';
 
 // Only the Horizons editor may read this dev server cross-origin. `cors: true`
 // sends `Access-Control-Allow-Origin: *`, which lets any site read the source
 // transforms and call the dev-only APIs.
 const AllowedEditorOrigins = [
-  "https://horizons.hostinger.com",
-  "https://horizons.hostinger.dev",
+	'https://horizons.hostinger.com',
+	'https://horizons.hostinger.dev',
 ];
 
 const configHorizonsViteErrorHandler = `
@@ -239,7 +239,10 @@ window.fetch = function(...args) {
 				contentType.includes('text/html') ||
 				contentType.includes('application/xhtml+xml');
 
-			if (!response.ok && !isDocumentResponse) {
+			// no-cors requests (e.g. Google Analytics/Ads beacons) always return an opaque
+			const isOpaqueResponse = response.type === 'opaque';
+
+			if (!response.ok && !isDocumentResponse && !isOpaqueResponse) {
 					const responseClone = response.clone();
 					const errorFromRes = await responseClone.text();
 					const requestUrl = response.url;
@@ -297,148 +300,142 @@ if (window.navigation && window.self !== window.top) {
 `;
 
 const addTransformIndexHtml = {
-  name: "add-transform-index-html",
-  transformIndexHtml(html) {
-    const tags = [
-      {
-        tag: "script",
-        attrs: { type: "module" },
-        children: configHorizonsRuntimeErrorHandler,
-        injectTo: "head",
-      },
-      {
-        tag: "script",
-        attrs: { type: "module" },
-        children: configHorizonsViteErrorHandler,
-        injectTo: "head",
-      },
-      {
-        tag: "script",
-        attrs: { type: "module" },
-        children: configHorizonsConsoleErrorHandler,
-        injectTo: "head",
-      },
-      {
-        tag: "script",
-        attrs: { type: "module" },
-        children: configWindowFetchMonkeyPatch,
-        injectTo: "head",
-      },
-      {
-        tag: "script",
-        attrs: { type: "module" },
-        children: configNavigationHandler,
-        injectTo: "head",
-      },
-    ];
+	name: 'add-transform-index-html',
+	transformIndexHtml(html) {
+		const tags = [
+			{
+				tag: 'script',
+				attrs: { type: 'module' },
+				children: configHorizonsRuntimeErrorHandler,
+				injectTo: 'head',
+			},
+			{
+				tag: 'script',
+				attrs: { type: 'module' },
+				children: configHorizonsViteErrorHandler,
+				injectTo: 'head',
+			},
+			{
+				tag: 'script',
+				attrs: { type: 'module' },
+				children: configHorizonsConsoleErrorHandler,
+				injectTo: 'head',
+			},
+			{
+				tag: 'script',
+				attrs: { type: 'module' },
+				children: configWindowFetchMonkeyPatch,
+				injectTo: 'head',
+			},
+			{
+				tag: 'script',
+				attrs: { type: 'module' },
+				children: configNavigationHandler,
+				injectTo: 'head',
+			},
+		];
 
-    if (
-      !isDev &&
-      process.env.TEMPLATE_BANNER_SCRIPT_URL &&
-      process.env.TEMPLATE_REDIRECT_URL
-    ) {
-      tags.push({
-        tag: "script",
-        attrs: {
-          src: process.env.TEMPLATE_BANNER_SCRIPT_URL,
-          "template-redirect-url": process.env.TEMPLATE_REDIRECT_URL,
-          ...(process.env.TEMPLATE_BANNER_MAIN_TEXT && {
-            "template-main-text": process.env.TEMPLATE_BANNER_MAIN_TEXT,
-          }),
-          ...(process.env.TEMPLATE_BANNER_CTA_TEXT && {
-            "template-cta-text": process.env.TEMPLATE_BANNER_CTA_TEXT,
-          }),
-          ...(process.env.TEMPLATE_BANNER_THEME && {
-            "template-theme": process.env.TEMPLATE_BANNER_THEME,
-          }),
-        },
-        injectTo: "head",
-      });
-    }
+		if (!isDev && process.env.TEMPLATE_BANNER_SCRIPT_URL && process.env.TEMPLATE_REDIRECT_URL) {
+			tags.push(
+				{
+					tag: 'script',
+					attrs: {
+						src: process.env.TEMPLATE_BANNER_SCRIPT_URL,
+						'template-redirect-url': process.env.TEMPLATE_REDIRECT_URL,
+						...(process.env.TEMPLATE_BANNER_MAIN_TEXT && { 'template-main-text': process.env.TEMPLATE_BANNER_MAIN_TEXT }),
+						...(process.env.TEMPLATE_BANNER_CTA_TEXT && { 'template-cta-text': process.env.TEMPLATE_BANNER_CTA_TEXT }),
+						...(process.env.TEMPLATE_BANNER_THEME && { 'template-theme': process.env.TEMPLATE_BANNER_THEME }),
+					},
+					injectTo: 'head',
+				}
+			);
+		}
 
-    return {
-      html,
-      tags,
-    };
-  },
+		return {
+			html,
+			tags,
+		};
+	},
 };
 
-console.warn = () => {};
+// Vite serves public files only at their exact path; the published site also serves this shell at `/checkout/`.
+const domainCheckoutDevPlugin = {
+	name: 'horizons-domain-checkout',
+	apply: 'serve',
+	configureServer(server) {
+		const shellFile = path.join(server.config.publicDir, 'checkout', 'index.html');
 
-const logger = createLogger();
-const loggerError = logger.error;
+		server.middlewares.use((req, _res, next) => {
+			const url = new URL(req.url, 'http://localhost');
+
+			if ((url.pathname === '/checkout' || url.pathname === '/checkout/') && existsSync(shellFile)) {
+				req.url = `/checkout/index.html${url.search}`;
+			}
+
+			next();
+		});
+	},
+};
+
+console.warn = () => { };
+
+const logger = createLogger()
+const loggerError = logger.error
 
 logger.error = (msg, options) => {
-  if (options?.error?.toString().includes("CssSyntaxError: [postcss]")) {
-    return;
-  }
+	if (options?.error?.toString().includes('CssSyntaxError: [postcss]')) {
+		return;
+	}
 
-  loggerError(msg, options);
-};
+	loggerError(msg, options);
+}
 
 export default defineConfig({
-  optimizeDeps: {
-    include: allDeps,
-  },
-  customLogger: logger,
-  plugins: [
-    ...(isDev
-      ? [
-          inlineEditPlugin(),
-          editModeDevPlugin(),
-          iframeRouteRestorationPlugin(),
-          sitePagesPlugin(),
-          pocketbaseAuthPlugin(),
-          sessionJournalPlugin(),
-        ]
-      : []),
-    react(),
-    addTransformIndexHtml,
-  ],
-  server: {
-    port: 3000,
-    cors: { origin: AllowedEditorOrigins },
-    headers: {
-      "Cross-Origin-Embedder-Policy": "credentialless",
-    },
-    proxy: {
-      "/hcgi/platform": {
-        target: "http://127.0.0.1:8090",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/hcgi\/platform/, ""),
-      },
-      "/hcgi/api": {
-        target: "http://127.0.0.1:3001",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/hcgi\/api/, ""),
-      },
-    },
-    allowedHosts: [".app-preview.com", ".app-preview.io"],
-    fs: {
-      strict: true,
-      allow: [
-        path.resolve(__dirname),
-        path.join(path.resolve(__dirname, "../.."), "node_modules"),
-      ],
-    },
-  },
-  resolve: {
-    extensions: [".jsx", ".js", ".json"],
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  build: {
-    rollupOptions: {
-      external: [
-        "@babel/parser",
-        "@babel/traverse",
-        "@babel/generator",
-        "@babel/types",
-      ],
-      checks: {
-        pluginTimings: false,
-      },
-    },
-  },
+	optimizeDeps: {
+		include: allDeps,
+	},
+	customLogger: logger,
+	plugins: [
+		...(isDev ? [inlineEditPlugin(), editModeDevPlugin(), iframeRouteRestorationPlugin(), sitePagesPlugin(), pocketbaseAuthPlugin(), sessionJournalPlugin()] : []),
+		react(),
+		addTransformIndexHtml,
+		domainCheckoutDevPlugin,
+	],
+	server: {
+		port: 3000,
+		cors: { origin: AllowedEditorOrigins },
+		headers: {
+			'Cross-Origin-Embedder-Policy': 'credentialless',
+		},
+		allowedHosts: [
+			'.app-preview.com',
+			'.app-preview.io',
+		],
+		fs: {
+			strict: true,
+			allow: [
+				path.resolve(__dirname),
+				path.join(path.resolve(__dirname, '../..'), 'node_modules'),
+			],
+		},
+	},
+	resolve: {
+		extensions: ['.jsx', '.js', '.json'],
+		alias: {
+			'@': path.resolve(__dirname, './src'),
+		},
+	},
+	build: {
+		rollupOptions: {
+			external: [
+				'@babel/parser',
+				'@babel/traverse',
+				'@babel/generator',
+				'@babel/types'
+			],
+			checks: {
+				pluginTimings: false,
+			}
+		}
+	}
 });

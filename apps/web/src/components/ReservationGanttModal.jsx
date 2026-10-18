@@ -14,9 +14,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
 
-// 30-minute slot options across the two serving windows.
+// 30-minute slot options across lunch (11:00–14:00) and dinner (17:00–21:00).
+// 14:00 / 21:00 are valid end times; start times go up to 13:30 / 20:30.
 const TIME_OPTIONS = [
-  '11:00', '11:30', '12:00', '12:30', '13:00',
+  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00',
   '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00',
 ];
 
@@ -35,7 +36,7 @@ const toMinutes = (t) => {
 
 export default function ReservationGanttModal({
   open, onOpenChange, reservation, tables, defaultDate, defaultTableId, defaultStartTime,
-  allReservations, onSaved, onDeleted,
+  allReservations, onSaved, onDeleted, fitMode = false, onProposeFit,
 }) {
   const isEdit = Boolean(reservation && reservation.id);
   const [saving, setSaving] = useState(false);
@@ -117,6 +118,21 @@ export default function ReservationGanttModal({
 
   const handleSave = async () => {
     if (!validate()) return;
+    // Capacity check (issue #4): warn the admin before saving when the
+    // selected table(s) cannot seat the whole party. Combined adjacent
+    // tables are supported — total capacity is summed across selections.
+    const ps = parseInt(form.partySize, 10);
+    const totalCapacity = form.assignedTables.reduce((sum, id) => {
+      const tb = tables.find((t) => t.id === id);
+      return sum + (tb ? (tb.capacity || 0) : 0);
+    }, 0);
+    if (form.assignedTables.length > 0 && totalCapacity > 0 && totalCapacity < ps) {
+      const ok = window.confirm(
+        `Heads up: the selected table(s) seat ${totalCapacity}, but the party is ${ps}. ` +
+        `Do you want to accommodate them anyway?`
+      );
+      if (!ok) return;
+    }
     // Conflict prevention: reject overlaps with other active reservations on
     // the same table(s) for the chosen date. Mirrors the GanttChart drag
     // conflict check so Manual Fit can never create a double-booking.
@@ -146,10 +162,34 @@ export default function ReservationGanttModal({
         return;
       }
     }
+    // Manual Fit review step: don't persist here. Hand the proposed
+    // assignment to the parent review/save dialog so the admin can recheck
+    // and send a WhatsApp/Email confirmation before finalizing.
+    if (fitMode && onProposeFit) {
+      let nextStatus = form.status;
+      if (form.assignedTables.length > 0 && nextStatus === 'Pending') {
+        nextStatus = 'Approved';
+      }
+      onProposeFit({
+        reservation,
+        assignedTables: form.assignedTables,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        status: nextStatus,
+      });
+      onOpenChange(false);
+      return;
+    }
     setSaving(true);
     try {
       const dateStr = form.date + ' 12:00:00.000Z';
       const primaryTable = form.assignedTables[0] || '';
+      // Assigning a table completes the pending-request review: promote
+      // Pending → Approved so the dashboard attention panel clears.
+      let nextStatus = form.status;
+      if (form.assignedTables.length > 0 && nextStatus === 'Pending') {
+        nextStatus = 'Approved';
+      }
       const data = {
         guestName: form.guestName.trim(),
         email: form.email.trim(),
@@ -161,7 +201,7 @@ export default function ReservationGanttModal({
         partySize: parseInt(form.partySize, 10),
         assignedTable: primaryTable,
         assignedTables: form.assignedTables,
-        status: form.status,
+        status: nextStatus,
         adminNotes: form.adminNotes.trim(),
         paymentStatus: reservation?.paymentStatus || 'unpaid',
       };
@@ -212,9 +252,11 @@ export default function ReservationGanttModal({
     <Dialog open={open} onOpenChange={(o) => !saving && !deleting && onOpenChange(o)}>
       <DialogContent className="sm:max-w-[560px] max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Reservation' : 'New Reservation'}</DialogTitle>
+          <DialogTitle>{fitMode ? 'Manual Fit — Assign Table' : isEdit ? 'Edit Reservation' : 'New Reservation'}</DialogTitle>
           <DialogDescription>
-            {isEdit ? 'Update reservation details, table assignment, or status.' : 'Create a reservation on the timeline.'}
+            {fitMode
+              ? 'Choose the table and time, then review and save to finalize the assignment.'
+              : isEdit ? 'Update reservation details, table assignment, or status.' : 'Create a reservation on the timeline.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -286,6 +328,21 @@ export default function ReservationGanttModal({
                 </label>
               ))}
             </div>
+            {(() => {
+              const partyNum = parseInt(form.partySize, 10) || 0;
+              const totalCap = form.assignedTables.reduce((sum, id) => {
+                const tb = tables.find((t) => t.id === id);
+                return sum + (tb ? (tb.capacity || 0) : 0);
+              }, 0);
+              if (form.assignedTables.length > 0 && totalCap > 0 && totalCap < partyNum) {
+                return (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-300 rounded px-2 py-1.5">
+                    Selected table(s) seat {totalCap}, but the party is {partyNum}. The table may be too small — you will be asked to confirm before saving.
+                  </p>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -315,7 +372,7 @@ export default function ReservationGanttModal({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving || deleting}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving || deleting} className="min-w-[120px]">
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-            {isEdit ? 'Save Changes' : 'Create'}
+            {fitMode ? 'Review & Save' : isEdit ? 'Save Changes' : 'Create'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -327,7 +384,15 @@ function defaultEndTime(start) {
   const s = toMinutes(start);
   if (s == null) return '12:30';
   let mins = s + 90;
-  if (mins > 21 * 60) mins = 21 * 60;
+  const LUNCH_END = 14 * 60;
+  const DINNER_START = 17 * 60;
+  const DINNER_END = 21 * 60;
+  // Clamp end time within the same serving window as the start.
+  if (s < DINNER_START) {
+    if (mins > LUNCH_END) mins = LUNCH_END;
+  } else if (mins > DINNER_END) {
+    mins = DINNER_END;
+  }
   const hh = Math.floor(mins / 60);
   const mm = mins % 60;
   return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;

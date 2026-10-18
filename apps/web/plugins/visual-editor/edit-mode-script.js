@@ -1,6 +1,6 @@
 import { startInlineEdit, commitCurrentEdit, placeCursorAtPoint } from "./ui/inline-edit/edit-action.js";
 import { getEditing } from "./state/editing-state.js";
-import { getElementType, isInFixedContext } from "./utils/dom-utils.js";
+import { getElementType, isInFixedContext, isolateEditorUiEvents, getOpenModals } from "./utils/dom-utils.js";
 import { postToParent, ALLOWED_PARENT_ORIGINS } from "./utils/parent-frame.js";
 import { ParentMessage, ChildMessage } from "./constants/messages.js";
 import { isEditModeEnabled, isInsideEditorUi, ACTIONABLE_SELECTOR, EDIT_TARGET_SELECTOR, getEditId } from "./constants/selectors.js";
@@ -193,11 +193,12 @@ function handleSelectMouseDown(event) {
 	// Text selection inside the active inline edit stays native.
 	if (getEditing()?.targetElement?.contains(event.target)) return;
 
-	// The browser paints a text selection on mousedown — shift extends one from the
-	// last caret, and even a sub-threshold drag drags one — so suppress it here.
+	// Suppress all native pointerdown side-effects (focus, text selection, form
+	// validation) so the host app never reacts to clicks during edit mode.
+	event.preventDefault();
+
 	document.body.classList.add(NO_TEXT_SELECT_CLASS);
 	if (event.shiftKey) {
-		event.preventDefault();
 		window.getSelection()?.removeAllRanges();
 	}
 
@@ -408,14 +409,6 @@ function handleClick(event) {
 		return;
 	}
 
-	// Action: block form controls from changing app state in edit mode.
-	if (event.target.closest('input, select, textarea')) {
-		event.preventDefault();
-		event.stopPropagation();
-		event.stopImmediatePropagation();
-		return;
-	}
-
 	// Action: open annotation panel for non-editable elements (blocks, icon-only buttons/links, etc.).
 	const rawTarget = document.elementFromPoint(event.clientX, event.clientY);
 	if (rawTarget && !isPageRoot(rawTarget)) {
@@ -495,7 +488,7 @@ function updateTypeTooltip() {
 	}
 
 	const rawTarget = document.elementFromPoint(lastCursorClientX, lastCursorClientY);
-	if (!rawTarget || isInsideEditorUi(rawTarget) || isPageRoot(rawTarget) || rawTarget.closest('input, select, textarea')) {
+	if (!rawTarget || isInsideEditorUi(rawTarget) || isPageRoot(rawTarget)) {
 		hideTypeTooltip();
 		return;
 	}
@@ -612,6 +605,39 @@ function handleHistoryKeydown(event) {
 	}
 }
 
+/* Keeps host-page modals open and host-page key handlers quiet in edit mode. */
+
+function handleModalPointerDownGuard(event) {
+	if (isInsideEditorUi(event.target)) return;
+
+	const openModals = getOpenModals();
+	if (!openModals.length) return;
+	if (openModals.some((modal) => modal.contains(event.target))) return;
+
+	event.stopImmediatePropagation();
+}
+
+/**
+ * Registered on window capture after the editor's own key handlers: `stopPropagation`
+ * still lets those sibling window listeners run, but nothing on document or below
+ * (host shortcuts, dismiss-on-Escape) ever sees the key.
+ */
+function handleHostKeyGuard(event) {
+	if (isInsideEditorUi(event.target) || getEditing()?.targetElement?.contains(event.target)) {
+		// Dismissable layers honour `defaultPrevented`, so an Escape aimed at the editor stays with it.
+		if (event.key === "Escape") event.preventDefault();
+		return;
+	}
+
+	event.stopPropagation();
+}
+
+function handleEditorFocusGuard(event) {
+	if (isInsideEditorUi(event.target) || isInsideEditorUi(event.relatedTarget)) {
+		event.stopImmediatePropagation();
+	}
+}
+
 /* ------------------------------------------------------------------ *
  * Enable / disable edit mode
  * ------------------------------------------------------------------ */
@@ -627,8 +653,10 @@ function enableEditMode() {
 		document.addEventListener("click", globalClickHandler, true);
 	}
 
-	document.addEventListener("keydown", handleHistoryKeydown, true);
-	document.addEventListener("keydown", handleSelectionKeydown, true);
+	window.addEventListener("keydown", handleHistoryKeydown, true);
+	window.addEventListener("keydown", handleSelectionKeydown, true);
+	window.addEventListener("keydown", handleHostKeyGuard, true);
+	window.addEventListener("keyup", handleHostKeyGuard, true);
 
 	document.addEventListener("mousemove", handleTypeTooltipMouseMove, true);
 	document.addEventListener("mousedown", handleTypeTooltipMouseDown, true);
@@ -643,6 +671,11 @@ function enableEditMode() {
 	// A mouseup outside the iframe never reaches us, so the band would stay up.
 	window.addEventListener("blur", cancelDragSelect);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
+
+	window.addEventListener("pointerdown", handleModalPointerDownGuard, true);
+	window.addEventListener("pointerup", handleModalPointerDownGuard, true);
+	window.addEventListener("focusin", handleEditorFocusGuard, true);
+	window.addEventListener("focusout", handleEditorFocusGuard, true);
 
 	if (!annotationDomObserver && typeof MutationObserver !== "undefined") {
 		annotationDomObserver = new MutationObserver(scheduleAnnotationDomSync);
@@ -676,8 +709,10 @@ function disableEditMode() {
 		globalClickHandler = null;
 	}
 
-	document.removeEventListener("keydown", handleHistoryKeydown, true);
-	document.removeEventListener("keydown", handleSelectionKeydown, true);
+	window.removeEventListener("keydown", handleHistoryKeydown, true);
+	window.removeEventListener("keydown", handleSelectionKeydown, true);
+	window.removeEventListener("keydown", handleHostKeyGuard, true);
+	window.removeEventListener("keyup", handleHostKeyGuard, true);
 
 	document.removeEventListener("mousemove", handleTypeTooltipMouseMove, true);
 	document.removeEventListener("mousedown", handleTypeTooltipMouseDown, true);
@@ -691,6 +726,10 @@ function disableEditMode() {
 	document.removeEventListener("mouseup", handleSelectMouseUp, true);
 	window.removeEventListener("blur", cancelDragSelect);
 	document.removeEventListener("visibilitychange", handleVisibilityChange);
+	window.removeEventListener("pointerdown", handleModalPointerDownGuard, true);
+	window.removeEventListener("pointerup", handleModalPointerDownGuard, true);
+	window.removeEventListener("focusin", handleEditorFocusGuard, true);
+	window.removeEventListener("focusout", handleEditorFocusGuard, true);
 	endDragSelect();
 	destroySelectionRect();
 	resetMultiSelectState();

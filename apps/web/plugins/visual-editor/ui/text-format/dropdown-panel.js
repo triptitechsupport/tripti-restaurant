@@ -4,6 +4,7 @@
  * toolbar, and outside-interaction dismissal.
  */
 import { PANEL_GAP, PANEL_MARGIN, PARENT_TOOLBAR_HEIGHT } from '../../constants/layout.js';
+import { isolateEditorUiEvents } from '../../utils/dom-utils.js';
 import { getToolbarEl } from './toolbar/toolbar.js';
 
 /**
@@ -22,6 +23,7 @@ export function createPanelElement({ styleId, styles, html }) {
 	wrapper.innerHTML = html;
 	const element = wrapper.firstElementChild;
 	document.body.appendChild(element);
+	isolateEditorUiEvents(element);
 	return element;
 }
 

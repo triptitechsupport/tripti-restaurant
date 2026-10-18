@@ -11,20 +11,25 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
-} from '@/components/ui/alert-dialog';
-import {
   ChefHat, LogOut, Clock, CheckCircle2, Flame, RefreshCw, Settings, Volume2, VolumeX, Bell, Calendar, User, Layers, Printer, ArrowLeft,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
 import KdsQuickMessage from '@/components/KdsQuickMessage.jsx';
 import { resolveOrderId, resolveBaseOrderId, printKOT } from '@/lib/kotPrint.js';
-import { buildGroupMap, tableDisplayForParent } from '@/lib/tableGroups.js';
+import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
+import { buildGroupMap, kdsTableLabel, tableDisplayForKot } from '@/lib/tableGroups.js';
 import { isKotDelayed, countDelayedKots, DELAYED_CARD_CLS, DELAYED_BORDER_CLS } from '@/lib/kotDelayed.js';
+import {
+  ITEM_STATUS,
+  countItemStatuses,
+  listUnits,
+  splitForUnitStatus,
+} from '@/lib/kotItemStatus.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import { pbDateFilter } from '@/lib/pbDateFilter.js';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -114,7 +119,7 @@ function groupKotsByParent(kots) {
   return groups;
 }
 
-function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap }) {
+function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap, onToggleItemPrepared }) {
   const { t } = useLanguage();
   const created = new Date(order.created).getTime();
   const elapsedMs = now - created;
@@ -144,7 +149,7 @@ function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap })
   // fetch). All identity info is read from the parent Order, falling back to
   // the KOT's own copied fields only if the relation is unavailable.
   const parent = (order.expand && order.expand.parentOrder) || null;
-  const tableNumber = tableDisplayForParent(parent, groupMap) || (parent && parent.tableNumber) || order.tableNumber || '';
+  const tableNumber = kdsTableLabel(order, groupMap) || (parent && parent.tableNumber) || order.tableNumber || '';
   const room = (parent && parent.room) || order.room || '';
   const waiterName = (parent && parent.placedBy) || order.placedBy || '';
   const orderCreated = (parent && parent.created) || order.created;
@@ -160,7 +165,7 @@ function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap })
     <div className={`bg-card rounded-2xl border-l-8 ${urgency} border border-border shadow-lg p-4 flex flex-col ${delayed ? DELAYED_CARD_CLS : ''}`}>
       <div className="flex items-start justify-between mb-3 gap-2">
         <div className="min-w-0">
-          <p className="text-5xl font-bold text-foreground leading-none break-words">{tableNumber}</p>
+          <p className="text-3xl sm:text-4xl font-bold text-foreground leading-tight break-words">{tableNumber}</p>
           {room ? <p className="text-xs text-muted-foreground mt-0.5">{room}</p> : null}
         </div>
         <div className="text-right shrink-0">
@@ -204,14 +209,27 @@ function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap })
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <Badge variant="outline" className={`font-bold ${statusMeta.cls}`}>{statusMeta.label}</Badge>
+        {(() => { const c = countItemStatuses(order); return c.prepared > 0 ? (
+          <Badge variant="outline" className="font-bold bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
+            {t('kds_preparedCount').replace('{n}', c.prepared)}
+          </Badge>
+        ) : null; })()}
         {delayed ? <KotDelayedBadge /> : null}
       </div>
 
       <ul className="space-y-2 flex-1 mb-4">
-        {(order.items || []).map((it, idx) => (
-          <li key={idx} className="flex items-center gap-2 text-foreground">
-            <span className="text-xl font-bold text-primary w-8 shrink-0">{it.quantity}×</span>
-            <span className="text-base font-medium leading-tight flex-1 min-w-0 break-words">
+        {listUnits(order).map((unit) => {
+          const it = unit.item;
+          const itemStatus = unit.status;
+          const canMark = order.status === 'preparing' || order.status === 'ready';
+          return (
+          <li key={unit.key} className={`flex items-center gap-2 text-foreground rounded-lg px-2 py-1.5 border ${
+            itemStatus === ITEM_STATUS.PREPARED ? 'bg-emerald-500/10 border-emerald-500/40'
+            : itemStatus === ITEM_STATUS.PICKEDUP ? 'bg-muted/60 border-border opacity-70'
+            : 'bg-card border-border/60'
+          }`}>
+            <span className="text-xl font-bold text-primary w-8 shrink-0">1×</span>
+            <span className={`text-base font-medium leading-tight flex-1 min-w-0 break-words ${itemStatus === ITEM_STATUS.PICKEDUP ? 'line-through text-muted-foreground' : ''}`}>
               {it.name}
               {it.spiceLevel && it.spiceLevel !== 'None' ? (
                 <span className={`ml-2 inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded border align-middle ${SPICE_CLS[it.spiceLevel] || 'bg-muted text-muted-foreground border-border'}`}>
@@ -219,8 +237,39 @@ function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap })
                 </span>
               ) : null}
             </span>
+            {itemStatus === ITEM_STATUS.PREPARED ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-emerald-500 text-white shrink-0">
+                <CheckCircle2 className="h-3 w-3" /> {t('kds_itemPrepared')}
+              </span>
+            ) : itemStatus === ITEM_STATUS.PICKEDUP ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md bg-primary text-primary-foreground shrink-0">
+                <CheckCircle2 className="h-3 w-3" /> {t('kds_itemPickedUp')}
+              </span>
+            ) : canMark ? (
+              <button
+                type="button"
+                onClick={() => onToggleItemPrepared && onToggleItemPrepared(order, unit.itemIndex, unit.unitIndex)}
+                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1.5 rounded-md border border-emerald-500/50 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 active:scale-95 transition shrink-0 touch-target"
+                title={t('kds_markItemPrepared')}
+                aria-label={t('kds_markItemPrepared')}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> {t('kds_itemPrepared')}
+              </button>
+            ) : null}
+            {itemStatus === ITEM_STATUS.PREPARED && canMark ? (
+              <button
+                type="button"
+                onClick={() => onToggleItemPrepared && onToggleItemPrepared(order, unit.itemIndex, unit.unitIndex)}
+                className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-border text-muted-foreground hover:bg-muted active:scale-95 transition shrink-0"
+                title={t('kds_unmarkItemPrepared')}
+                aria-label={t('kds_unmarkItemPrepared')}
+              >
+                <RefreshCw className="h-3 w-3" />
+              </button>
+            ) : null}
           </li>
-        ))}
+          );
+        })}
       </ul>
 
       {order.notes ? (
@@ -274,12 +323,12 @@ function OrderCard({ order, now, onAdvance, onReprint, printAllowed, groupMap })
   );
 }
 
-function KotGroup({ kots, now, onAdvance, onReprint, printAllowed, groupMap }) {
+function KotGroup({ kots, now, onAdvance, onReprint, printAllowed, groupMap, onToggleItemPrepared }) {
   const { t } = useLanguage();
   const first = kots[0];
   const parent = (first && first.expand && first.expand.parentOrder) || null;
   const baseOrderId = resolveBaseOrderId(first);
-  const tableNumber = tableDisplayForParent(parent, groupMap) || (parent && parent.tableNumber) || first.tableNumber || '';
+  const tableNumber = kdsTableLabel(first, groupMap) || (parent && parent.tableNumber) || first.tableNumber || '';
   const waiterName = (parent && parent.placedBy) || first.placedBy || '';
   const multi = kots.length > 1;
 
@@ -332,7 +381,7 @@ function KotGroup({ kots, now, onAdvance, onReprint, printAllowed, groupMap }) {
             {multi ? (
               <div className="absolute -left-1 top-2 bottom-2 w-1 rounded-full bg-primary/40 hidden sm:block lg:hidden" />
             ) : null}
-            <OrderCard order={k} now={now} onAdvance={onAdvance} onReprint={onReprint} printAllowed={printAllowed} groupMap={groupMap} />
+            <OrderCard order={k} now={now} onAdvance={onAdvance} onReprint={onReprint} printAllowed={printAllowed} groupMap={groupMap} onToggleItemPrepared={onToggleItemPrepared} />
           </div>
         ))}
       </div>
@@ -366,7 +415,7 @@ function OrderQueue({ groups, now, selectedKey, onSelect, groupMap }) {
         const parent = (first && first.expand && first.expand.parentOrder) || null;
         const baseOrderId = resolveBaseOrderId(first);
         const kotCount = group.list.length;
-        const tableNumber = tableDisplayForParent(parent, groupMap) || (parent && parent.tableNumber) || first.tableNumber || '';
+        const tableNumber = kdsTableLabel(first, groupMap) || (parent && parent.tableNumber) || first.tableNumber || '';
         const elapsedMs = now - group.earliest;
         const minutes = elapsedMs / 60000;
         const groupDelayed = group.list.some((k) => isKotDelayed(k, now));
@@ -475,11 +524,20 @@ export default function KdsDashboard() {
 
   const fetchOrders = useCallback(async () => {
     try {
-      const filter = ACTIVE_STATUSES.map((s) => `status = "${s}"`).join(' || ');
+      // Fresh KDS queue: only active KOTs created within the last 5 hours
+      // are shown. KOTs older than that leave the active display but are
+      // NOT deleted — they remain in dated history (40-day retention) for
+      // the Admin KOTs view / export. The cutoff is non-destructive.
+      // PocketBase date-field filters require "YYYY-MM-DD HH:MM:SS" (UTC),
+      // NOT ISO 8601 — an ISO string silently matches zero rows, which made
+      // the KDS queue appear empty even though KOTs were being created.
+      const kotCutoff = pbDateFilter(new Date(Date.now() - 5 * 60 * 60 * 1000));
+      const statusFilter = ACTIVE_STATUSES.map((s) => `status = "${s}"`).join(' || ');
+      const filter = `(${statusFilter}) && created > "${kotCutoff}"`;
       const res = await pb.collection('kitchen_orders').getFullList({
         filter,
         sort: 'created',
-        expand: 'parentOrder',
+        expand: 'parentOrder,parentOrder.tableGroup',
         $autoCancel: false,
       });
       const newPending = res.filter((o) => !prevIdsRef.current.has(o.id) && o.status === 'pending');
@@ -618,12 +676,45 @@ export default function KdsDashboard() {
     // is unchanged. Skipped when the restaurant-wide print master switch is
     // off (consistent with the Print icon visibility).
     if (status === 'preparing' && printAllowed) {
-      printKOT(order);
+      const label = tableDisplayForKot(order, groupMap);
+      printKOT({ ...order, tableDisplay: label, tableLabel: label && String(label).includes('+') ? label : order.tableLabel });
     }
     try {
       await pb.collection('kitchen_orders').update(order.id, { status }, { $autoCancel: false });
     } catch (err) {
       console.error(err);
+      toast.error(t('kds_updateFailed'));
+      fetchOrders();
+    }
+  };
+
+  // Item-level preparation toggle. The kitchen marks an individual item
+  // "prepared" (ready for the waiter to pick up) without moving the whole
+  // ticket to ready. Other items in the same KOT remain in progress. The
+  // change persists on the kitchen_orders.itemStatuses JSON field and is
+  // pushed to every device (KDS, Waiter, Admin) via the existing realtime
+  // stream. Toggling a prepared item back returns it to in progress.
+  // Only available while the ticket is being actively worked (preparing or
+  // ready) so it never conflicts with the waiter's pending-only item
+  // quantity decrease (which would shift item indices).
+  const toggleItemPrepared = async (order, itemIndex, unitIndex = 0) => {
+    if (!order || (order.status !== 'preparing' && order.status !== 'ready')) return;
+    const units = listUnits(order);
+    const unit = units.find((u) => u.itemIndex === itemIndex && u.unitIndex === unitIndex);
+    if (!unit) return;
+    const current = unit.status;
+    const nextStatus = current === ITEM_STATUS.PREPARED ? ITEM_STATUS.PENDING : ITEM_STATUS.PREPARED;
+    const split = splitForUnitStatus(order, unit.itemIndex, unit.unitIndex, nextStatus);
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, items: split.items, itemStatuses: split.itemStatuses } : o)));
+    try {
+      await pb.collection('kitchen_orders').update(
+        order.id,
+        { items: split.items, itemStatuses: split.itemStatuses },
+        { $autoCancel: false, requestKey: `item-prep-${order.id}-${itemIndex}-${unitIndex}-${Date.now()}` },
+      );
+      toast.success(nextStatus === ITEM_STATUS.PREPARED ? t('kds_itemPreparedToast') : t('kds_itemUnmarkedToast'));
+    } catch (err) {
+      console.error('Failed to update item status:', err);
       toast.error(t('kds_updateFailed'));
       fetchOrders();
     }
@@ -635,9 +726,11 @@ export default function KdsDashboard() {
   // ID, no KOT suffix increment. After printing, update printedAt and bump
   // printCount so the duplicate-protection guard is consistent with the
   // Waiter workflow (which reads the same fields).
-  const doReprint = async (order) => {
+  const doReprint = async (order, options = {}) => {
     if (!order) return;
-    printKOT(order);
+    const label = tableDisplayForKot(order, groupMap);
+    const printOrder = { ...order, tableDisplay: label, tableLabel: label && String(label).includes('+') ? label : (order.tableLabel || label) };
+    printKOT(printOrder, options);
     setReprintBusy(true);
     try {
       const nextCount = (Number(order.printCount) || 0) + 1;
@@ -658,24 +751,17 @@ export default function KdsDashboard() {
   };
 
   // Duplicate-protection guard: if the KOT was already printed/sent
-  // (printedAt set OR printCount > 0), confirm before reprinting; otherwise
-  // reprint immediately. Mirrors the existing Waiter handlePrintKOT logic.
+  // (printedAt set OR printCount > 0), the print-options dialog shows an
+  // informational note; otherwise it opens directly. Either way the user
+  // picks the "Separate categories for cutting" option and confirms before
+  // the existing kotPrint.js iframe print runs. Mirrors the Waiter flow.
   const handleReprint = (order) => {
     if (!order) return;
-    // Defense-in-depth: even if a stale UI element triggers this, never
-    // reprint while the restaurant-wide master switch is OFF. The button is
-    // hidden in that state, and the server-side hook also blocks the
-    // tracking write — this guard closes the client-side gap.
     if (!printAllowed) {
       toast.error(t('kds_printingDisabled'));
       return;
     }
-    const alreadyPrinted = !!order.printedAt || (Number(order.printCount) || 0) > 0;
-    if (alreadyPrinted) {
-      setReprintTarget(order);
-      return;
-    }
-    doReprint(order);
+    setReprintTarget(order);
   };
 
   // Logout is an EXPLICIT user action only — never triggered by device sleep,
@@ -781,6 +867,7 @@ export default function KdsDashboard() {
                     onReprint={handleReprint}
                     printAllowed={printAllowed}
                     groupMap={groupMap}
+                    onToggleItemPrepared={toggleItemPrepared}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
@@ -823,37 +910,19 @@ export default function KdsDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Reprint / Resend confirmation — shown when a KOT that was already
-          printed/sent is being reprinted. Mirrors the Waiter duplicate-
-          protection dialog. Reuses the existing kitchen_orders record. */}
-      <AlertDialog open={!!reprintTarget} onOpenChange={(o) => { if (!o) setReprintTarget(null); }}>
-        <AlertDialogContent className="max-w-md w-[92vw]">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5 text-primary shrink-0" /> {t('kds_reprintConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-left">
-              {reprintTarget
-                ? `${t('kds_reprintConfirmDescPrefix')} ${resolveOrderId(reprintTarget)} ${t('kds_reprintConfirmDescForTable')} ${reprintTarget.tableNumber || ''} ${t('kds_reprintConfirmDescAlready')}${(Number(reprintTarget.printCount) || 0) > 1 ? ` (${reprintTarget.printCount} ${t('kds_reprintConfirmDescTimes')})` : ''}. ${t('kds_reprintConfirmDescSuffix')}`
-                : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
-            <AlertDialogCancel className="w-full sm:w-auto mt-0" disabled={reprintBusy}>{t('cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="w-full sm:w-auto"
-              disabled={reprintBusy}
-              onClick={() => {
-                const target = reprintTarget;
-                setReprintTarget(null);
-                doReprint(target);
-              }}
-            >
-              {reprintBusy ? t('kds_sending') : t('kds_sendAgain')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Reprint / Resend options — shown whenever the kitchen reprints a
+          KOT (first print or reprint). Offers the "Separate categories for
+          cutting" option and, for already-sent tickets, an informational
+          note. Reuses the existing kitchen_orders record via doReprint. */}
+      <KotPrintOptionsDialog
+        open={!!reprintTarget}
+        order={reprintTarget}
+        onClose={() => setReprintTarget(null)}
+        alreadyPrinted={!!(reprintTarget && (reprintTarget.printedAt || (Number(reprintTarget.printCount) || 0) > 0))}
+        printAllowed={printAllowed}
+        busy={reprintBusy}
+        onPrinted={(order, options) => doReprint(order, options)}
+      />
 
       {authed && <StaffChat role="kds" userId={authModel?.id} pbClient={pb} displayName={chatName} />}
     </>

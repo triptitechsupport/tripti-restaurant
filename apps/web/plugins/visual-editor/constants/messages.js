@@ -15,6 +15,7 @@ export const ParentMessage = {
 	ANNOTATION_PANEL_OPENED: 'annotationPanelOpened',
 	ANNOTATION_IMAGE_ATTACH_REQUESTED: 'annotationImageAttachRequested',
 	ANNOTATION_IMAGE_REMOVED: 'annotationImageRemoved',
+	ANNOTATION_IMAGE_PREVIEW_REQUESTED: 'annotationImagePreviewRequested',
 }
 
 /** Message types sent from the parent Horizons frame to the iframe. */

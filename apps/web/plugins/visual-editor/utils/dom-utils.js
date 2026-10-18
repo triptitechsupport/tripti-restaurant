@@ -43,3 +43,27 @@ export function getAppRoot() {
 export function isInFixedContext(element) {
 	return !!element.closest(FIXED_CONTEXT_SELECTOR);
 }
+
+/**
+ * Host-page modal dialogs that are currently open and visible. Mounted-but-closed
+ * dialogs are skipped so a dismissed modal never keeps blocking the page.
+ * @returns {HTMLElement[]}
+ */
+export function getOpenModals() {
+	return Array.from(document.querySelectorAll('[role="dialog"]')).filter(
+		(modal) => modal.getAttribute('data-state') !== 'closed' && modal.checkVisibility?.() !== false,
+	);
+}
+
+const HOST_ISOLATED_EVENTS = ['pointerdown', 'pointerup', 'keydown', 'keyup'];
+
+/**
+ * Prevents host-page libraries (Radix DismissableLayer, FocusScope, etc.) from
+ * seeing pointer and keyboard events that originate inside the editor's floating UI.
+ * @param {HTMLElement} element
+ */
+export function isolateEditorUiEvents(element) {
+	for (const eventName of HOST_ISOLATED_EVENTS) {
+		element.addEventListener(eventName, (event) => event.stopPropagation());
+	}
+}
