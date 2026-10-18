@@ -1,5 +1,11 @@
 const ECOMMERCE_API_URL = "https://api-ecommerce.hostinger.com";
 const ECOMMERCE_STORE_ID = "store_01KTF6N3R88AQDBGXM83TCK8D4";
+const DEFAULT_SEARCH_LIMIT = 15;
+const MAX_SEARCH_LIMIT = 200;
+const MAX_SEARCH_QUERY_LENGTH = 100;
+const DOMAIN_CHECKOUT_PATH = "/checkout/";
+const DOMAIN_CHECKOUT_MARKER = "data-hostinger-checkout-shell";
+const DOMAIN_CHECKOUT_PROBE_TIMEOUT_MS = 1500;
 
 export const formatCurrency = (priceInCents, currencyInfo) => {
   if (!currencyInfo || priceInCents === null || priceInCents === undefined) {
@@ -138,11 +144,12 @@ const getProductPrice = (product) => {
     selectedVariant?.prices?.[0]?.sale_amount ||
     selectedVariant?.prices?.[0]?.amount ||
     0;
+  const list_price_in_cents = selectedVariant?.prices?.[0]?.amount || 0;
   const currency = selectedVariant?.prices?.[0]?.currency_code || "eur";
   const currency_info = selectedVariant?.prices?.[0]?.currency;
 
   // price_in_cents is the price value in cents, make sure to convert it to a full price based on decimal_digits
-  return { price_in_cents, currency, currency_info };
+  return { price_in_cents, list_price_in_cents, currency, currency_info };
 };
 
 /**
@@ -237,7 +244,20 @@ const getProductPrice = (product) => {
  * @property {{value: string}} type - Product type with value
  * @property {ProductCustomField[]} custom_fields - Custom product fields
  * @property {ProductRelatedProduct[]} related_products - Related/similar products
+ * @property {ProductReviewsAnalytics|null} reviews_analytics - Aggregated review ratings, null when the product has none
  * @property {string} updated_at - Last update timestamp
+ */
+
+/**
+ * @typedef {Object} ProductReviewsAnalytics
+ * @property {string} product_id - Product identifier
+ * @property {number} total_reviews - Number of reviews left for the product
+ * @property {number} average_rating - Mean rating, one decimal place (e.g. 3.33)
+ * @property {number} rating_1_count - Number of one-star reviews
+ * @property {number} rating_2_count - Number of two-star reviews
+ * @property {number} rating_3_count - Number of three-star reviews
+ * @property {number} rating_4_count - Number of four-star reviews
+ * @property {number} rating_5_count - Number of five-star reviews
  */
 
 /**
@@ -321,6 +341,38 @@ const getProductPrice = (product) => {
  * @property {string} variant_id - Product variant id
  * @property {number} quantity - Quantity to purchase (minimum 1)
  * @property {CheckoutItemCustomFieldValue[]} [custom_field_values] - Array of custom field values for this item
+ * @property {string} [time_slot] - Chosen appointment start, `YYYY-MM-DDTHH:mm:ss` (required for booking variants)
+ * @property {string} [time_zone] - IANA time zone the `time_slot` is expressed in (required for booking variants)
+ */
+
+/**
+ * @typedef {Object} GetAvailabilityParams
+ * @property {string} bookingEventId - Booking event id from `variant.booking_event.id` (required)
+ * @property {string} fromDate - First day of the range, `YYYY-MM-DD` (required)
+ * @property {string} toDate - Last day of the range, `YYYY-MM-DD`, at most 366 days after fromDate (required)
+ * @property {string} [timeZone] - IANA time zone; defaults to the visitor's browser time zone
+ * @property {string} [excludeBookingId] - Existing booking to ignore when rescheduling (optional)
+ */
+
+/**
+ * @typedef {Object} GetAvailabilityResponse
+ * @property {string[]} available_dates - Days with at least one free slot, `YYYY-MM-DD`
+ * @property {string[]} disabled_dates - Days in the range with no free slot, `YYYY-MM-DD`
+ * @property {string} time_zone - Time zone the dates are expressed in
+ */
+
+/**
+ * @typedef {Object} GetTimeSlotsParams
+ * @property {string} bookingEventId - Booking event id from `variant.booking_event.id` (required)
+ * @property {string} date - Day to list slots for, `YYYY-MM-DD` (required)
+ * @property {string} [timeZone] - IANA time zone; defaults to the visitor's browser time zone
+ * @property {string} [excludeBookingId] - Existing booking to ignore when rescheduling (optional)
+ */
+
+/**
+ * @typedef {Object} GetTimeSlotsResponse
+ * @property {string[]} slots - Free slot start times, `YYYY-MM-DDTHH:mm:ss`; pass one verbatim as `time_slot`
+ * @property {string} time_zone - Time zone the slots are expressed in
  */
 
 /**
@@ -486,6 +538,7 @@ export async function getProducts({
         },
         custom_fields: extractCustomFields(product.custom_fields),
         related_products: extractRelatedProducts(product.related_products),
+        reviews_analytics: product.reviewsAnalytics || null,
         updated_at: product.updated_at,
       };
     }),
@@ -563,6 +616,7 @@ export async function getProduct(id, { field } = {}) {
     },
     custom_fields: extractCustomFields(product.custom_fields),
     related_products: extractRelatedProducts(product.related_products),
+    reviews_analytics: product.reviewsAnalytics || null,
     updated_at: product.updated_at,
     created_at: product.created_at,
     deleted_at: product.deleted_at,
@@ -677,6 +731,127 @@ export async function getCategories() {
   };
 }
 
+const getBrowserTimeZone = () =>
+  Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+/**
+ * POST /store/availability - Booking Availability Endpoint
+ * @function getAvailability
+ * @static
+ * @operationId GetBookingAvailability
+ * @summary Retrieve bookable days
+ * @description Lists which days in a date range still have a free slot for a booking event. Not store-scoped.
+ * @group Booking
+ *
+ * @param {GetAvailabilityParams} params - Request parameters
+ * @param {string} params.bookingEventId - Booking event id from `variant.booking_event.id` (required)
+ * @param {string} params.fromDate - First day of the range, `YYYY-MM-DD` (required)
+ * @param {string} params.toDate - Last day of the range, `YYYY-MM-DD` (required)
+ * @param {string} [params.timeZone] - IANA time zone; defaults to the visitor's browser time zone
+ * @param {string} [params.excludeBookingId] - Existing booking to ignore when rescheduling (optional)
+ *
+ * @returns {Promise<GetAvailabilityResponse>} Available and disabled days for the range
+ *
+ * @example
+ * const { available_dates } = await getAvailability({
+ *   bookingEventId: variant.booking_event.id,
+ *   fromDate: "2026-09-01",
+ *   toDate: "2026-09-30"
+ * });
+ */
+export async function getAvailability({
+  bookingEventId,
+  fromDate,
+  toDate,
+  timeZone,
+  excludeBookingId,
+}) {
+  const url = `${ECOMMERCE_API_URL}/store/availability`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      booking_event_id: bookingEventId,
+      from_date: fromDate,
+      to_date: toDate,
+      time_zone: timeZone || getBrowserTimeZone(),
+      ...(excludeBookingId ? { exclude_booking_id: excludeBookingId } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    available_dates: data.available_dates || [],
+    disabled_dates: data.disabled_dates || [],
+    time_zone: data.time_zone,
+  };
+}
+
+/**
+ * POST /store/time-slots - Booking Time Slots Endpoint
+ * @function getTimeSlots
+ * @static
+ * @operationId GetDayTimeSlots
+ * @summary Retrieve free slots for one day
+ * @description Lists the free appointment start times for a booking event on a single day. Not store-scoped.
+ * @group Booking
+ *
+ * @param {GetTimeSlotsParams} params - Request parameters
+ * @param {string} params.bookingEventId - Booking event id from `variant.booking_event.id` (required)
+ * @param {string} params.date - Day to list slots for, `YYYY-MM-DD` (required)
+ * @param {string} [params.timeZone] - IANA time zone; defaults to the visitor's browser time zone
+ * @param {string} [params.excludeBookingId] - Existing booking to ignore when rescheduling (optional)
+ *
+ * @returns {Promise<GetTimeSlotsResponse>} Free slot start times for the day
+ *
+ * @example
+ * const { slots, time_zone } = await getTimeSlots({
+ *   bookingEventId: variant.booking_event.id,
+ *   date: "2026-09-14"
+ * });
+ * // slots[0] === "2026-09-14T10:00:00" -> pass verbatim as items[0].time_slot
+ */
+export async function getTimeSlots({
+  bookingEventId,
+  date,
+  timeZone,
+  excludeBookingId,
+}) {
+  const url = `${ECOMMERCE_API_URL}/store/time-slots`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      booking_event_id: bookingEventId,
+      date,
+      time_zone: timeZone || getBrowserTimeZone(),
+      ...(excludeBookingId ? { exclude_booking_id: excludeBookingId } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    slots: data.slots || [],
+    time_zone: data.time_zone,
+  };
+}
+
 async function getCheckoutLanguage() {
   const response = await fetch(
     `${ECOMMERCE_API_URL}/store/${ECOMMERCE_STORE_ID}/settings`,
@@ -696,6 +871,27 @@ async function getCheckoutLanguage() {
   return data.store_owner?.language;
 }
 
+async function getDomainCheckoutUrl() {
+  const { protocol, origin } = window.location;
+
+  if (protocol !== "https:") {
+    return undefined;
+  }
+
+  try {
+    const response = await fetch(`${DOMAIN_CHECKOUT_PATH}?probe=${Date.now()}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(DOMAIN_CHECKOUT_PROBE_TIMEOUT_MS),
+    });
+
+    return response.ok && (await response.text()).includes(DOMAIN_CHECKOUT_MARKER)
+      ? `${origin}${DOMAIN_CHECKOUT_PATH}`
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * POST /store/{store_id}/checkout - Initialize Checkout Endpoint
  * @function initializeCheckout
@@ -703,6 +899,8 @@ async function getCheckoutLanguage() {
  * @operationId PostInitializeCheckout
  * @summary Initialize Checkout
  * @description Creates a payment session and returns a checkout URL. Shape: {@link InitializeCheckoutParams}.
+ * The URL is usually this site's own `/checkout/` page, which the platform serves —
+ * never create a route, page or file at `/checkout` itself.
  * @group Checkout
  *
  * @param {InitializeCheckoutParams} params - Request body fields (see typedefs for nested types)
@@ -712,6 +910,8 @@ async function getCheckoutLanguage() {
  * @param {CheckoutItemCustomFieldValue[]} [params.items[].custom_field_values] - Array of custom field values for this item
  * @param {string} params.items[].custom_field_values[].custom_field_id - Custom field id (required if custom_field_values provided)
  * @param {string} params.items[].custom_field_values[].value - Custom field value (required if custom_field_values provided)
+ * @param {string} [params.items[].time_slot] - Chosen appointment start, `YYYY-MM-DDTHH:mm:ss` (required for booking variants)
+ * @param {string} [params.items[].time_zone] - IANA time zone the `time_slot` is expressed in (required for booking variants)
  * @param {string} params.successUrl - Success redirect URL
  * @param {string} params.cancelUrl - Cancel redirect URL
  * @param {string} [params.locale] - Checkout locale (e.g. en, es, fr)
@@ -747,8 +947,10 @@ export async function initializeCheckout({
   customer,
 }) {
   const url = `${ECOMMERCE_API_URL}/store/${ECOMMERCE_STORE_ID}/checkout`;
+  const languagePromise = getCheckoutLanguage().catch(() => "en");
+  const checkoutUrl = await getDomainCheckoutUrl();
 
-  const checkoutInitPromise = fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -757,23 +959,138 @@ export async function initializeCheckout({
       items,
       successUrl,
       cancelUrl,
+      checkoutUrl,
       locale,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZone: getBrowserTimeZone(),
       customer,
     }),
   });
-
-  const [response, language] = await Promise.all([
-    checkoutInitPromise,
-    getCheckoutLanguage().catch(() => "en"),
-  ]);
+  const language = await languagePromise;
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+    // Booking slot conflicts are only distinguishable from the body: "Booking time slot not available".
+    error.response = await response.json().catch(() => null);
+    throw error;
   }
 
   const data = await response.json();
   const checkoutRedirectUrl = `${data.url}&lang=${language?.toLowerCase() || "en"}`;
 
   return { url: checkoutRedirectUrl };
+}
+
+/**
+ * @typedef {Object} SearchProductResponse
+ * @property {string} id - Unique product identifier
+ * @property {string} title - Product name/title
+ * @property {string|null} subtitle - Short product subtitle
+ * @property {string|null} image - Product thumbnail URL
+ * @property {string} url_handle - Canonical storefront handle: slug, else SEO slug, else product id
+ * @property {number} price_in_cents - Effective price in the currency's smallest unit
+ * @property {string} currency - Currency code (e.g., "USD", "EUR")
+ * @property {string} price_formatted - Formatted effective price string (e.g., "$10.99")
+ * @property {string|null} list_price_formatted - Formatted pre-discount price, null unless discounted.
+ * Unlike a variant's `sale_price_formatted`, this is the struck-through price, not the effective one.
+ * @property {boolean} is_price_range - Whether the product's variants span more than one price
+ * @property {boolean} purchasable - Whether the product can currently be bought
+ * @property {string|null} site_product_selection - Which variant the storefront prices the product by
+ * @property {{ value: string }} type - Product type (e.g. `subscription`)
+ */
+
+/**
+ * GET /v2/channels/{sales_channel_id}/products?q= - Free-text Product Search Endpoint
+ * @function searchProducts
+ * @static
+ * @operationId channelsProductsList
+ * @summary Search Products
+ * @description Search this site's products by free text over the product title. Results are scoped
+ * to the site's sales channel, so a product sold only through another channel never appears.
+ * Requires the site's sales channel id (`scha_*`); a raw store id is not accepted.
+ * @group Product
+ *
+ * @param {Object} params - Search parameters object
+ * @param {string} params.query - Free-text search term, capped at 100 characters (required)
+ * @param {number} [params.pageSize] - Maximum number of products to return, capped at 200 (optional)
+ *
+ * @returns {Promise<{ products: SearchProductResponse[], count: number }>} Matching products and the
+ * total match count. A query holding no word of 3 or more characters matches nothing.
+ *
+ * @example
+ * const { products, count } = await searchProducts({ query: "bicycle" });
+ */
+export async function searchProducts({
+  query,
+  pageSize = DEFAULT_SEARCH_LIMIT,
+} = {}) {
+  const trimmedQuery = query?.trim();
+
+  if (!trimmedQuery) {
+    return { products: [], count: 0 };
+  }
+
+  if (!ECOMMERCE_STORE_ID) {
+    throw new Error(
+      "Product search is unavailable: this site has no ecommerce sales channel",
+    );
+  }
+
+  const queryParams = new URLSearchParams({
+    q: trimmedQuery.slice(0, MAX_SEARCH_QUERY_LENGTH),
+    limit: String(Math.min(pageSize, MAX_SEARCH_LIMIT)),
+  });
+
+  const response = await fetch(
+    `${ECOMMERCE_API_URL}/v2/channels/${ECOMMERCE_STORE_ID}/products?${queryParams}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  // A query with no word of 3 or more characters matches nothing, which is an ordinary keystroke.
+  // Every other failure throws, so a missing or inactive sales channel is not mistaken for 0 hits.
+  if (response.status === 400) {
+    return { products: [], count: 0 };
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const { data, count } = await response.json();
+
+  return {
+    products: (data || []).map((product) => {
+      const { price_in_cents, list_price_in_cents, currency, currency_info } =
+        getProductPrice(product);
+      const priceRange = product.price;
+
+      return {
+        id: product.id,
+        title: product.title,
+        subtitle: product.subtitle,
+        image: product.thumbnail,
+        url_handle: product.url_handle,
+        price_in_cents,
+        currency,
+        price_formatted: formatCurrency(price_in_cents, currency_info),
+        list_price_formatted:
+          list_price_in_cents > price_in_cents
+            ? formatCurrency(list_price_in_cents, currency_info)
+            : null,
+        is_price_range: Boolean(
+          priceRange && priceRange.lowest_amount !== priceRange.highest_amount,
+        ),
+        purchasable: product.is_available,
+        site_product_selection: product.site_product_selection,
+        type: {
+          value: product.type?.value || "",
+        },
+      };
+    }),
+    count: count || 0,
+  };
 }

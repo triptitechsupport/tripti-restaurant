@@ -8,7 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ArrowLeft, ChefHat, PlusCircle, ListOrdered, Printer, Flame, DoorOpen, RefreshCw, Trash2 } from 'lucide-react';
 import OrderPlacement from '@/components/OrderPlacement.jsx';
-import { openKOT, resolveOrderId } from '@/lib/kotPrint.js';
+import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
+import { resolveOrderId } from '@/lib/kotPrint.js';
 import { buildGroupMap, tableDisplayForParent } from '@/lib/tableGroups.js';
 import { isKotDelayed, countDelayedKots, DELAYED_CARD_CLS } from '@/lib/kotDelayed.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
@@ -38,6 +39,7 @@ export default function AdminPlaceOrderPage() {
   const [tableGroups, setTableGroups] = useState([]);
   const [tableGroupMembers, setTableGroupMembers] = useState([]);
   const [tab, setTab] = useState('place');
+  const [kotPrintTarget, setKotPrintTarget] = useState(null);
   // Live clock for delayed-state calculation — same shared isKotDelayed()
   // check as KDS and Waiter (pending 5+ minutes since creation). No separate
   // per-screen timer; just the consistent calculation against the KOT's
@@ -201,7 +203,7 @@ export default function AdminPlaceOrderPage() {
                           <span className="font-semibold text-primary">€{(order.totalPrice || 0).toFixed(2)}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" className="flex-1" onClick={() => openKOT(order)}>
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => setKotPrintTarget(order)}>
                             <Printer className="h-4 w-4 mr-1" /> KOT
                           </Button>
                           <Button size="sm" variant="ghost" className="flex-1 text-primary" onClick={() => markAvailable(order)}>
@@ -220,6 +222,13 @@ export default function AdminPlaceOrderPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      <KotPrintOptionsDialog
+        open={!!kotPrintTarget}
+        order={kotPrintTarget}
+        onClose={() => setKotPrintTarget(null)}
+        alreadyPrinted={!!(kotPrintTarget && kotPrintTarget.printedAt && (Number(kotPrintTarget.printCount) || 0) > 0)}
+      />
     </>
   );
 }

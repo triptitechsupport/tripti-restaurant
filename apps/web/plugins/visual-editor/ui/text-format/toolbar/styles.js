@@ -1,5 +1,5 @@
 import { TOOLBAR_ID } from './template.js';
-import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_TRANSLUCENT, HOVER_BG, ACTIVE_BG, BOX_SHADOW_TOOLBAR, COLOR_WHITE } from '../../../constants/theme.js';
+import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_TRANSLUCENT, HOVER_BG, ACTIVE_BG, BOX_SHADOW_TOOLBAR, COLOR_WHITE, Z_INDEX_EDITOR_PANEL } from '../../../constants/theme.js';
 
 /** Injected CSS for the floating text-format toolbar. */
 export const TOOLBAR_STYLES = `
@@ -17,6 +17,7 @@ export const TOOLBAR_STYLES = `
   font-family: DM Sans, sans-serif;
   white-space: nowrap;
   cursor: grab;
+  z-index: ${Z_INDEX_EDITOR_PANEL};
   /* Never exceed the viewport — the inner row scrolls horizontally instead. */
   max-width: calc(100vw - 16px);
 }

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import defaultPb from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, Loader2 } from 'lucide-react';
@@ -29,6 +30,18 @@ export default function StaffLogin({ collection, title, description, redirectTo,
     try {
       await pb.collection(collection).authWithPassword(formData.loginId, formData.password, { $autoCancel: false });
       toast.success(t('staff_loginSuccess'));
+
+      // Role separation: each staff role (waiter/KDS/stock) uses its own
+      // isolated LocalAuthStore (pb_waiter_auth / pb_kds_auth / pb_stock_auth),
+      // so their sessions never clobber one another and can coexist on the
+      // same device. The ONLY shared store is the default one (pb_auth), which
+      // holds admin_users and guest/customer tokens. Clearing just that shared
+      // store on a staff login wipes any stale admin token — preventing a
+      // waiter/KDS/stock user from reaching the Admin Dashboard via a leftover
+      // admin_users session — WITHOUT logging out other staff roles.
+      // AdminAuthContext subscribes to the default store's onChange, so this
+      // immediately flips `isAdminAuthenticated` to false.
+      try { if (pb !== defaultPb) defaultPb.authStore.clear(); } catch (_) { /* ignore */ }
       // Optional post-login hook (e.g. waiter clock-in). Failures here must not
       // block the login itself.
       if (typeof onLoginSuccess === 'function') {
@@ -83,9 +96,8 @@ export default function StaffLogin({ collection, title, description, redirectTo,
                 </div>
                 <div className="space-y-3">
                   <Label htmlFor="password" className="font-bold text-primary">{t('password')}</Label>
-                  <Input
+                  <PasswordInput
                     id="password"
-                    type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required

@@ -1,0 +1,454 @@
+import React from 'react';
+import HelpLayout from '@/components/HelpLayout.jsx';
+import {
+  LogIn, ConciergeBell, Bell, LayoutGrid, UtensilsCrossed, Send,
+  ListOrdered, CreditCard, Layers, MessageSquare, Ban, DoorOpen, ShieldCheck,
+} from 'lucide-react';
+
+/**
+ * Waiter Help page.
+ *
+ * Presents the waiter-facing controls and workflows as a user-facing help
+ * document. Content is derived from the internal waiter GUI reference and
+ * adapted for on-screen reading — no internal file paths or implementation
+ * details are exposed to the user.
+ */
+export default function WaiterHelpPage() {
+  const sections = [
+    {
+      id: 'access',
+      icon: LogIn,
+      title: 'Access & Permissions',
+      intro: 'A waiter signs in with a staff account. After login the Waiter Dashboard opens; it does not grant any admin functions.',
+      tables: [
+        {
+          headers: ['What you can do', 'What you cannot do'],
+          rows: [
+            ['Place and send orders to the kitchen', 'Approve or edit reservations'],
+            ['Update your own order workflow (serve, cancel, settle)', 'Create, edit, or price menu items'],
+            ['Mark ready tickets as served', 'Configure tables or print settings'],
+            ['Cancel still-pending tickets', 'Manage waiter accounts'],
+            ['Settle payments, end eligible orders, free eligible tables', 'Print KOTs (admin-controlled)'],
+            ['Use Staff Chat and voice calls with Kitchen/Admin', 'Access the Admin Dashboard'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'signin',
+      icon: LogIn,
+      title: 'Sign-in Screen',
+      intro: 'The sign-in screen is where you enter your staff credentials.',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Conditions'],
+          rows: [
+            ['Login ID', 'Enters your waiter username/login identifier.', 'Required. The form will not submit when empty.'],
+            ['Password', 'Enters your staff password (hidden while typing).', 'Required. Disabled while signing in.'],
+            ['Sign In', 'Authenticates your credentials. On success it attempts automatic clock-in and opens the Waiter Dashboard.', 'Disabled while authenticating. Invalid credentials keep you on this screen with an error. A clock-in failure does not block a successful login.'],
+            ['Install the Waiter app', 'On a supported browser, opens the native install prompt; otherwise shows manual install steps.', 'Only shown when the app is not already installed. Optional — does not change permissions.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'header',
+      icon: ConciergeBell,
+      title: 'Header & Shift Controls',
+      intro: 'The dashboard header is intentionally minimal: logo on the left, language and shift controls on the right. Public customer navigation is not shown here.',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Important behavior'],
+          rows: [
+            ['Logo / wordmark', 'Goes to the Waiter Dashboard and switches to the New Order tab.', 'If no valid staff session exists, it goes to the login page instead. It does not log you out.'],
+            ['EN / DE', 'Switches the interface language. The choice is remembered for later visits.', 'Always available.'],
+            ['Clock In', 'Starts an active shift timesheet.', 'Shown when no active timesheet exists. Login already attempts this automatically.'],
+            ['Clock Out', 'Closes the active timesheet.', 'Shown when a timesheet is active. Does not log you out. Logout also clocks out automatically.'],
+            ['Quick Alert', 'Opens the urgent alert dialog to contact Kitchen/KDS or Admin without leaving the dashboard.', 'Sends a staff-chat alert, not an order or reservation.'],
+            ['Waiter Mode', 'Switches to the New Order tab and scrolls to the top.', 'A navigation shortcut, not a permission or database change.'],
+            ['Logout', 'Clocks out, clears your session, and returns to the login page.', 'Explicit destructive session action. Does not delete orders or drafts.'],
+            ['Back to Admin', 'Returns an administrator to the Admin Dashboard without clearing the admin session.', 'Only visible to an admin viewing the waiter dashboard.'],
+          ],
+        },
+      ],
+      notes: [
+        'On small screens, header labels may collapse to icons, but the same controls remain available with touch-friendly targets.',
+        'There is no waiter hamburger menu; public customer navigation is intentionally omitted.',
+      ],
+    },
+    {
+      id: 'ready-pickup',
+      icon: Bell,
+      title: 'Ready-for-Pickup Notification',
+      intro: 'When Kitchen marks a ticket Ready to Pickup, you receive a realtime alert. The browser may vibrate and play a chime, and a green banner stays at the top until acknowledged.',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Conditions'],
+          rows: [
+            ['View Active Orders', 'Acknowledges the ready tickets and switches to the Active tab so you can review and serve them.', 'The banner is removed, but the ticket stays Ready until you mark it served.'],
+            ['Dismiss', 'Acknowledges the ready ticket(s) without navigating away.', 'For one ticket, only that ticket is dismissed. For multiple, all currently shown ready tickets are acknowledged. Tickets are not served or cancelled.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'nav-tabs',
+      icon: LayoutGrid,
+      title: 'Main Navigation Tabs',
+      tables: [
+        {
+          headers: ['Tab', 'What it opens'],
+          rows: [
+            ['New Order', 'Table selection and menu-building view.'],
+            ['Order', 'Current draft order review, with a quantity badge. Can be opened even when empty.'],
+            ['Active (n)', 'Active-order and order-history management. The count updates realtime.'],
+            ['View Order (floating pill)', 'Opens the Order tab from the New Order view. Visible only while the draft has at least one item.'],
+          ],
+        },
+      ],
+      notes: [
+        'Changing tabs scrolls the page to the top.',
+        'A draft is preserved across backgrounding, sleep, focus changes, or app switching — it is not silently cleared by those events.',
+      ],
+    },
+    {
+      id: 'table-selection',
+      icon: DoorOpen,
+      title: 'New Order — Table Selection & Combining',
+      intro: 'The menu appears after a valid table context exists: a single selected table, a shared combination of at least two tables, or an active linked table.',
+      tables: [
+        {
+          caption: 'Single-table flow',
+          headers: ['Control', 'What it does', 'Conditions'],
+          rows: [
+            ['Table Number select', 'Opens the configured table list. Selecting a table fills its number and room, then reveals the menu.', 'Only active configured tables are offered. A table with an open order can be selected to add another ticket to that order. An ended-but-not-freed or combined table is blocked.'],
+            ['Table Number field', 'Manually enters a table number when no table configurations exist.', 'Must be a valid positive number within the configured maximum.'],
+            ['Combine Tables switch', 'Turns the multi-table workflow on or off.', 'Disabling an unfinished linked combination releases its placeholder tables. A real linked group with orders stays managed through Active Orders.'],
+          ],
+        },
+        {
+          caption: 'Combine Tables flow',
+          headers: ['Control', 'What it does', 'Billing behavior'],
+          rows: [
+            ['Linked Orders', 'Groups selected tables for convenience while keeping a separate order, ticket stream, payment, End Order, and bill for each table.', 'Separate bills. Items are added to one active table at a time and never copied automatically.'],
+            ['Shared Order', 'Creates one parent order and one combined bill for all selected tables.', 'One combined bill. The first selected table is the primary stored value; all selected tables remain displayed as the group.'],
+            ['Table checkbox', 'Selects or deselects a table for a new combination.', 'Disabled for occupied or already-combined tables. At least two available tables are required.'],
+            ['Start Linked Order', 'Creates the linked group and enters the active-table phase. Each selected table gets its own empty cart.', 'Only visible for Linked Orders after at least two tables are selected.'],
+            ['Linked table selector', 'Switches the active table receiving items. Saves the current table’s draft and loads the selected table’s independent cart.', 'Only visible after Start Linked Order. Switching does not transfer items between tables.'],
+            ['Done — Exit Combine Tables', 'Leaves the linked active-table phase and returns to ordinary table selection.', 'If no linked order was sent, the placeholder group is closed and tables released. Existing sent linked orders remain in Active view.'],
+          ],
+        },
+      ],
+      notes: [
+        'A table with an open order is selectable for an additional ticket; sending adds to that existing parent order.',
+        'A table with an ended order stays occupied until Free Table is completed.',
+        'A table in an active combination cannot be selected as an unrelated standalone order.',
+      ],
+    },
+    {
+      id: 'menu-building',
+      icon: UtensilsCrossed,
+      title: 'New Order — Menu, Quantities & Notes',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Behavior'],
+          rows: [
+            ['Search dishes', 'Filters items by English, German, or stored name while typing. Matching categories expand automatically.', 'Clearing the field restores the normal category view.'],
+            ['Category header', 'Expands or collapses a category. The badge shows the number of draft units from that category.', 'Multiple categories can be open. Non-matching categories are hidden during a search.'],
+            ['Menu item card', 'Adds one unit of that dish to the draft. If already present, the quantity increases by one.', 'Available only after a table context is selected.'],
+            ['Spice level select', 'Chooses the spice level used when the dish is added; updates an in-draft item’s spice level too.', 'Default is Medium. This is a draft setting until the order is sent.'],
+            ['− quantity', 'Decreases the draft quantity by one. At zero the dish is removed.', 'Only shown for items already in the draft.'],
+            ['+ quantity', 'Increases the draft quantity by one.', 'Only shown for items already in the draft.'],
+            ['Quantity badge', 'Shows the current quantity.', 'Informational, not a button.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'send-kitchen',
+      icon: Send,
+      title: 'Order Review & Sending to Kitchen',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Important behavior'],
+          rows: [
+            ['Back to New Order / Back', 'Returns to the menu/table view without clearing the draft.', 'Safe.'],
+            ['Cancel', 'Opens a confirmation to clear the order and notes. On confirm, clears the draft and resets the single-table flow.', 'Destructive and cannot be undone. In an active linked phase it clears only the current table’s cart and preserves the group. If the draft is already empty, it simply returns to New Order.'],
+            ['Walk-in', 'Selects the visible order type.', 'Selected by default. This is the currently available waiter order type.'],
+            ['Spice level (review)', 'Changes the spice level for an in-draft item.', 'Changes only the draft until Send to Kitchen is used.'],
+            ['− / + quantity (review)', 'Adjusts a draft line quantity; removes the line at zero.', 'Does not modify a previously sent ticket.'],
+            ['Remove item', 'Removes the entire dish line from the draft.', 'Destructive for that draft line; does not affect a sent ticket.'],
+            ['Notes', 'Adds free-text instructions to the outgoing ticket.', 'Sent with the ticket. Editable until the order is sent.'],
+            ['Send to Kitchen', 'Creates or reuses the parent order, creates a pending ticket, sends the dishes and notes to Kitchen, shows a success message, and clears the completed draft.', 'Disabled until the table, order type, and at least one dish are present. If ticket creation fails after the parent order is saved, the same Order ID is reused on retry to avoid duplicates.'],
+          ],
+        },
+      ],
+      notes: [
+        'After a successful send, the ticket starts as Pending in Active Orders.',
+        'You remain in the Waiter Station and can start a new draft.',
+        'A subsequent send to the same open table becomes another ticket on that same parent order.',
+        'Waiters do not receive a print button in this interface. Printing is an admin-controlled capability.',
+      ],
+    },
+    {
+      id: 'active-orders',
+      icon: ListOrdered,
+      title: 'Active Orders & Order History',
+      tables: [
+        {
+          caption: 'View and filter controls',
+          headers: ['Control', 'What it does', 'Conditions'],
+          rows: [
+            ['Active Orders', 'Shows parent orders that are not yet closed (open, ended-but-not-freed, or paid-but-not-freed).', 'Selected by default. Free Table is what moves an order to History.'],
+            ['Order History', 'Shows parent orders whose table was freed and whose status is closed.', 'Legacy unparented tickets do not appear here.'],
+            ['Kitchen Status filter', 'Filters groups where at least one child ticket has the selected status.', 'Display filter only; does not update a ticket.'],
+            ['Table filter', 'Filters by the selected configured table.', 'All Tables shows all tables.'],
+            ['Refresh', 'Re-fetches orders and tickets and updates the last-refreshed time.', 'Disabled while refreshing. Realtime and polling normally keep the view current.'],
+            ['Reset', 'Clears the Kitchen Status and Table filters.', 'Visible only while a filter is active.'],
+          ],
+        },
+        {
+          caption: 'Ticket status actions',
+          headers: ['Control', 'What it does', 'Conditions & irreversibility'],
+          rows: [
+            ['Mark Served', 'Changes a Ready ticket to Served and removes its ready-to-pickup action.', 'Only available while the ticket is Ready. Required before its parent order can be ended.'],
+            ['Decrease item quantity', 'Decreases a pending ticket line by one and recalculates the total. At zero the line is removed.', 'Only shown for a Pending ticket with at least two lines. Hidden once preparation has started. Removing the last remaining item cancels the whole ticket.'],
+            ['Cancel Ticket', 'Opens a confirmation. Confirming marks the ticket Cancelled, keeps it visible, refreshes payment totals, and leaves the parent order open.', 'Only available while Pending. Other states show an explanatory message instead. A cancelled ticket is considered resolved for End Order.'],
+          ],
+        },
+        {
+          caption: 'Parent-order actions',
+          headers: ['Control', 'What it does', 'Conditions & irreversible effects'],
+          rows: [
+            ['End Order', 'Opens a confirmation. Confirming records the end time and leaves the table occupied for payment and freeing.', 'Enabled only when every child ticket is Served or Cancelled. Payment is not required to end. Does not itself close the order or release the table.'],
+            ['Free Table', 'Re-checks live order and payment state, then marks the parent closed/freed and releases the table.', 'Disabled until the order is ended and outstanding payment is zero. This is the action that actually releases the table. No extra confirmation dialog — verify state before using.'],
+            ['Table Freed', 'Informational status replacing the Free Table button.', 'Not a button. The order is now closed and appears in Order History.'],
+            ['Generate Bill', 'After End Order, shows an informational message that bill generation will be available in a later phase.', 'Disabled before End Order. Currently a gated placeholder — it does not create a fiscal bill, change payment, or free the table.'],
+            ['Pay — €amount due', 'Opens the payment settlement dialog for the order.', 'Only visible while outstanding payment is greater than zero. Does not settle anything until you select items and confirm.'],
+            ['Fully settled', 'Informational state replacing the Pay button.', 'Not a button. All currently payable item units are marked paid.'],
+          ],
+        },
+      ],
+      notes: [
+        'Order lifecycle: Open → Ended (all tickets Served/Cancelled) → Paid (all payable units settled) → Freed/Closed (End Order complete + fully settled, then Free Table).',
+        'Payment can occur before or after End Order.',
+      ],
+    },
+    {
+      id: 'combined-groups',
+      icon: Layers,
+      title: 'Combined Table Group Actions',
+      intro: 'A Shared Order is one parent card with one combined bill and one Free Table action. Linked Orders keep a separate card and separate financial state for each member table.',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Conditions & warnings'],
+          rows: [
+            ['End All (n)', 'Opens a confirmation listing each member and whether it will be ended or blocked. Confirming ends only eligible members whose tickets are all Served or Cancelled.', 'Never force-closes unresolved members. Payment is not required. The result can be partial.'],
+            ['Free All (n)', 'Opens a confirmation listing each member and whether it will be freed or blocked. Confirming frees only members that are ended and fully settled.', 'Never force-frees an open or unpaid member. The result can be partial. Each member keeps its own payment state.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'payment',
+      icon: CreditCard,
+      title: 'Payment Settlement Dialog',
+      intro: 'Opening Pay shows the order total, paid amount, due amount, and unpaid units. The dialog starts with individual units: a line with quantity 3 appears as three separate 1× selectable rows.',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Conditions & warnings'],
+          rows: [
+            ['Settle full order', 'Selects every unpaid unit, switches the display to grouped line quantities (e.g. 3×), and updates the selected amount to the full unpaid amount.', 'Selects unpaid units only. Already paid units remain locked. Does not write payment until Confirm is used.'],
+            ['Clear selection', 'Removes all selections and returns the display to individual 1× rows.', 'Safe. Does not mark anything paid or unpaid.'],
+            ['Individual unpaid unit row', 'Selects or deselects exactly one unpaid unit and updates the selected amount.', 'Default settlement method. Paid rows are disabled and cannot be toggled back.'],
+            ['Grouped unpaid line row', 'Selects or deselects all units in that line.', 'Paid lines are disabled. Still an explicit selection awaiting confirmation.'],
+            ['Close', 'Closes the dialog and clears the temporary selection without changing payment records.', 'Safe. No payment is recorded unless Confirm is used.'],
+            ['Confirm €amount', 'Persists payment for the selected units, recalculates totals, shows a success message, refreshes Active Orders, and closes the dialog.', 'Disabled while saving or when no unit is selected. Payment is persistent: selected units become paid and cannot be toggled back to unpaid.'],
+          ],
+        },
+      ],
+      notes: [
+        'Partial payment: selecting 1 of 3 items records 1 paid unit and leaves 2 unpaid.',
+        'A full-order selection settles all unpaid units; already paid units are never selected again.',
+        'Cancelled tickets are excluded from settlement.',
+      ],
+    },
+    {
+      id: 'dialogs',
+      icon: Ban,
+      title: 'Ticket & Confirmation Dialogs',
+      tables: [
+        {
+          headers: ['Dialog / control', 'What it does', 'Important behavior'],
+          rows: [
+            ['Cancel Ticket — Keep Ticket', 'Closes the cancellation dialog and leaves the pending ticket unchanged.', 'Safe.'],
+            ['Cancel Ticket — Cancel Ticket', 'Marks the selected pending ticket as Cancelled and refreshes the view.', 'Destructive and persistent. The ticket remains visible for history; it is not deleted.'],
+            ['Dialog close icon / Escape', 'Closes a non-destructive modal when the underlying dialog permits it.', 'Closing a dialog does not confirm its action. For destructive dialogs, use the explicit Cancel/Keep action.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'quick-alert',
+      icon: Bell,
+      title: 'Quick Alert Dialog',
+      intro: 'The Quick Alert header button opens an urgent-message dialog. It does not open the full chat panel and leaves you on the current dashboard view after sending.',
+      tables: [
+        {
+          headers: ['Control', 'What it does', 'Conditions'],
+          rows: [
+            ['Send to', 'Chooses the recipient role: Kitchen & Admin, Kitchen (KDS), or Admin.', 'Default is Kitchen & Admin. One alert is sent per selected role.'],
+            ['Message', 'Enters the alert text (e.g. a request for assistance at a table).', 'Required, limited to 500 characters. A counter is shown.'],
+            ['Cancel', 'Closes the dialog and resets its temporary fields.', 'Safe; no alert is sent. Disabled while sending.'],
+            ['Send Alert', 'Sends the text as an urgent staff-chat message with an alert badge, shows a sent confirmation, then auto-closes the dialog.', 'Disabled until a non-empty message exists and while sending.'],
+            ['Ctrl + Enter / ⌘ + Enter', 'Sends the alert without clicking the button.', 'Same validation and sending behavior as Send Alert.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'staff-chat',
+      icon: MessageSquare,
+      title: 'Staff Chat & Voice Calling',
+      intro: 'The floating staff-chat control is at the lower-right of the dashboard. It is separate from Quick Alert.',
+      tables: [
+        {
+          caption: 'Chat panel controls',
+          headers: ['Control', 'What it does', 'Waiter visibility'],
+          rows: [
+            ['Staff chat toggle', 'Opens or closes the floating chat panel. An unread badge appears when closed; an amber badge appears for unread urgent alerts.', 'Available to an authenticated waiter.'],
+            ['Admin / Kitchen (KDS) tabs', 'Selects the Admin or Kitchen conversation and shows its messages.', 'Visible to waiters. Unread counts may appear on the tab.'],
+            ['Waiters dropdown', 'Selects an individual waiter conversation.', 'Not visible to waiters. Admin and KDS can use it.'],
+            ['Sound toggle', 'Turns incoming chat sound on or off. Stored for the browser.', 'Available in the chat header.'],
+            ['Close chat', 'Closes the panel while leaving the session and any call running.', 'Safe. The toggle can reopen it.'],
+            ['Call', 'Starts a WebRTC voice call with the active conversation target.', 'Disabled while another call is active or an incoming call is waiting. Microphone permission required.'],
+            ['Message field / Send', 'Types and sends a normal staff-chat message to the current conversation.', 'Disabled while sending or when empty. Enter sends; Shift+Enter adds a new line.'],
+          ],
+        },
+        {
+          caption: 'Incoming & active call controls',
+          headers: ['Control', 'What it does', 'Conditions'],
+          rows: [
+            ['Decline', 'Declines an incoming call, stops ringing, and removes the overlay.', 'No microphone permission needed.'],
+            ['Accept', 'Requests microphone access, connects the call, and shows the active call bar.', 'Requires microphone permission and a supported browser.'],
+            ['Mute / Unmute', 'Disables or re-enables the local microphone during a connected call.', 'Visible only while connected.'],
+            ['End call', 'Ends the call, stops local media, clears the call bar, and records the call as ended.', 'Available while calling or connected. Does not close chat.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'reservations',
+      icon: ShieldCheck,
+      title: 'Reservation Controls',
+      tables: [
+        {
+          headers: ['Control', 'Availability'],
+          rows: [
+            ['New-reservation popup, Dismiss, View Notification', 'Not rendered for waiter sessions — admin only.'],
+            ['Reservation approval, calendar/timeline fitting, details, settings', 'Admin-dashboard functions — not available to waiters.'],
+          ],
+        },
+      ],
+      notes: [
+        'You can still use the normal table/order workflow; that does not approve, reject, or edit customer reservations.',
+      ],
+    },
+    {
+      id: 'unavailable',
+      icon: ShieldCheck,
+      title: 'Actions Unavailable to Waiters',
+      tables: [
+        {
+          headers: ['Action', 'Reason'],
+          rows: [
+            ['KOT printing and reprinting', 'Admin-controlled capability, hidden for the waiter role.'],
+            ['Admin Dashboard navigation', 'Admin-only.'],
+            ['Reservation approval / calendar controls', 'Admin-only.'],
+            ['Menu item/category creation, editing, deletion, pricing', 'Admin-only.'],
+            ['Table configuration and occupancy administration', 'Admin-only.'],
+            ['Waiter account management and print-setting management', 'Admin-only.'],
+            ['Staff Chat Waiters roster/dropdown', 'Admin and KDS only.'],
+            ['Pre-order order type', 'Currently not visible or selectable.'],
+            ['Customer cart, checkout, public-site navigation, WhatsApp contact', 'Part of the public customer site, not the waiter station.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'destructive',
+      icon: Ban,
+      title: 'Destructive & Persistent Actions Checklist',
+      intro: 'Before using a control that changes persistent data, verify the target table and order.',
+      tables: [
+        {
+          headers: ['Action', 'Effect'],
+          rows: [
+            ['Cancel (order review)', 'Clears the current draft after browser confirmation.'],
+            ['Remove item / draft quantity minus', 'Changes only the unsent draft.'],
+            ['Decrease item quantity', 'Changes a pending ticket; removing its last item cancels the ticket.'],
+            ['Cancel Ticket', 'Permanently marks the ticket Cancelled; does not delete it.'],
+            ['End Order', 'Records the end time and prevents further normal continuation; does not free the table.'],
+            ['Pay / Confirm', 'Permanently marks selected units as paid; paid units cannot be returned to unpaid.'],
+            ['Free Table', 'Closes/frees the eligible parent order and releases the table. The only normal waiter action that makes the table available again.'],
+            ['Logout', 'Clears your session but does not delete drafts, orders, tickets, or payment history.'],
+          ],
+        },
+      ],
+    },
+    {
+      id: 'workflows',
+      icon: ListOrdered,
+      title: 'Typical Workflows',
+      tables: [
+        {
+          caption: 'Place and send a normal order',
+          headers: ['Step', 'Action'],
+          rows: [
+            ['1', 'Sign in.'],
+            ['2', 'Select New Order if necessary.'],
+            ['3', 'Select an available table.'],
+            ['4', 'Open a category, tap dishes, choose spice levels, and review the quantity badge.'],
+            ['5', 'Open Order or View Order.'],
+            ['6', 'Confirm Walk-in, adjust quantities/notes, then tap Send to Kitchen.'],
+            ['7', 'Watch Active Orders or wait for the Ready-for-Pickup notification.'],
+            ['8', 'Tap Mark Served after collecting and serving the ticket.'],
+          ],
+        },
+        {
+          caption: 'Finish a table',
+          headers: ['Step', 'Action'],
+          rows: [
+            ['1', 'Ensure every ticket is Served or Cancelled.'],
+            ['2', 'Tap End Order and confirm.'],
+            ['3', 'Open Pay — €amount due if money remains outstanding.'],
+            ['4', 'Select individual 1× units by default, or use Settle full order.'],
+            ['5', 'Tap Confirm €amount.'],
+            ['6', 'Tap Free Table once the order is ended and fully settled.'],
+          ],
+        },
+        {
+          caption: 'Handle a pending correction',
+          headers: ['Step', 'Action'],
+          rows: [
+            ['1', 'Open Active Orders.'],
+            ['2', 'On a Pending ticket with at least two lines, use the item minus control to reduce a line by one.'],
+            ['3', 'If the last remaining item would be removed, confirm the Cancel Ticket dialog instead of leaving an empty ticket.'],
+            ['4', 'Do not expect the correction control after the ticket enters Preparing, Ready, or Served.'],
+          ],
+        },
+      ],
+    },
+  ];
+
+  return (
+    <HelpLayout
+      title="Waiter Help"
+      subtitle="A complete guide to every button and control in the Waiter Station — what each does, when it is available, and what to expect next."
+      backTo="/waiter-dashboard"
+      backLabel="Back to Dashboard"
+      sections={sections}
+      footerNote="This guide reflects the current Waiter Station. Capabilities marked admin-only are intentionally not available to waiters; ask an administrator if you need one of them."
+    />
+  );
+}

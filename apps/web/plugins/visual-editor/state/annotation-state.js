@@ -1,10 +1,16 @@
 /**
+ * A reference attachment the user added to a comment.
+ * @typedef {{ url: string, fileName: string, size: number, type: 'image' }} AnnotationAttachment
+ */
+
+/**
  * A comment always targets a group: `elements` and `selections` are parallel,
  * one entry per annotated element. A single annotation is just a group of one.
  * @typedef {{
  *   elements: HTMLElement[],
  *   selections: object[],
  *   text: string,
+ *   attachments: AnnotationAttachment[],
  *   clickX: number,
  *   clickY: number,
  *   fixed: boolean,
@@ -21,6 +27,8 @@ let _editingComment = null;
 let _pendingElements = [];
 /** @type {object[]} */
 let _pendingSelections = [];
+/** @type {AnnotationAttachment[]} */
+let _pendingAttachments = [];
 let _annotationClickX = 0;
 let _annotationClickY = 0;
 
@@ -38,6 +46,9 @@ export function setPendingElements(value) { _pendingElements = value ?? []; }
 
 export function getPendingSelections() { return _pendingSelections; }
 export function setPendingSelections(value) { _pendingSelections = value ?? []; }
+
+export function getPendingAttachments() { return _pendingAttachments; }
+export function setPendingAttachments(value) { _pendingAttachments = value ?? []; }
 
 export function getAnnotationClickX() { return _annotationClickX; }
 export function setAnnotationClickX(value) { _annotationClickX = value; }

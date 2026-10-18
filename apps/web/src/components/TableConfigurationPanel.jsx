@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Trash2, Edit2, Loader2, Info, DoorOpen, DoorClosed, ToggleLeft, ToggleRight } from 'lucide-react';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
+import CsvImportExport from '@/components/CsvImportExport.jsx';
+import { tablesExportColumns, tablesImportConfig } from '@/lib/csvConfigs.js';
 
 export default function TableConfigurationPanel() {
   const [tables, setTables] = useState([]);
@@ -175,6 +177,28 @@ export default function TableConfigurationPanel() {
           </form>
         </CardContent>
       </Card>
+
+      {/* CSV export / import for table configurations */}
+      <div className="bg-card border-2 border-border rounded-2xl p-4 md:p-5 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <h3 className="text-sm font-serif font-bold text-primary">Tables — CSV Export / Import</h3>
+            <p className="text-xs text-muted-foreground font-medium mt-0.5">
+              Export tables to CSV, edit offline, then re-import to bulk create or update. Matched by ID or Table Name.
+            </p>
+          </div>
+          <div className="sm:ml-auto">
+            <CsvImportExport
+              collection="table_configurations"
+              entityLabel="tables"
+              exportFileName="tables.csv"
+              exportColumns={tablesExportColumns}
+              importConfig={tablesImportConfig}
+              onImportComplete={fetchTables}
+            />
+          </div>
+        </div>
+      </div>
 
       {loading ? (
         <div className="flex justify-center p-12 text-muted-foreground"><Loader2 className="w-8 h-8 animate-spin" /></div>

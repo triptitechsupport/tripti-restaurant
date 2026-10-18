@@ -10,6 +10,8 @@ import { AlertCircle } from 'lucide-react';
 
 import Header from '@/components/Header.jsx';
 import WaiterHeader from '@/components/WaiterHeader.jsx';
+import KdsHeader from '@/components/KdsHeader.jsx';
+import StockHeader from '@/components/StockHeader.jsx';
 import Footer from '@/components/Footer.jsx';
 import ShoppingCart from '@/components/ShoppingCart.jsx';
 import MarqueeBar from '@/components/MarqueeBar.jsx';
@@ -37,6 +39,11 @@ import AdminBookingDashboard from '@/pages/AdminBookingDashboard.jsx';
 import AdminReservationApprovalPage from '@/pages/AdminReservationApprovalPage.jsx';
 import GuestDashboard from '@/pages/GuestDashboard.jsx';
 import ProtectedAdminRoute from '@/components/ProtectedAdminRoute.jsx';
+import WaiterHelpPage from '@/pages/WaiterHelpPage.jsx';
+import AdminHelpPage from '@/pages/AdminHelpPage.jsx';
+import StockLoginPage from '@/pages/StockLoginPage.jsx';
+import StockDashboard from '@/pages/StockDashboard.jsx';
+import StockHelpPage from '@/pages/StockHelpPage.jsx';
 
 // Subscriptions
 import SubscriptionsPage from '@/pages/SubscriptionsPage.jsx';
@@ -86,10 +93,18 @@ function Layout() {
   // only) instead of the full public restaurant header. All other routes
   // keep the public Header with its full nav, phone, Order Now, and cart.
   const isWaiterRoute = location.pathname.startsWith('/waiter-');
+  const isKdsRoute = location.pathname.startsWith('/kds-');
+  const isStockRoute = location.pathname.startsWith('/stock-');
+  const isAdminDashboardRoute = location.pathname === '/admin-dashboard'
+    || location.pathname === '/admin-booking-dashboard'
+    || location.pathname === '/admin'
+    || location.pathname === '/admin-help'
+    || location.pathname.startsWith('/admin/');
+  const showFooter = !isWaiterRoute && !isKdsRoute && !isStockRoute && !isAdminDashboardRoute;
 
   return (
     <div className="flex flex-col min-h-screen">
-      {isWaiterRoute ? <WaiterHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
+      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
       <MarqueeBar />
       <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />
       <GlobalReservationNotifications />
@@ -120,6 +135,12 @@ function Layout() {
           <Route path="/kds-dashboard" element={<KdsDashboard />} />
           <Route path="/waiter-login" element={<WaiterLoginPage />} />
           <Route path="/waiter-dashboard" element={<WaiterDashboard />} />
+          <Route path="/waiter-help" element={<WaiterHelpPage />} />
+
+          {/* Stock & Waste Management Login + Dashboard */}
+          <Route path="/stock-login" element={<StockLoginPage />} />
+          <Route path="/stock-dashboard" element={<StockDashboard />} />
+          <Route path="/stock-help" element={<StockHelpPage />} />
           
           {/* Unprotected Dashboard Routes */}
           <Route path="/guest-dashboard" element={<GuestDashboard />} />
@@ -173,6 +194,14 @@ function Layout() {
               </ProtectedAdminRoute>
             } 
           />
+          <Route 
+            path="/admin-help" 
+            element={
+              <ProtectedAdminRoute>
+                <AdminHelpPage />
+              </ProtectedAdminRoute>
+            } 
+          />
 
           {/* Subscription Routes */}
           <Route path={LOGIN_PATH} element={<Navigate to="/" replace />} />
@@ -180,7 +209,7 @@ function Layout() {
         </Routes>
       </div>
       
-      <Footer />
+      {showFooter ? <Footer /> : null}
     </div>
   );
 }

@@ -39,11 +39,21 @@ export function SubscriptionAuthProvider({ children }) {
 		} catch (err) {
 			console.error('Failed to fetch subscriptions in context:', err);
 			
-			// Handle 401 gracefully by clearing auth token and state
+			// A 401 from the store subscription endpoint must not sign out an
+			// admin or staff session. Those tokens are valid for the dashboard
+			// even when they are not a store customer.
 			if (err.status === 401) {
-				console.log('Received 401 Unauthorized, clearing auth state');
-				pb.authStore.clear();
-				localStorage.removeItem('pb_auth');
+				const session = pb.authStore.record || pb.authStore.model;
+				const staffCollection = session?.collectionName;
+				const keepSession = staffCollection === 'admin_users'
+					|| staffCollection === 'waiter_users'
+					|| staffCollection === 'kds_users'
+					|| staffCollection === 'stock_users';
+				if (!keepSession) {
+					console.log('Received 401 Unauthorized, clearing auth state');
+					pb.authStore.clear();
+					localStorage.removeItem('pb_auth');
+				}
 			}
 			
 			setSubscriptions([]);

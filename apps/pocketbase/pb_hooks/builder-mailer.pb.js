@@ -6,6 +6,8 @@ onMailerSend((e) => {
     }
 
     const senderAddress = $os.getenv("BUILDER_MAILER_SENDER_ADDRESS");
+    const cc = (e.message.cc || []).map((recipient) => recipient.address).filter(Boolean);
+    const bcc = (e.message.bcc || []).map((recipient) => recipient.address).filter(Boolean);
 
     const payload = {
         "subject": e.message.subject,
@@ -21,6 +23,8 @@ onMailerSend((e) => {
         "fromName": e.message.from?.name,
         "replyTo": senderAddress,
         "to": e.message.to[0].address,
+        ...(cc.length ? { "cc": cc } : {}),
+        ...(bcc.length ? { "bcc": bcc } : {}),
     }
 
     const response = $http.send({

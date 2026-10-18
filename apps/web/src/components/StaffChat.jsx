@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { MessageCircle, X, Send, Volume2, VolumeX, Phone, PhoneOff, PhoneCall, Mic, MicOff, AlertTriangle } from 'lucide-react';
+import { MessageCircle, X, Send, Volume2, VolumeX, Phone, PhoneOff, PhoneCall, Mic, MicOff, AlertTriangle, ChevronDown, Search, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import useStaffCall from '@/hooks/useStaffCall';
 
@@ -18,10 +17,13 @@ const ROLE_META = {
   kds: { label: 'Kitchen (KDS)', cls: 'bg-emerald-600 text-white' },
 };
 
-const OTHER_ROLES = {
-  admin: ['waiter', 'kds'],
+// Role-based peers shown as plain top-level tabs for each role.
+// Waiters are NEVER shown to other waiters; for admin/kds they live under
+// the grouped "Waiters" dropdown instead of one tab per waiter.
+const ROLE_PEERS = {
+  admin: ['kds'],
+  kds: ['admin'],
   waiter: ['admin', 'kds'],
-  kds: ['admin', 'waiter'],
 };
 
 const SOUND_KEY = 'staff_chat_sound_v1';
@@ -53,34 +55,107 @@ function fmtTime(str) {
   } catch (_) { return ''; }
 }
 
+function waiterName(w) {
+  return w?.displayName || w?.username || w?.email || 'Waiter';
+}
+
+// A message is one I'm involved in (sender or recipient), considering both
+// user-specific routing (senderId/recipientId) and legacy role broadcasts.
+function involvesMe(m, myId, myRole) {
+  if (myId && m.senderId === myId) return true;
+  if (myId && m.recipientId && m.recipientId === myId) return true;
+  if (!m.recipientId && m.recipientRole === myRole) return true;
+  // Legacy / role-based fallback. Only applied for non-waiter roles
+  // (admin/kds) so that a waiter never sees messages belonging to
+  // another waiter — waiters are matched strictly by user id above.
+  if (myRole !== 'waiter') {
+    if (m.senderRole === myRole) return true;
+    if (m.recipientRole === myRole) return true;
+  }
+  return false;
+}
+
+// A message is an incoming unread message addressed to me.
+function isIncomingForMe(m, myId, myRole) {
+  if (myId && m.senderId === myId) return false; // my own outgoing
+  if (myId && m.recipientId && m.recipientId === myId) return true;
+  if (!m.recipientId && m.recipientRole === myRole) return true;
+  return false;
+}
+
+// Does this message belong to the active conversation?
+// peer = { kind: 'role', role } | { kind: 'waiter', waiter: { id, name } }
+function inConversation(m, peer, myId, myRole) {
+  if (peer.kind === 'role') {
+    const pr = peer.role;
+    return (
+      (m.senderRole === myRole && m.recipientRole === pr) ||
+      (m.senderRole === pr && m.recipientRole === myRole)
+    );
+  }
+  // waiter conversation (admin/kds side)
+  const wid = peer.waiter.id;
+  // outgoing from me to this waiter
+  if (myId && m.senderId === myId && m.recipientId === wid) return true;
+  // incoming from this waiter to my role
+  if (m.senderId === wid && m.recipientRole === myRole) return true;
+  // legacy fallback: waiter->my role with no senderId, match by display name
+  if (!m.senderId && m.senderRole === 'waiter' && m.recipientRole === myRole && m.senderName === peer.waiter.name) return true;
+  return false;
+}
+
 /**
  * Floating real-time chat widget shared by Admin, Waiter and KDS dashboards.
+ *
+ * Messages and conversations are USER-SPECIFIC. Each message stores the
+ * actual sender and recipient user id (senderId / recipientId) alongside the
+ * legacy role fields. Admin and KDS see Admin and KDS as top-level
+ * conversation tabs and all waiter conversations grouped under a searchable
+ * "Waiters" dropdown — selecting one waiter opens only that waiter's private
+ * conversation. Waiters keep Admin and KDS tabs and never see other waiters.
+ *
  * @param {'admin'|'waiter'|'kds'} role  - current user's role
+ * @param {string} userId                - current user's auth record id
  * @param {object} pbClient              - the PocketBase client for this session
  * @param {string} displayName           - name shown to other staff
  */
-export default function StaffChat({ role, pbClient, displayName }) {
+export default function StaffChat({ role, userId, pbClient, displayName }) {
   const [open, setOpen] = useState(false);
-  const [activePeer, setActivePeer] = useState(OTHER_ROLES[role][0]);
+  const rolePeers = ROLE_PEERS[role] || [];
+  const [activePeer, setActivePeer] = useState({ kind: 'role', role: rolePeers[0] });
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [waiters, setWaiters] = useState([]);
+  const [waitersOpen, setWaitersOpen] = useState(false);
+  const [waiterSearch, setWaiterSearch] = useState('');
   const [soundOn, setSoundOn] = useState(() => {
     try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch (_) { return true; }
   });
   const scrollRef = useRef(null);
-  const openRef = useRef(open);
-  const activePeerRef = useRef(activePeer);
-  openRef.current = open;
-  activePeerRef.current = activePeer;
+  const waitersDropdownRef = useRef(null);
 
-  const peers = OTHER_ROLES[role];
+  const canBrowseWaiters = role === 'admin' || role === 'kds';
 
-  const call = useStaffCall({ role, pbClient, displayName });
+  const call = useStaffCall({ role, userId, pbClient, displayName });
 
   const loadMessages = useCallback(async () => {
     try {
-      const filter = `senderRole = "${role}" || recipientRole = "${role}"`;
+      // Load messages I'm involved in: my outgoing (senderId), messages
+      // addressed to me specifically (recipientId), and role broadcasts
+      // targeting my role (recipientRole). Legacy role-based rows are
+      // captured by the recipientRole clause.
+      // Waiters are matched strictly by user id: only their own outgoing
+      // messages (senderId = me), messages addressed specifically to them
+      // (recipientId = me), and role broadcasts to all waiters
+      // (recipientRole = "waiter" with no specific recipientId). This
+      // excludes every message belonging to another waiter. Admin/KDS keep
+      // the broader role-based filter so their behaviour is unchanged.
+      const filter = userId
+        ? (role === 'waiter'
+            ? `senderId = "${userId}" || recipientId = "${userId}" || (recipientRole = "waiter" && recipientId = "")`
+            : `senderId = "${userId}" || recipientId = "${userId}" || recipientRole = "${role}" || senderRole = "${role}"`)
+        : `senderRole = "${role}" || recipientRole = "${role}"`;
       const res = await pbClient.collection('staff_messages').getFullList({
         sort: 'created',
         filter,
@@ -90,7 +165,19 @@ export default function StaffChat({ role, pbClient, displayName }) {
     } catch (err) {
       console.error('[StaffChat] load failed', err);
     }
-  }, [pbClient, role]);
+  }, [pbClient, role, userId]);
+
+  // Load the waiter roster for the Admin/KDS "Waiters" dropdown.
+  useEffect(() => {
+    if (!canBrowseWaiters) return;
+    let cancelled = false;
+    pbClient
+      .collection('waiter_users')
+      .getFullList({ sort: 'username', $autoCancel: false })
+      .then((rows) => { if (!cancelled) setWaiters(rows); })
+      .catch((err) => console.error('[StaffChat] waiter load failed', err));
+    return () => { cancelled = true; };
+  }, [pbClient, canBrowseWaiters]);
 
   useEffect(() => {
     loadMessages();
@@ -99,16 +186,14 @@ export default function StaffChat({ role, pbClient, displayName }) {
       .collection('staff_messages')
       .subscribe('*', (e) => {
         const r = e.record;
-        const involvesMe = r.senderRole === role || r.recipientRole === role;
-        if (!involvesMe) return;
+        if (!involvesMe(r, userId, role)) return;
         setMessages((prev) => {
           if (e.action === 'delete') return prev.filter((m) => m.id !== r.id);
           const exists = prev.find((m) => m.id === r.id);
           if (exists) return prev.map((m) => (m.id === r.id ? r : m));
           return [...prev, r];
         });
-        // incoming message from someone else
-        if (e.action === 'create' && r.senderRole !== role && r.recipientRole === role) {
+        if (e.action === 'create' && isIncomingForMe(r, userId, role)) {
           if (soundOn) playPing();
         }
       })
@@ -120,27 +205,42 @@ export default function StaffChat({ role, pbClient, displayName }) {
       else pbClient.collection('staff_messages').unsubscribe('*');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, pbClient, soundOn]);
+  }, [role, userId, pbClient, soundOn]);
+
+  // Close the waiters dropdown on outside click.
+  useEffect(() => {
+    if (!waitersOpen) return;
+    const handler = (e) => {
+      if (waitersDropdownRef.current && !waitersDropdownRef.current.contains(e.target)) {
+        setWaitersOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [waitersOpen]);
 
   // conversation for the active peer
-  const conversation = messages.filter(
-    (m) =>
-      (m.senderRole === role && m.recipientRole === activePeer) ||
-      (m.senderRole === activePeer && m.recipientRole === role)
-  );
+  const conversation = messages.filter((m) => inConversation(m, activePeer, userId, role));
 
-  // unread counts per peer (messages sent TO me, not read)
-  const unreadByPeer = {};
-  peers.forEach((p) => {
-    unreadByPeer[p] = messages.filter(
-      (m) => m.senderRole === p && m.recipientRole === role && !m.read
+  // unread counts
+  const unreadByRolePeer = {};
+  rolePeers.forEach((p) => {
+    unreadByRolePeer[p] = messages.filter(
+      (m) => !m.read && isIncomingForMe(m, userId, role) && inConversation(m, { kind: 'role', role: p }, userId, role)
     ).length;
   });
-  const totalUnread = Object.values(unreadByPeer).reduce((a, b) => a + b, 0);
 
-  // Unread urgent alerts sent to me (across all peers)
+  const unreadByWaiter = {};
+  waiters.forEach((w) => {
+    unreadByWaiter[w.id] = messages.filter(
+      (m) => !m.read && isIncomingForMe(m, userId, role) && m.senderId === w.id
+    ).length;
+  });
+
+  const waitersTotalUnread = waiters.reduce((sum, w) => sum + (unreadByWaiter[w.id] || 0), 0);
+  const totalUnread = messages.filter((m) => !m.read && isIncomingForMe(m, userId, role)).length;
   const unreadAlerts = messages.filter(
-    (m) => m.recipientRole === role && m.senderRole !== role && !m.read && m.isAlert
+    (m) => !m.read && isIncomingForMe(m, userId, role) && m.isAlert
   ).length;
 
   // auto-scroll
@@ -154,7 +254,7 @@ export default function StaffChat({ role, pbClient, displayName }) {
   useEffect(() => {
     if (!open) return;
     const toMark = messages.filter(
-      (m) => m.senderRole === activePeer && m.recipientRole === role && !m.read
+      (m) => !m.read && isIncomingForMe(m, userId, role) && inConversation(m, activePeer, userId, role)
     );
     toMark.forEach((m) => {
       pbClient
@@ -173,15 +273,30 @@ export default function StaffChat({ role, pbClient, displayName }) {
     });
   };
 
+  const activePeerLabel = () => {
+    if (activePeer.kind === 'role') return ROLE_META[activePeer.role].label;
+    return activePeer.waiter.name;
+  };
+
+  const activePeerTarget = () => {
+    if (activePeer.kind === 'role') {
+      return { role: activePeer.role, id: '', name: ROLE_META[activePeer.role].label };
+    }
+    return { role: 'waiter', id: activePeer.waiter.id, name: activePeer.waiter.name };
+  };
+
   const send = async () => {
     const content = text.trim();
     if (!content || sending) return;
+    const target = activePeerTarget();
     setSending(true);
     try {
       await pbClient.collection('staff_messages').create(
         {
           senderRole: role,
-          recipientRole: activePeer,
+          recipientRole: target.role,
+          senderId: userId || '',
+          recipientId: target.id || '',
           senderName: displayName || ROLE_META[role].label,
           content,
           read: false,
@@ -195,6 +310,22 @@ export default function StaffChat({ role, pbClient, displayName }) {
       setSending(false);
     }
   };
+
+  const selectWaiter = (w) => {
+    setActivePeer({ kind: 'waiter', waiter: { id: w.id, name: waiterName(w) } });
+    setWaitersOpen(false);
+    setWaiterSearch('');
+  };
+
+  const filteredWaiters = waiters.filter((w) => {
+    const q = waiterSearch.trim().toLowerCase();
+    if (!q) return true;
+    const name = waiterName(w).toLowerCase();
+    return name.includes(q) || (w.username || '').toLowerCase().includes(q);
+  });
+
+  const activeWaiterUnread =
+    activePeer.kind === 'waiter' ? (unreadByWaiter[activePeer.waiter.id] || 0) : 0;
 
   return (
     <>
@@ -268,7 +399,7 @@ export default function StaffChat({ role, pbClient, displayName }) {
           </span>
           <div className="flex-1 min-w-0">
             <p className="font-semibold truncate">
-              {call.peerRole ? ROLE_META[call.peerRole]?.label : ''}
+              {call.peerName || (call.peerRole ? ROLE_META[call.peerRole]?.label : '')}
             </p>
             <p className="text-xs opacity-80 notranslate" translate="no">
               {call.callState === 'calling'
@@ -326,38 +457,125 @@ export default function StaffChat({ role, pbClient, displayName }) {
 
           {/* Peer tabs */}
           <div className="flex border-b border-border">
-            {peers.map((p) => (
+            {rolePeers.map((p) => (
               <button
                 key={p}
                 type="button"
-                onClick={() => setActivePeer(p)}
+                onClick={() => setActivePeer({ kind: 'role', role: p })}
                 data-peer={p}
                 className={cn(
                   'flex-1 relative px-3 py-2.5 text-sm font-medium transition-colors',
-                  activePeer === p
+                  activePeer.kind === 'role' && activePeer.role === p
                     ? 'bg-accent/50 text-primary border-b-2 border-primary'
                     : 'text-muted-foreground hover:bg-accent/30'
                 )}
               >
                 {ROLE_META[p].label}
-                {unreadByPeer[p] > 0 && (
+                {unreadByRolePeer[p] > 0 && (
                   <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-destructive text-white text-[10px] font-bold">
-                    {unreadByPeer[p]}
+                    {unreadByRolePeer[p]}
                   </span>
                 )}
               </button>
             ))}
+
+            {/* Waiters dropdown (Admin / KDS only) */}
+            {canBrowseWaiters && (
+              <div className="relative flex-1" ref={waitersDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setWaitersOpen((o) => !o)}
+                  data-peer="waiters"
+                  className={cn(
+                    'w-full relative px-3 py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-1',
+                    activePeer.kind === 'waiter'
+                      ? 'bg-accent/50 text-primary border-b-2 border-primary'
+                      : 'text-muted-foreground hover:bg-accent/30'
+                  )}
+                >
+                  {activePeer.kind === 'waiter' ? (
+                    <span className="truncate max-w-[7rem]">{activePeer.waiter.name}</span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3.5 w-3.5" /> Waiters
+                    </span>
+                  )}
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  {activePeer.kind === 'waiter'
+                    ? (activeWaiterUnread > 0 && (
+                        <span className="ml-1 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-destructive text-white text-[10px] font-bold">
+                          {activeWaiterUnread}
+                        </span>
+                      ))
+                    : (waitersTotalUnread > 0 && (
+                        <span className="ml-1 inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-destructive text-white text-[10px] font-bold">
+                          {waitersTotalUnread}
+                        </span>
+                      ))}
+                </button>
+
+                {waitersOpen && (
+                  <div className="absolute left-0 right-0 top-full z-10 mt-0.5 bg-popover border border-border rounded-b-lg shadow-xl max-h-72 flex flex-col">
+                    <div className="p-2 border-b border-border">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                        <Input
+                          value={waiterSearch}
+                          onChange={(e) => setWaiterSearch(e.target.value)}
+                          placeholder="Search waiters…"
+                          className="h-8 pl-7 text-sm bg-background"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="overflow-y-auto flex-1">
+                      {filteredWaiters.length === 0 ? (
+                        <p className="text-center text-xs text-muted-foreground italic py-4">
+                          {waiters.length === 0 ? 'No waiters found.' : 'No matching waiters.'}
+                        </p>
+                      ) : (
+                        filteredWaiters.map((w) => {
+                          const name = waiterName(w);
+                          const isActive = activePeer.kind === 'waiter' && activePeer.waiter.id === w.id;
+                          const unread = unreadByWaiter[w.id] || 0;
+                          return (
+                            <button
+                              key={w.id}
+                              type="button"
+                              onClick={() => selectWaiter(w)}
+                              className={cn(
+                                'w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left transition-colors',
+                                isActive ? 'bg-accent/60 text-primary font-semibold' : 'hover:bg-accent/40 text-foreground'
+                              )}
+                            >
+                              <span className="truncate">{name}</span>
+                              {unread > 0 && (
+                                <span className="inline-flex items-center justify-center h-5 min-w-5 px-1 rounded-full bg-destructive text-white text-[10px] font-bold shrink-0">
+                                  {unread}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-background/40">
             {conversation.length === 0 ? (
               <p className="text-center text-sm text-muted-foreground italic py-8">
-                No messages yet. Say hello to {ROLE_META[activePeer].label}.
+                No messages yet. Say hello to {activePeerLabel()}.
               </p>
             ) : (
               conversation.map((m) => {
-                const mine = m.senderRole === role;
+                const mine = userId
+                  ? m.senderId === userId
+                  : m.senderRole === role;
                 const isAlert = !!m.isAlert;
                 return (
                   <div key={m.id} className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
@@ -406,10 +624,10 @@ export default function StaffChat({ role, pbClient, displayName }) {
             <Button
               size="icon"
               variant="outline"
-              onClick={() => call.startCall(activePeer)}
+              onClick={() => call.startCall(activePeerTarget())}
               disabled={call.callState !== 'idle' || !!call.incoming}
-              aria-label={`Call ${ROLE_META[activePeer].label}`}
-              title={`Call ${ROLE_META[activePeer].label}`}
+              aria-label={`Call ${activePeerLabel()}`}
+              title={`Call ${activePeerLabel()}`}
               className="shrink-0 text-emerald-600 border-emerald-600 hover:bg-emerald-50"
             >
               <Phone className="h-4 w-4" />
@@ -423,7 +641,7 @@ export default function StaffChat({ role, pbClient, displayName }) {
                   send();
                 }
               }}
-              placeholder={`Message ${ROLE_META[activePeer].label}...`}
+              placeholder={`Message ${activePeerLabel()}...`}
               className="bg-background"
             />
             <Button size="icon" onClick={send} disabled={sending || !text.trim()}>

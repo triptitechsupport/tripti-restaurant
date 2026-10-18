@@ -51,6 +51,12 @@ export function useOrderSettings() {
           }
         });
       } catch (err) {
+        // Status 0 / AbortError = a transient realtime disconnect or
+        // auto-cancellation of the shared realtime connection (it races with
+        // the other homepage subscribers — MarqueeBar, CustomerFeedback — on
+        // mount). The initial fetch above already loaded the settings, so this
+        // is harmless noise; suppress it and only surface real errors.
+        if (err && (err.status === 0 || err.isAbort || err.name === 'AbortError')) return;
         console.warn('[useOrderSettings] Failed to subscribe to order_settings:', err.message || err);
       }
     };

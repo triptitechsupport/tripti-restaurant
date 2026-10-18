@@ -55,13 +55,24 @@ function playRing() {
 }
 
 /**
- * WebRTC voice-call between staff roles (admin/waiter/kds) using PocketBase
+ * WebRTC voice-call between staff users (admin/waiter/kds) using PocketBase
  * `staff_calls` records for signaling (non-trickle ICE).
+ *
+ * Calls are USER-SPECIFIC: when callerId/calleeId are set, only the targeted
+ * user's device rings. Role-based calls (admin <-> kds, waiter -> admin/kds
+ * broadcast) leave calleeId empty and ring every user of the callee role,
+ * preserving the previous behaviour for those peers.
+ *
+ * @param {string} role       - current user's role
+ * @param {string} userId     - current user's auth record id
+ * @param {object} pbClient   - PocketBase client for this session
+ * @param {string} displayName- name shown to other staff
  */
-export default function useStaffCall({ role, pbClient, displayName }) {
+export default function useStaffCall({ role, userId, pbClient, displayName }) {
   // 'idle' | 'calling' | 'ringing' (incoming) | 'connected'
   const [callState, setCallState] = useState('idle');
   const [peerRole, setPeerRole] = useState(null);
+  const [peerName, setPeerName] = useState('');
   const [incoming, setIncoming] = useState(null); // {id, callerRole, callerName}
   const [muted, setMuted] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -118,6 +129,7 @@ export default function useStaffCall({ role, pbClient, displayName }) {
     connectedAtRef.current = null;
     setCallState('idle');
     setPeerRole(null);
+    setPeerName('');
     setMuted(false);
     setDuration(0);
   }, [cleanupMedia]);
@@ -153,12 +165,17 @@ export default function useStaffCall({ role, pbClient, displayName }) {
   }, []);
 
   // ---- Outgoing call ----
-  const startCall = useCallback(async (targetRole) => {
+  // target = { role, id, name } — id is empty for role-based peers
+  // (admin <-> kds, waiter -> admin/kds) and a specific user id for a
+  // single waiter so only that waiter rings.
+  const startCall = useCallback(async (target) => {
     if (callState !== 'idle') return;
+    if (!target || !target.role) return;
     setError('');
     try {
       setCallState('calling');
-      setPeerRole(targetRole);
+      setPeerRole(target.role);
+      setPeerName(target.name || ROLE_LABEL[target.role] || '');
       const pc = buildPc();
       pcRef.current = pc;
       const stream = await getMic();
@@ -169,7 +186,9 @@ export default function useStaffCall({ role, pbClient, displayName }) {
       const rec = await pbClient.collection('staff_calls').create(
         {
           callerRole: role,
-          calleeRole: targetRole,
+          calleeRole: target.role,
+          callerId: userId || '',
+          calleeId: target.id || '',
           callerName: displayName || ROLE_LABEL[role],
           status: 'ringing',
           offer: pc.localDescription.toJSON(),
@@ -183,7 +202,7 @@ export default function useStaffCall({ role, pbClient, displayName }) {
       setError(err?.name === 'NotAllowedError' ? 'Microphone permission denied.' : 'Could not start call.');
       resetState();
     }
-  }, [callState, buildPc, getMic, pbClient, role, displayName, resetState]);
+  }, [callState, buildPc, getMic, pbClient, role, userId, displayName, resetState]);
 
   // ---- Accept incoming ----
   const acceptCall = useCallback(async () => {
@@ -194,6 +213,7 @@ export default function useStaffCall({ role, pbClient, displayName }) {
       const rec = await pbClient.collection('staff_calls').getOne(incoming.id, { $autoCancel: false });
       if (rec.status !== 'ringing') { setIncoming(null); return; }
       setPeerRole(incoming.callerRole);
+      setPeerName(incoming.callerName || ROLE_LABEL[incoming.callerRole] || '');
       const pc = buildPc();
       pcRef.current = pc;
       const stream = await getMic();
@@ -256,6 +276,15 @@ export default function useStaffCall({ role, pbClient, displayName }) {
     });
   }, []);
 
+  // A staff_calls record is relevant to me if I'm the targeted callee user,
+  // or (for role-based calls) I belong to the callee role, or I'm the caller.
+  const callInvolvesMe = useCallback((r) => {
+    if (r.callerId && r.callerId === userId) return true;
+    if (r.calleeId) return r.calleeId === userId;
+    // role-based call (no calleeId)
+    return r.calleeRole === role || r.callerRole === role;
+  }, [userId, role]);
+
   // ---- Signaling subscription ----
   useEffect(() => {
     let unsub = null;
@@ -263,12 +292,11 @@ export default function useStaffCall({ role, pbClient, displayName }) {
       .collection('staff_calls')
       .subscribe('*', async (e) => {
         const r = e.record;
-        const forMe = r.calleeRole === role || r.callerRole === role;
-        if (!forMe) return;
+        if (!callInvolvesMe(r)) return;
 
         if (e.action === 'create') {
-          // incoming call to me
-          if (r.calleeRole === role && r.status === 'ringing') {
+          // incoming call to me (and I'm the callee, not the caller)
+          if (r.calleeRole === role && r.status === 'ringing' && !(r.callerId && r.callerId === userId)) {
             if (callState === 'idle' && !incoming) {
               setIncoming({ id: r.id, callerRole: r.callerRole, callerName: r.callerName });
               ringStopRef.current = playRing();
@@ -284,7 +312,7 @@ export default function useStaffCall({ role, pbClient, displayName }) {
 
         if (e.action === 'update') {
           // my outgoing call got answered
-          if (r.id === callIdRef.current && r.callerRole === role) {
+          if (r.id === callIdRef.current && r.callerId === userId) {
             if (r.status === 'connected' && r.answer && pcRef.current
                 && !pcRef.current.currentRemoteDescription) {
               try {
@@ -318,7 +346,7 @@ export default function useStaffCall({ role, pbClient, displayName }) {
       else pbClient.collection('staff_calls').unsubscribe('*');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, pbClient, callState, incoming]);
+  }, [role, userId, pbClient, callState, incoming, callInvolvesMe]);
 
   // cleanup on unmount
   useEffect(() => () => cleanupMedia(), [cleanupMedia]);
@@ -326,6 +354,7 @@ export default function useStaffCall({ role, pbClient, displayName }) {
   return {
     callState,
     peerRole,
+    peerName,
     incoming,
     muted,
     duration,

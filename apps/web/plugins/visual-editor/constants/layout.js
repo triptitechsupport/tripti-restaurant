@@ -22,3 +22,5 @@ export const DRAG_SELECT_THRESHOLD = 4;
 export const MIN_SELECTION_CANDIDATE_SIZE = 8;
 /** Elements one annotation may target. Matches the backend's cap so a drag can never build a payload the API rejects.*/
 export const MAX_SELECTED_ELEMENTS = 20;
+/** Reference images across all annotations in one visual-editor turn. */
+export const MAX_ANNOTATION_ATTACHMENTS = 10;

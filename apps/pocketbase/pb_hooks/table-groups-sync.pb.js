@@ -26,7 +26,26 @@
 
 // 1. Member create — derive isActive from the parent group's status.
 onRecordCreateRequest((e) => {
-  const groupId = e.record.get("tableGroup");
+  const asId = (value) => {
+    if (value == null || value === "") return "";
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return asId(value[0]);
+    if (typeof value === "object" && value.id) return String(value.id);
+    return String(value);
+  };
+  let groupId = asId(e.record.get("tableGroup"));
+  if (!groupId) {
+    try {
+      const info = typeof e.requestInfo === "function" ? e.requestInfo() : e.requestInfo;
+      const body = info && info.body ? info.body : null;
+      groupId = asId(body && (body.tableGroup || body["tableGroup"]));
+    } catch (_) {
+      groupId = groupId || "";
+    }
+  }
+  if (groupId && !asId(e.record.get("tableGroup"))) {
+    e.record.set("tableGroup", String(groupId));
+  }
   if (!groupId) {
     e.next();
     return;

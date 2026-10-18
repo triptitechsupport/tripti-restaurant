@@ -1,5 +1,5 @@
 import { SIZE_ACTION_ID } from './template.js';
-import { PANEL_BG, BORDER_COLOR, HOVER_BG, ACTIVE_BG, BOX_SHADOW_DROPDOWN, COLOR_WHITE } from '../../../constants/theme.js';
+import { PANEL_BG, BORDER_COLOR, HOVER_BG, ACTIVE_BG, BOX_SHADOW_DROPDOWN, COLOR_WHITE, Z_INDEX_EDITOR_PANEL } from '../../../constants/theme.js';
 
 /** Injected CSS for the font size dropdown panel. */
 export const SIZE_ACTION_STYLES = `
@@ -16,6 +16,7 @@ export const SIZE_ACTION_STYLES = `
   box-shadow: ${BOX_SHADOW_DROPDOWN};
   font-family: DM Sans, sans-serif;
   user-select: none;
+  z-index: ${Z_INDEX_EDITOR_PANEL};
 }
 
 #${SIZE_ACTION_ID}.tsa-visible { 

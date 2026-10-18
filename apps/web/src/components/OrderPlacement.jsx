@@ -20,7 +20,7 @@ import {
   Plus, Minus, Trash2, Send, Loader2, Search, UtensilsCrossed, Printer,
   CheckCircle2, Flame, ListOrdered, RefreshCw, DoorOpen, ShoppingCart, ArrowLeft,
   CircleStop, Layers, XCircle, Ban, CreditCard, Check, Banknote, AlertTriangle, Bell,
-  Receipt,
+  Receipt, Leaf, Beef,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -32,11 +32,37 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { printKOT, openKOT, SPICE_LEVELS, resolveOrderId, resolveBaseOrderId } from '@/lib/kotPrint.js';
-import { buildGroupMap, tableDisplayForParent, isSharedParent } from '@/lib/tableGroups.js';
+import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
+import { buildGroupMap, tableDisplayForParent, kdsTableLabel, isSharedParent } from '@/lib/tableGroups.js';
 import { isKotDelayed, DELAYED_CARD_CLS } from '@/lib/kotDelayed.js';
+import { ITEM_STATUS, getItemStatus, listUnits, splitForUnitStatus, splitForPayment, splitKotUnits, flatUnitIndex, allItemsPickedUp } from '@/lib/kotItemStatus.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint, shouldAutoPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import { pbDateFilter } from '@/lib/pbDateFilter.js';
+
+// Each ordered unit is its own line, even when the dish and options match,
+// so billing, kitchen prep, and pickup can address that unit alone.
+function explodeOrderEntries(entries, extra = {}) {
+  const items = [];
+  (entries || []).forEach((e, ei) => {
+    const n = Math.max(1, Math.floor(Number(e.qty) || 1));
+    for (let u = 0; u < n; u += 1) {
+      items.push({
+        id: e.item.id,
+        name: e.item.nameEN || e.item.name,
+        category: e.item.category,
+        quantity: 1,
+        price: e.item.price || 0,
+        spiceLevel: e.spiceLevel || 'None',
+        cleared: false,
+        lineId: `${e.item.id}-${ei}-${u}-${Date.now().toString(36)}`,
+        ...extra,
+      });
+    }
+  });
+  return items;
+}
 
 const SPICE_CLS = {
   Mild: 'bg-emerald-100 text-emerald-700 border-emerald-300',
@@ -97,6 +123,21 @@ function playReadyChime() {
       osc.stop(t0 + 0.42);
     });
   } catch (_) { /* Web Audio unavailable — visual banner + vibration still fire */ }
+}
+
+// Local-midnight (browser timezone) as a PocketBase date-filter literal.
+// PocketBase stores `created` as a UTC instant, so comparing
+// `created >= "<local-midnight PB date>"` yields "records from today" in the
+// staff member's local day. Used to keep the Waiter active list fresh each
+// day; historical records stay Admin-only.
+//
+// IMPORTANT: PocketBase date-field filters require "YYYY-MM-DD HH:MM:SS"
+// (UTC), NOT ISO 8601 with "T"/"Z" — an ISO literal silently matches zero
+// rows, which previously made the Waiter active lists and KDS queue empty.
+function startOfTodayFilter() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return pbDateFilter(d);
 }
 
 const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, placedByRole, onPlaced, pbClient, showActiveTab = true, initialTab = 'place' }, ref) {
@@ -350,6 +391,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const [notes, setNotes] = useState('');
   const [order, setOrder] = useState({}); // id -> {item, qty, spiceLevel}
   const [search, setSearch] = useState('');
+  // Veg / Non-Veg dietary filter for the New Order menu. 'all' shows every
+  // active item; 'veg' / 'nonveg' filters by the item's isVegetarian flag.
+  const [dietFilter, setDietFilter] = useState('all');
   const [submitting, setSubmitting] = useState(false);
   const [lastOrder, setLastOrder] = useState(null);
   // Walk-in is the default for every new order; the waiter can switch to
@@ -407,6 +451,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const [tableGroupMembers, setTableGroupMembers] = useState([]);
   // table_groups records — used for the Active-tab Combine Tables headings.
   const [tableGroups, setTableGroups] = useState([]);
+  // Prevent double Free Table / uncombine submissions.
+  const [freeingTable, setFreeingTable] = useState(false);
+  const [releasingCombinations, setReleasingCombinations] = useState(false);
   // Parent order targeted by the End Order confirmation dialog.
   // Shape: { parent, kots } | null
   const [endOrderTarget, setEndOrderTarget] = useState(null);
@@ -424,6 +471,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // a waiter taps Print KOT on a ticket that was already sent (printedAt set
   // AND printCount > 0). The waiter can cancel or choose to send again.
   const [reprintTarget, setReprintTarget] = useState(null);
+  // When true, settlement list shows original N× grouped lines (full-order mode).
+  // Default false: every quantity is expanded to individual 1× selectable units.
+  const [paymentFullOrderMode, setPaymentFullOrderMode] = useState(false);
+
   // Payment settlement modal state.
   // paymentTarget: { parent, kots } | null — the parent order being settled.
   const [paymentTarget, setPaymentTarget] = useState(null);
@@ -431,9 +482,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // entries the waiter has ticked for settlement in the payment modal.
   const [paymentSelections, setPaymentSelections] = useState({});
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
-  // Open parent orders with outstanding balances, listed in the Pay picker.
-  const [payableOrders, setPayableOrders] = useState([]);
-  const [payPickerOpen, setPayPickerOpen] = useState(false);
   // Parent waiter_orders records (for open/closed status + endedAt).
   const [waiterOrders, setWaiterOrders] = useState([]);
   // Per-item spice level selections on the New Order cards (used before an
@@ -464,10 +512,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const { settings: printSettings } = usePrintSettings(pb);
   // Role + waiter id for permission checks. admin_users always pass.
   const printRole = placedByRole || 'waiter';
+  const isWaiterRole = printRole === 'waiter';
   const authRecord = pb.authStore.record || pb.authStore.model;
   const waiterId = authRecord && authRecord.id ? authRecord.id : '';
-  const printAllowed = canPrint(printSettings, printRole, waiterId);
-  const autoPrintEnabled = shouldAutoPrint(printSettings, printRole, waiterId);
+  // Waiters only send orders to the kitchen. Printing remains available to
+  // admins, subject to the existing print settings and permissions.
+  const printAllowed = !isWaiterRole && canPrint(printSettings, printRole, waiterId);
+  const autoPrintEnabled = !isWaiterRole && shouldAutoPrint(printSettings, printRole, waiterId);
 
   // ---- Screen persistence (lock / sleep / app-switch) ----
   // The waiter's in-progress draft is mirrored to localStorage so it
@@ -612,15 +663,32 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     };
   }, [restoreDraft]);
 
+  // Fetch only ACTIVE menu items, sorted to match Admin Menu Management
+  // (category, then nameEN). Inactive items must not be orderable from the
+  // waiter / admin place-order screen, so they are filtered out at the source.
+  // Subscribed via realtime below so admin changes (availability, name,
+  // category) propagate to the waiter immediately without a full reload.
+  const fetchMenu = useCallback(async () => {
+    try {
+      const menu = await pb.collection('menu_items').getFullList({
+        filter: 'availability = true',
+        sort: 'category,nameEN',
+        $autoCancel: false,
+      });
+      setMenuItems(menu);
+    } catch (err) {
+      console.error('Failed to load menu items:', err);
+    }
+  }, []);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [menu, tbl, settings] = await Promise.all([
-        pb.collection('menu_items').getFullList({ sort: 'category,name', $autoCancel: false }),
+      const [tbl, settings] = await Promise.all([
         pb.collection('table_configurations').getFullList().catch(() => []),
         pb.collection('table_settings').getFullList().catch(() => []),
       ]);
-      setMenuItems(menu);
+      await fetchMenu();
       setTables(tbl);
       if (settings && settings.length > 0 && settings[0].maxTableNumber) {
         setMaxTableNumber(Number(settings[0].maxTableNumber) || 9);
@@ -635,8 +703,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
   const fetchOrders = useCallback(async () => {
     try {
+      // Waiter active list = current day only. A fresh list starts each day;
+      // historical KOTs are retained for Admin (AdminKotsView) but are not
+      // surfaced in the Waiter active view.
+      const since = startOfTodayFilter();
       const res = await pb.collection('kitchen_orders').getList(1, 100, {
         sort: '-created',
+        filter: `created >= "${since}"`,
         expand: 'parentOrder',
         $autoCancel: false,
       });
@@ -664,8 +737,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
   const fetchWaiterOrders = useCallback(async () => {
     try {
+      // Current day only — the Waiter active list resets each day. Closed
+      // (historical) billing parents remain available to Admin.
+      const since = startOfTodayFilter();
       const res = await pb.collection('waiter_orders').getList(1, 100, {
         sort: '-created',
+        filter: `created >= "${since}"`,
         $autoCancel: false,
       });
       setWaiterOrders(res.items);
@@ -723,6 +800,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     // Combine Tables: keep active memberships + groups fresh across waiters.
     pb.collection('table_group_members').subscribe('*', () => fetchTableGroupMembers());
     pb.collection('table_groups').subscribe('*', () => fetchTableGroups());
+    // Menu sync: when admin toggles availability, renames, or re-categorizes
+    // an item in Menu Management, refresh the waiter's menu immediately so
+    // active/inactive status, categories, and item names stay in sync.
+    pb.collection('menu_items').subscribe('*', () => fetchMenu());
     const poll = setInterval(fetchOrders, 12000);
     // Tick the live clock for delayed-state highlighting in the Active tab.
     const tick = setInterval(() => setNow(Date.now()), 1000);
@@ -733,10 +814,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       pb.collection('waiter_orders').unsubscribe('*');
       pb.collection('table_group_members').unsubscribe('*');
       pb.collection('table_groups').unsubscribe('*');
+      pb.collection('menu_items').unsubscribe('*');
       clearInterval(poll);
       clearInterval(tick);
     };
-  }, [fetchOrders, fetchTables, fetchTableSettings, fetchWaiterOrders, fetchTableGroupMembers, fetchTableGroups, handleKitchenEvent]);
+  }, [fetchOrders, fetchTables, fetchTableSettings, fetchWaiterOrders, fetchTableGroupMembers, fetchTableGroups, handleKitchenEvent, fetchMenu]);
 
   // Extract a numeric table number from a table record's name (e.g. "5",
   // "Table 7"). Returns NaN when no number is found.
@@ -852,14 +934,22 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
   const filteredMenu = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return menuItems;
-    return menuItems.filter(
+    let list = menuItems;
+    // Apply the Veg / Non-Veg dietary filter. NV items (isVegetarian = false)
+    // are Non-Veg; everything else is Veg.
+    if (dietFilter === 'veg') {
+      list = list.filter((m) => m.isVegetarian === true);
+    } else if (dietFilter === 'nonveg') {
+      list = list.filter((m) => m.isVegetarian !== true);
+    }
+    if (!q) return list;
+    return list.filter(
       (m) =>
         (m.name || '').toLowerCase().includes(q) ||
         (m.nameEN || '').toLowerCase().includes(q) ||
         (m.nameDE || '').toLowerCase().includes(q)
     );
-  }, [menuItems, search]);
+  }, [menuItems, search, dietFilter]);
 
   // When searching, auto-expand every category that has matching items.
   // Otherwise default to first category open.
@@ -957,6 +1047,45 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
   };
 
+  // Item-level pickup. The waiter picks up a single prepared item from a KOT
+  // without marking the whole ticket served. The change persists on
+  // kitchen_orders.itemStatuses and is pushed to every device (KDS, Waiter,
+  // Admin) via the existing realtime stream. When the last prepared item is
+  // picked up AND every item on the ticket has been picked up, the ticket is
+  // auto-completed (equivalent to the existing Mark Served action) so the
+  // natural end state is reached without an extra step. The existing
+  // whole-ticket Mark Served button is retained for tickets where that is
+  // appropriate. Available for any active (non-cancelled, non-completed)
+  // ticket — the waiter can pick up prepared items as soon as the kitchen
+  // marks them, even before the whole ticket reaches Ready to Pickup.
+  const pickupItem = async (order, itemIndex, unitIndex = 0) => {
+    if (!order) return;
+    if (order.status === 'cancelled' || order.status === 'completed') return;
+    const units = listUnits(order);
+    const unit = units.find((u) => u.itemIndex === itemIndex && u.unitIndex === unitIndex);
+    if (!unit || unit.status !== ITEM_STATUS.PREPARED) return;
+    const split = splitForUnitStatus(order, unit.itemIndex, unit.unitIndex, ITEM_STATUS.PICKEDUP);
+    const optimistic = { ...order, items: split.items, itemStatuses: split.itemStatuses };
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, items: split.items, itemStatuses: split.itemStatuses } : o)));
+    try {
+      const willComplete = allItemsPickedUp(optimistic);
+      const patch = { items: split.items, itemStatuses: split.itemStatuses };
+      if (willComplete) patch.status = 'completed';
+      await pb.collection('kitchen_orders').update(
+        order.id,
+        patch,
+        { $autoCancel: false, requestKey: `item-pickup-${order.id}-${itemIndex}-${unitIndex}-${Date.now()}` },
+      );
+      toast.success(willComplete ? t('waiter_allItemsPickedUp') : t('waiter_itemPickedUpToast'));
+      fetchOrders();
+      if (onPlaced) onPlaced();
+    } catch (err) {
+      console.error('Failed to pick up item:', err);
+      toast.error('Failed to update item');
+      fetchOrders();
+    }
+  };
+
   // Free Table — releases the table for a new Order. Governed by TWO
   // business rules, both enforced against live DB state (not only the
   // disabled button):
@@ -994,28 +1123,67 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Member rows are deactivated directly via the SDK (not only via the
   // table-groups-sync hook) so the dropdown updates immediately even if
   // the hook bundle is stale or a hook errors out.
+  // Normalize a relation field that may arrive as an id string or expanded object.
+  const relationId = useCallback((value) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object' && value.id) return String(value.id);
+    return String(value);
+  }, []);
+
+  // Deactivate member rows and close the group when empty. Used by Free Table
+  // and by stale-combination cleanup so tables drop the "Combined" badge.
+  const deactivateMembersAndMaybeClose = useCallback(async (gid, members) => {
+    if (!gid) return;
+    const list = members || [];
+    await Promise.all(
+      list.map((m) =>
+        pb.collection('table_group_members').update(
+          m.id,
+          { isActive: false },
+          { $autoCancel: false, requestKey: `free-member-${m.id}-${Date.now()}` },
+        ).catch((err) => {
+          console.error('Failed to deactivate table_group_member', m.id, err);
+        }),
+      ),
+    );
+    try {
+      const remaining = await pb.collection('table_group_members').getFullList({
+        filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+        $autoCancel: false,
+        requestKey: `free-remaining-${gid}-${Date.now()}`,
+      });
+      if (!remaining || remaining.length === 0) {
+        await pb.collection('table_groups').update(
+          gid,
+          { status: 'closed' },
+          { $autoCancel: false, requestKey: `close-group-${gid}-${Date.now()}` },
+        ).catch((err) => {
+          console.error('Failed to close table_groups', gid, err);
+        });
+      }
+    } catch (err) {
+      console.error('Failed checking remaining combination members', err);
+    }
+  }, []);
+
   const releaseTableFromCombination = useCallback(async (parent) => {
-    if (!parent || !parent.tableGroup) return;
-    const gid = parent.tableGroup;
+    const gid = relationId(parent && parent.tableGroup);
+    if (!parent || !gid) return;
     const tn = parent.tableNumber || '';
     try {
-      const grp = await pb.collection('table_groups').getOne(gid, { $autoCancel: false });
-      if (!grp || grp.status !== 'active') return;
+      let grp = null;
+      try {
+        grp = await pb.collection('table_groups').getOne(gid, { $autoCancel: false });
+      } catch (_) {
+        grp = null;
+      }
 
-      // Determine which member rows to deactivate. Shared Order: one parent
-      // spans every member table, so freeing it releases ALL members at once.
-      // Linked Orders: each table has its own parent, so ONLY this table's
-      // membership row is released (the group stays active for any still-
-      // occupied members).
-      //
-      // We deactivate the member rows DIRECTLY via the SDK rather than
-      // relying solely on the table-groups-sync hook to propagate the
-      // parent group's status change. The hook is a belt-and-suspenders
-      // mirror; doing it here too guarantees the tables drop out of
-      // activeCombinationTableNumbers (and the dropdown's "Combined" label)
-      // immediately, even if the hook bundle is stale or a hook errors out.
+      // Even if the group row is already closed, still force-deactivate any
+      // leftover isActive members so the dropdown cannot stay stuck on Combined.
       let membersToDeactivate = [];
-      if (grp.mode === 'shared') {
+      const mode = (grp && grp.mode) || 'linked';
+      if (mode === 'shared' || !tn) {
         try {
           membersToDeactivate = await pb.collection('table_group_members').getFullList({
             filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
@@ -1023,65 +1191,336 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             requestKey: `free-shared-members-${gid}`,
           });
         } catch (_) { membersToDeactivate = []; }
-      } else if (tn) {
+      } else {
         try {
           const member = await pb.collection('table_group_members').getFirstListItem(
-            pb.filter('tableGroup = {:gid} && tableNumber = {:tn}', { gid, tn }),
+            pb.filter('tableGroup = {:gid} && tableNumber = {:tn} && isActive = true', { gid, tn }),
             { $autoCancel: false, requestKey: `free-linked-get-${gid}-${tn}` },
           );
           membersToDeactivate = [member];
-        } catch (_) { /* member row already gone — non-fatal */ }
+        } catch (_) {
+          // Fallback: any active row for this table number in the group
+          try {
+            membersToDeactivate = await pb.collection('table_group_members').getFullList({
+              filter: pb.filter('tableGroup = {:gid} && tableNumber = {:tn} && isActive = true', { gid, tn }),
+              $autoCancel: false,
+              requestKey: `free-linked-list-${gid}-${tn}`,
+            });
+          } catch (__) { membersToDeactivate = []; }
+        }
       }
 
-      // Deactivate each targeted member row. Unique requestKey per row so
-      // parallel updates don't auto-cancel each other.
-      await Promise.all(
-        membersToDeactivate.map((m) =>
-          pb.collection('table_group_members').update(
-            m.id,
-            { isActive: false },
-            { $autoCancel: false, requestKey: `free-member-${m.id}` },
-          ).catch(() => {}),
-        ),
-      );
-
-      // Close the group when no active members remain. For Shared Order this
-      // is always (we just deactivated every member); for Linked Orders only
-      // when the last active member was released.
-      try {
-        const remaining = await pb.collection('table_group_members').getFullList({
-          filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
-          $autoCancel: false,
-          requestKey: `free-remaining-${gid}`,
-        });
-        if (!remaining || remaining.length === 0) {
+      await deactivateMembersAndMaybeClose(gid, membersToDeactivate);
+      // Shared free always closes the whole group even if a stray member
+      // filter missed a row — close explicitly so the sync hook mirrors isActive.
+      if (mode === 'shared' && grp && grp.status === 'active') {
+        try {
           await pb.collection('table_groups').update(
             gid,
             { status: 'closed' },
-            { $autoCancel: false, requestKey: `close-group-${gid}` },
+            { $autoCancel: false, requestKey: `close-shared-${gid}` },
           );
-        }
-      } catch (_) { /* non-fatal */ }
+          // Hook should flip members; also force-deactivate any still active.
+          const leftover = await pb.collection('table_group_members').getFullList({
+            filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+            $autoCancel: false,
+            requestKey: `free-shared-leftover-${gid}`,
+          });
+          await deactivateMembersAndMaybeClose(gid, leftover);
+        } catch (_) { /* non-fatal */ }
+      }
 
       fetchTableGroupMembers();
       fetchTableGroups();
-    } catch (_) { /* group already gone/closed — non-fatal */ }
-  }, [fetchTableGroupMembers, fetchTableGroups]);
-
-  const markAvailable = async (order) => {
-    const tn = order.tableNumber;
-    if (!tn) {
-      toast.error('Table not found');
-      return;
+    } catch (err) {
+      console.error('releaseTableFromCombination failed', err);
     }
+  }, [deactivateMembersAndMaybeClose, fetchTableGroupMembers, fetchTableGroups, relationId]);
+
+  // Close active combinations that no longer have any live (unfreed) parent
+  // order. Covers: placeholder linked groups never ordered, shared/linked
+  // groups whose Free Table set freed=true but left members isActive, and
+  // groups whose orders were deleted. Never touches a group that still has
+  // an unfreed waiter_orders row (order still in use).
+  const linkedGroupIdRef = useRef(linkedGroupId);
+  linkedGroupIdRef.current = linkedGroupId;
+  const pendingSharedGroupRef = useRef(pendingShared && pendingShared.groupId);
+  pendingSharedGroupRef.current = pendingShared && pendingShared.groupId;
+  const pendingCombinedGroupRef = useRef(pendingCombined && pendingCombined.groupId);
+  pendingCombinedGroupRef.current = pendingCombined && pendingCombined.groupId;
+
+  const cleanupStaleCombinations = useCallback(async (options = {}) => {
+    const manual = options && options.manual === true;
+    const since = startOfTodayFilter();
+    const blockedTables = [];
+    const closedIds = [];
+    // An order still blocks release only when it is open, not freed, and
+    // from today — the window the waiter can still End/Free. Older unfreed
+    // rows are invisible on the daily list and are what leave tables stuck.
+    const isLiveToday = (order) => {
+      if (!order || order.freed === true || order.orderStatus === 'closed') return false;
+      // Compare the raw PocketBase `created` value (already in
+      // "YYYY-MM-DD HH:MM:SS…" shape) against the same-shaped `since`
+      // literal. Converting to ISO here would break the comparison because
+      // ISO uses "T"/"Z" which sort differently at the date boundary.
+      const created = order.created ? String(order.created) : '';
+      return created >= since;
+    };
     try {
-      // Most recent parent order for this table (open or closed).
-      const res = await pb.collection('waiter_orders').getList(1, 1, {
-        filter: pb.filter('tableNumber = {:tn}', { tn }),
-        sort: '-created',
+      let released = 0;
+      // Auto-heal must not tear down a combination the waiter is building
+      // right now. A manual release is an explicit request to clear it.
+      const skip = manual
+        ? new Set()
+        : new Set(
+          [linkedGroupIdRef.current, pendingSharedGroupRef.current, pendingCombinedGroupRef.current]
+            .filter(Boolean),
+        );
+
+      // 1) Active groups with no live (unfreed) orders → close + deactivate.
+      const activeGroups = await pb.collection('table_groups').getFullList({
+        filter: "status = 'active'",
         $autoCancel: false,
+        requestKey: `stale-groups-${Date.now()}`,
       });
-      const parent = res.items && res.items[0];
+      for (const grp of activeGroups || []) {
+        const gid = grp.id;
+        if (skip.has(gid)) continue;
+        let groupOrders = [];
+        try {
+          groupOrders = await pb.collection('waiter_orders').getFullList({
+            filter: pb.filter('tableGroup = {:gid}', { gid }),
+            $autoCancel: false,
+            requestKey: `stale-wo-${gid}-${Date.now()}`,
+          });
+        } catch (_) { groupOrders = []; }
+        const liveOrders = (groupOrders || []).filter(isLiveToday);
+        if (liveOrders.length > 0) {
+          liveOrders.forEach((o) => {
+            if (o.tableNumber) blockedTables.push(o.tableNumber);
+          });
+          continue;
+        }
+        // Previous-day open orders are not on the waiter list, so Free Table
+        // can never run. Close them in place — rows, KOTs, and payments stay.
+        const staleOpen = (groupOrders || []).filter(
+          (o) => o && o.freed !== true && o.orderStatus !== 'closed',
+        );
+        await Promise.all(
+          staleOpen.map((o) =>
+            pb.collection('waiter_orders').update(
+              o.id,
+              {
+                orderStatus: 'closed',
+                freed: true,
+                endedAt: o.endedAt || new Date().toISOString(),
+              },
+              { $autoCancel: false, requestKey: `stale-free-order-${o.id}-${Date.now()}` },
+            ).catch((err) => {
+              console.error('Failed to close stale combined order', o.id, err);
+            }),
+          ),
+        );
+        let members = [];
+        try {
+          members = await pb.collection('table_group_members').getFullList({
+            filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+            $autoCancel: false,
+            requestKey: `stale-members-${gid}`,
+          });
+        } catch (_) { members = []; }
+        await deactivateMembersAndMaybeClose(gid, members);
+        try {
+          await pb.collection('table_groups').update(
+            gid,
+            { status: 'closed' },
+            { $autoCancel: false, requestKey: `stale-close-${gid}` },
+          );
+        } catch (_) { /* already closed */ }
+        closedIds.push(gid);
+        released += 1;
+      }
+
+      // 2) Orphan isActive members whose group is closed/missing — still show
+      // as Combined in the dropdown until deactivated.
+      let orphanMembers = [];
+      try {
+        orphanMembers = await pb.collection('table_group_members').getFullList({
+          filter: 'isActive = true',
+          expand: 'tableGroup',
+          $autoCancel: false,
+          requestKey: `stale-orphan-members-${Date.now()}`,
+        });
+      } catch (_) { orphanMembers = []; }
+      const orphansByGroup = new Map();
+      for (const m of orphanMembers || []) {
+        const gid = relationId(m.tableGroup);
+        if (!gid || skip.has(gid)) continue;
+        const g = m.expand && m.expand.tableGroup;
+        const status = g ? g.status : '';
+        // If group is closed or expand missing, treat as orphan membership.
+        if (status === 'active') {
+          // Active groups are handled in step 1. Only clear here when the
+          // group is closed, missing, or has no order still open today.
+          continue;
+        }
+        if (!orphansByGroup.has(gid)) orphansByGroup.set(gid, []);
+        orphansByGroup.get(gid).push(m);
+      }
+      // Also catch active members on active groups that somehow still have
+      // isActive after all orders are freed (step 1 should handle; belt).
+      for (const m of orphanMembers || []) {
+        const gid = relationId(m.tableGroup);
+        if (!gid || skip.has(gid)) continue;
+        const g = m.expand && m.expand.tableGroup;
+        if (!g || g.status !== 'active') continue;
+        let groupOrders = [];
+        try {
+          groupOrders = await pb.collection('waiter_orders').getFullList({
+            filter: pb.filter('tableGroup = {:gid}', { gid }),
+            $autoCancel: false,
+            requestKey: `stale-orphan-wo-${gid}-${Date.now()}`,
+          });
+        } catch (_) { groupOrders = []; }
+        if ((groupOrders || []).some(isLiveToday)) continue;
+        if (!orphansByGroup.has(gid)) orphansByGroup.set(gid, []);
+        orphansByGroup.get(gid).push(m);
+      }
+      for (const [gid, members] of orphansByGroup.entries()) {
+        // Dedupe member ids
+        const seen = new Set();
+        const unique = members.filter((m) => {
+          if (seen.has(m.id)) return false;
+          seen.add(m.id);
+          return true;
+        });
+        await deactivateMembersAndMaybeClose(gid, unique);
+        try {
+          await pb.collection('table_groups').update(
+            gid,
+            { status: 'closed' },
+            { $autoCancel: false, requestKey: `stale-orphan-close-${gid}` },
+          );
+        } catch (_) { /* missing/closed */ }
+        released += 1;
+      }
+
+      if (released > 0) {
+        fetchTableGroupMembers();
+        fetchTableGroups();
+        fetchWaiterOrders();
+      }
+      return {
+        released,
+        blockedTables: [...new Set(blockedTables)],
+        closedIds,
+      };
+    } catch (err) {
+      console.error('cleanupStaleCombinations failed', err);
+      throw err;
+    }
+  }, [deactivateMembersAndMaybeClose, fetchTableGroupMembers, fetchTableGroups, fetchWaiterOrders, relationId]);
+
+  // Manual release of stuck Combined tables (no live unfreed order on the group).
+  const handleReleaseStuckCombinations = async () => {
+    if (releasingCombinations) return;
+    setReleasingCombinations(true);
+    try {
+      const result = await cleanupStaleCombinations({ manual: true });
+      const n = (result && result.released) || 0;
+      const blocked = (result && result.blockedTables) || [];
+      const closedIds = (result && result.closedIds) || [];
+      if (closedIds.includes(linkedGroupId) || closedIds.includes(pendingShared && pendingShared.groupId) || closedIds.includes(pendingCombined && pendingCombined.groupId)) {
+        setLinkedGroupId(null);
+        setLinkedGroupCreated(false);
+        setActiveLinkedTable('');
+        setLinkedCarts({});
+        setSelectedTables([]);
+        setPendingCombined(null);
+        setPendingShared(null);
+      }
+      if (n > 0) {
+        toast.success(
+          n === 1
+            ? 'Released 1 stuck table combination — tables are available again.'
+            : `Released ${n} stuck table combinations — tables are available again.`,
+        );
+      } else if (blocked.length > 0) {
+        toast.message(
+          `Cannot release ${blocked.join(', ')} — those tables still have an open order from today. End and free that order first.`,
+        );
+      } else {
+        toast.message('No stuck combinations to release. Tables already in use today stay combined until that order is freed.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to release combined tables');
+    } finally {
+      setReleasingCombinations(false);
+    }
+  };
+
+  // Auto-heal stuck Combined badges on mount and when membership data refreshes.
+  useEffect(() => {
+    cleanupStaleCombinations().catch((err) => {
+      console.error('Auto-release of stuck combinations failed', err);
+    });
+  }, [cleanupStaleCombinations]);
+
+  // Free Table — `orderOrParent` may be a kitchen_orders KOT (legacy callers)
+  // or a waiter_orders parent. Prefer explicit parentId / expand.parentOrder.
+  const markAvailable = async (orderOrParent, kotsHint) => {
+    if (freeingTable) return;
+    setFreeingTable(true);
+    try {
+      let parent = null;
+      // 1) Already a waiter_orders parent (has orderStatus / freed fields).
+      if (orderOrParent && (orderOrParent.orderStatus || orderOrParent.freed !== undefined) && orderOrParent.tableNumber) {
+        // Heuristic: waiter_orders have orderStatus; kitchen_orders have status for KOT.
+        if (orderOrParent.orderId || orderOrParent.orderStatus === 'open' || orderOrParent.orderStatus === 'closed' || orderOrParent.endedAt || orderOrParent.tableGroup) {
+          try {
+            parent = await pb.collection('waiter_orders').getOne(orderOrParent.id, { $autoCancel: false });
+          } catch (_) {
+            parent = orderOrParent;
+          }
+        }
+      }
+      // 2) KOT with parentOrder relation / expand.
+      if (!parent && orderOrParent) {
+        const pid = relationId(orderOrParent.parentOrder)
+          || relationId(orderOrParent.expand && orderOrParent.expand.parentOrder);
+        if (pid) {
+          try {
+            parent = await pb.collection('waiter_orders').getOne(pid, { $autoCancel: false });
+          } catch (_) { /* fall through */ }
+        }
+      }
+      // 3) Fallback: latest waiter_orders for this table number.
+      const tn = (parent && parent.tableNumber)
+        || (orderOrParent && orderOrParent.tableNumber)
+        || '';
+      if (!parent && tn) {
+        const res = await pb.collection('waiter_orders').getList(1, 1, {
+          filter: pb.filter('tableNumber = {:tn}', { tn }),
+          sort: '-created',
+          $autoCancel: false,
+        });
+        parent = res.items && res.items[0];
+      }
+      if (!tn && !parent) {
+        toast.error('Table not found');
+        return;
+      }
+
+      // Already freed — still try to clear any leftover Combined membership.
+      if (parent && parent.freed === true) {
+        if (parent.tableGroup) await releaseTableFromCombination(parent);
+        await cleanupStaleCombinations();
+        toast.success('Table already freed — combination membership cleared');
+        fetchWaiterOrders();
+        fetchOrders();
+        return;
+      }
 
       // Rule 1: parent Order must be ended (endedAt set) before the table
       // can be freed. End Order sets endedAt but leaves orderStatus "open";
@@ -1093,10 +1532,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
       // Rule 2: all payment obligations must be fully settled.
       if (parent) {
-        const kots = await pb.collection('kitchen_orders').getFullList({
-          filter: pb.filter('parentOrder = {:pid}', { pid: parent.id }),
-          $autoCancel: false,
-        });
+        let kots = Array.isArray(kotsHint) ? kotsHint : null;
+        if (!kots) {
+          kots = await pb.collection('kitchen_orders').getFullList({
+            filter: pb.filter('parentOrder = {:pid}', { pid: parent.id }),
+            $autoCancel: false,
+          });
+        }
         const fig = computePayment(kots);
         if (fig.outstandingAmount > 0) {
           toast.error(
@@ -1107,10 +1549,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       }
 
       // Both conditions satisfied (or no parent order — legacy KOT).
-      // Free Table is the ONLY action that closes the order AND releases
-      // the table: it sets orderStatus = "closed" and freed = true. End
-      // Order only sets endedAt (the order stays "open" and the table stays
-      // occupied) until this explicit Free Table action.
       if (parent) {
         await pb.collection('waiter_orders').update(
           parent.id,
@@ -1118,24 +1556,28 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           { $autoCancel: false, requestKey: `free-wo-${parent.id}` },
         );
       }
-      // Release the table from its combination so it is immediately
-      // selectable again as a normal table. Handles both Shared Order
-      // (closes the whole group, freeing every member) and Linked Orders
-      // (releases only this table's membership, keeping the group active
-      // for any still-occupied members). See releaseTableFromCombination.
-      if (parent && parent.tableGroup) {
+      // Always release combination membership after a successful free.
+      if (parent && relationId(parent.tableGroup)) {
         await releaseTableFromCombination(parent);
       }
+      // Sweep any other orphaned active combinations (e.g. secondary shared
+      // members left active after a previous partial free).
+      await cleanupStaleCombinations();
+
       const freeLabel = parent && isSharedParent(parent, groupMap)
         ? tableDisplayForParent(parent, groupMap)
-        : `Table ${tn}`;
+        : `Table ${tn || (parent && parent.tableNumber) || ''}`;
       toast.success(`${freeLabel} is available for a new order`);
       fetchWaiterOrders();
       fetchOrders();
+      fetchTableGroupMembers();
+      fetchTableGroups();
       if (onPlaced) onPlaced();
     } catch (err) {
       console.error(err);
       toast.error('Failed to free table');
+    } finally {
+      setFreeingTable(false);
     }
   };
 
@@ -1306,38 +1748,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
   }, [pb]);
 
-  // Fetch open parent orders that have an outstanding balance, for the Pay
-  // picker. Each entry carries its live KOTs so the modal can render items.
-  const fetchPayableOrders = useCallback(async () => {
-    try {
-      const res = await pb.collection('waiter_orders').getList(1, 50, {
-        filter: 'orderStatus = "open"',
-        sort: '-created',
-        $autoCancel: false,
-      });
-      const withKots = await Promise.all(
-        res.items.map(async (w) => {
-          try {
-            const kots = await pb.collection('kitchen_orders').getFullList({
-              filter: pb.filter('parentOrder = {:pid}', { pid: w.id }),
-              $autoCancel: false,
-            });
-            return { parent: w, kots };
-          } catch (_) {
-            return { parent: w, kots: [] };
-          }
-        }),
-      );
-      // Only keep orders that have at least one payable (non-cancelled) KOT.
-      const list = withKots.filter((g) => g.kots.some((k) => k.status !== 'cancelled'));
-      setPayableOrders(list);
-      return list;
-    } catch (err) {
-      console.error('Failed to load payable orders:', err);
-      return [];
-    }
-  }, [pb]);
-
   // Cancel a child KOT ticket. Only allowed while status = pending; once the
   // kitchen has started preparing it (preparing/ready/completed) or it was
   // already cancelled, the action is blocked. Cancelling sets status =
@@ -1383,12 +1793,17 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // The existing kitchen_orders record is reused (no new KOT, no Order ID /
   // KOT suffix change) and the parent order's payment fields are recomputed
   // via the existing recalcAndUpdateParent logic.
-  const handleDecreaseItem = async (order, idx) => {
+  const handleDecreaseItem = async (order, idx, unitIndex = 0) => {
     if (!order || order.status !== 'pending') return;
     const items = Array.isArray(order.items) ? [...order.items] : [];
     const target = items[idx];
     if (!target) return;
-    const newQty = (Number(target.quantity) || 0) - 1;
+    // Drop one physical unit, not a merged quantity. A legacy 3× line becomes
+    // three 1× lines and the chosen unit is removed so billing and pickup
+    // keep addressing the remaining units individually.
+    const split = splitKotUnits(order);
+    const flat = flatUnitIndex(order, idx, unitIndex);
+    const newQty = split.items.length - 1;
     const parentId = order.parentOrder
       || (order.expand && order.expand.parentOrder && order.expand.parentOrder.id)
       || null;
@@ -1425,22 +1840,23 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
     // Otherwise decrease the line (or drop just this line when it hits 0
     // while other items remain) and persist the updated items + total.
-    let newItems;
-    if (newQty <= 0) {
-      newItems = items.filter((_, i) => i !== idx);
-    } else {
-      newItems = items.map((it, i) => (i === idx ? { ...it, quantity: newQty } : it));
-    }
+    const newItems = split.items.filter((_, i) => i !== flat);
+    const newStatuses = {};
+    Object.keys(split.itemStatuses || {}).forEach((key) => {
+      const n = Number(key);
+      if (Number.isNaN(n) || n === flat) return;
+      newStatuses[String(n > flat ? n - 1 : n)] = split.itemStatuses[key];
+    });
     const newTotal = Math.round(newItems.reduce((s, it) => s + lineTotal(it), 0) * 100) / 100;
     // Optimistic local update so rapid repeated clicks compute from the
     // latest item state instead of a stale snapshot.
     setOrders((prev) => prev.map((o) => (o.id === order.id
-      ? { ...o, items: newItems, totalPrice: newTotal }
+      ? { ...o, items: newItems, itemStatuses: newStatuses, totalPrice: newTotal }
       : o)));
     try {
       await pb.collection('kitchen_orders').update(
         order.id,
-        { items: newItems, totalPrice: newTotal },
+        { items: newItems, itemStatuses: newStatuses, totalPrice: newTotal },
         { $autoCancel: false, requestKey: `dec-item-${order.id}-${Date.now()}` },
       );
       fetchOrders();
@@ -1495,6 +1911,62 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     setCombineModeType('linked');
     setPendingParent(null);
   }, []);
+
+  // Exit the Linked Orders active phase when the waiter turns off Combine
+  // Tables or clicks "Done — Exit Combine Tables". The persisted
+  // table_groups + table_group_members rows are created up-front (before any
+  // order is sent) to reserve the tables for the combination. If NO
+  // waiter_orders were ever created for the group, those rows are just a
+  // stale placeholder — deactivate the members and close the group so the
+  // tables immediately drop out of `activeCombinationTableNumbers` and
+  // become selectable again (no more stale "Combined" label). If orders
+  // WERE sent, the group is a real persisted Linked Order and is left
+  // intact (managed via the Active tab End All / Free All). Shared Order is
+  // untouched here.
+  const exitLinkedCombineMode = useCallback(async () => {
+    const gid = linkedGroupId;
+    if (linkedGroupCreated && gid) {
+      try {
+        const orders = await pb.collection('waiter_orders').getFullList({
+          filter: pb.filter('tableGroup = {:gid}', { gid }),
+          $autoCancel: false,
+          requestKey: `exit-linked-check-${gid}`,
+        });
+        if (!orders || orders.length === 0) {
+          // No real order was ever sent — clean up the placeholder group so
+          // the tables are selectable again. Mirrors releaseTableFromCombination
+          // but deactivates every active member of the placeholder at once.
+          const members = await pb.collection('table_group_members').getFullList({
+            filter: pb.filter('tableGroup = {:gid} && isActive = true', { gid }),
+            $autoCancel: false,
+            requestKey: `exit-linked-members-${gid}`,
+          });
+          await Promise.all(
+            (members || []).map((m) =>
+              pb.collection('table_group_members').update(
+                m.id,
+                { isActive: false },
+                { $autoCancel: false, requestKey: `exit-linked-free-${m.id}` },
+              ).catch(() => {}),
+            ),
+          );
+          await pb.collection('table_groups').update(
+            gid,
+            { status: 'closed' },
+            { $autoCancel: false, requestKey: `exit-linked-close-${gid}` },
+          ).catch(() => {});
+          fetchTableGroupMembers();
+          fetchTableGroups();
+        }
+      } catch (_) { /* non-fatal — UI state still resets below */ }
+    }
+    resetLinkedState();
+    setSelectedTables([]);
+    setPendingCombined(null);
+    setPendingShared(null);
+    setCombineModeType('linked');
+    setOrder({}); setNotes(''); setSpiceSelections({});
+  }, [linkedGroupId, linkedGroupCreated, resetLinkedState, fetchTableGroupMembers, fetchTableGroups]);
 
   // Start the linked group: create table_groups + table_group_members for
   // the selected tables, then enter the active-table phase with the first
@@ -1589,14 +2061,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
     setSubmitting(true);
     try {
-      const items = orderEntries.map((e) => ({
-        id: e.item.id,
-        name: e.item.nameEN || e.item.name,
-        quantity: e.qty,
-        price: e.item.price || 0,
-        spiceLevel: e.spiceLevel || 'None',
-        cleared: false,
-      }));
+      const items = explodeOrderEntries(orderEntries);
 
       // Resolve or create the parent order for THIS table only.
       let parent = pendingParent;
@@ -1646,9 +2111,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       const troom = tcfg ? tcfg.room || '' : '';
       let created;
       try {
+        const linkedLabel = kdsTableLabel({ tableNumber: tn, expand: { parentOrder: { ...parent, tableGroup: linkedGroupId || parent.tableGroup } } }, groupMap);
         created = await pb.collection('kitchen_orders').create(
           {
             tableNumber: tn,
+            tableLabel: linkedLabel && linkedLabel.includes('+') ? linkedLabel : '',
             room: troom,
             items,
             status: 'pending',
@@ -1678,6 +2145,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       setPendingParent(null);
       created.orderId = parent.orderId;
       created.expand = { ...(created.expand || {}), parentOrder: parent };
+      if (created.tableLabel) created.tableDisplay = created.tableLabel;
 
       if (autoPrintEnabled) {
         printKOT(created);
@@ -1753,15 +2221,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     // items carry no tableNumber).
     const primaryTable = allTables[0];
 
-    const items = orderEntries.map((e) => ({
-      id: e.item.id,
-      name: e.item.nameEN || e.item.name,
-      quantity: e.qty,
-      price: e.item.price || 0,
-      spiceLevel: e.spiceLevel || 'None',
-      cleared: false,
-      tableNumber: primaryTable,
-    }));
+    const items = explodeOrderEntries(orderEntries, { tableNumber: primaryTable });
 
     if (!allTables || allTables.length < 2) {
       toast.error('Select at least two tables for a shared order.');
@@ -1778,6 +2238,34 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         } catch (_) {
           groupId = null; // group vanished — start fresh
         }
+      }
+      if (!groupId) {
+        // A previous attempt may already have reserved these tables in an
+        // active shared group (members created, parent/KOT not). Reuse that
+        // group instead of creating a second one, which the unique active-
+        // member index would reject.
+        try {
+          const activeMembers = await pb.collection('table_group_members').getFullList({
+            filter: 'isActive = true',
+            $autoCancel: false,
+            requestKey: `tgm-shared-reuse-${Date.now()}`,
+          });
+          const byGroup = {};
+          (activeMembers || []).forEach((m) => {
+            const gid = relationId(m.tableGroup);
+            if (!gid || !m.tableNumber) return;
+            if (!byGroup[gid]) byGroup[gid] = [];
+            byGroup[gid].push(m.tableNumber);
+          });
+          const wanted = [...allTables].sort().join('|');
+          const matchId = Object.keys(byGroup).find((gid) => [...byGroup[gid]].sort().join('|') === wanted);
+          if (matchId) {
+            try {
+              const existing = await pb.collection('table_groups').getOne(matchId, { $autoCancel: false });
+              if (existing && existing.status === 'active' && existing.mode === 'shared') groupId = matchId;
+            } catch (_) { /* create below */ }
+          }
+        } catch (_) { /* create below */ }
       }
       if (!groupId) {
         const label = `Tables ${allTables.join(' + ')}`;
@@ -1891,9 +2379,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         try {
           const tcfg = activeTables.find((x) => x.name === primaryTable);
           const troom = tcfg ? tcfg.room || '' : '';
+          const sharedLabel = `Tables ${allTables.join(' + ')}`;
           created = await pb.collection('kitchen_orders').create(
             {
               tableNumber: primaryTable,
+              tableLabel: sharedLabel,
               room: troom,
               items,
               status: 'pending',
@@ -1906,7 +2396,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             { $autoCancel: false, requestKey: `ko-shared-${parent.id}` },
           );
           created.orderId = parent.orderId;
-          created.tableDisplay = `Tables ${allTables.join(' + ')}`;
+          created.tableLabel = `Tables ${allTables.join(' + ')}`;
+          created.tableDisplay = created.tableLabel;
           created.expand = { ...(created.expand || {}), parentOrder: parent };
         } catch (kotErr) {
           const serverMsg =
@@ -1965,6 +2456,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     } catch (err) {
       console.error('Failed to place shared order:', err);
       const serverMsg = (err && err.response && err.response.message) || (err && err.message) || '';
+      // Keep the selected tables so the waiter can retry without the
+      // combination being treated as a brand-new group.
+      setPendingShared((prev) => prev || {
+        groupId: null,
+        parent: null,
+        allTables,
+        pendingTables: allTables,
+        kotCreated: false,
+      });
       toast.error(serverMsg ? `Failed to place shared order: ${serverMsg}` : 'Failed to place shared order');
     } finally {
       setSubmitting(false);
@@ -1988,18 +2488,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
     setSubmitting(true);
     try {
-      const items = orderEntries.map((e) => ({
-        id: e.item.id,
-        name: e.item.nameEN || e.item.name,
-        quantity: e.qty,
-        price: e.item.price || 0,
-        spiceLevel: e.spiceLevel || 'None',
-        // Payment tracking: every new line starts unpaid. cleared = true is
-        // set only by the payment settlement flow (a payment event, not a
-        // UI toggle). Optional paidAt/paymentMode metadata can be added
-        // later without changing this shape.
-        cleared: false,
-      }));
+      const items = explodeOrderEntries(orderEntries);
 
       // Step 1: determine the parent waiter_orders record to attach this
       // KOT to. Priority:
@@ -2066,11 +2555,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       const kotItems = parent && parent.tableGroup
         ? items.map((it) => ({ ...it, tableNumber }))
         : items;
+      const comboLabel = kdsTableLabel({ tableNumber, expand: { parentOrder: parent } }, groupMap);
       let created;
       try {
         created = await pb.collection('kitchen_orders').create(
           {
             tableNumber,
+            tableLabel: comboLabel && comboLabel.includes('+') ? comboLabel : '',
             room,
             items: kotItems,
             status: 'pending',
@@ -2110,6 +2601,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       setPendingParent(null);
       created.orderId = parent.orderId;
       created.expand = { ...(created.expand || {}), parentOrder: parent };
+      if (created.tableLabel) created.tableDisplay = created.tableLabel;
 
       // Occupancy is now derived from the open waiter_orders record created
       // above (orderStatus = "open") — the single source of truth. No
@@ -2127,7 +2619,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       // created KOT (initial order AND each subsequent child ticket, since
       // handleSubmit runs for each one). Then record the print event on the
       // kitchen_orders record so printedAt/printCount stay consistent with
-      // the manual print flow (openKOT / KDS reprint) and the
+      // the manual print flow (KotPrintPage / KDS reprint) and the
       // duplicate-protection guard works the same way. The browser may still
       // show its native print dialog — this is not guaranteed silent
       // printing. Reuses the existing kotPrint.js mechanism; no new printer
@@ -2185,12 +2677,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       toast.error('Printing is currently disabled by the administrator.');
       return;
     }
-    const alreadyPrinted = !!order.printedAt && (Number(order.printCount) || 0) > 0;
-    if (alreadyPrinted) {
-      setReprintTarget(order);
-      return;
-    }
-    openKOT(order);
+    // Always open the KOT print-options dialog so the waiter can choose the
+    // "Separate categories for cutting" option. The dialog shows an
+    // already-sent note when the ticket was printed before. The actual
+    // print runs via openKOT(order, options) on confirm.
+    setReprintTarget(order);
   };
 
   // ---- Active tab grouping: group KOTs by their parentOrder relation ----
@@ -2547,85 +3038,77 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // order (dropping it from occupiedTableNumbers) and releases its
   // combination membership.
   const handleFreeTableGroup = async () => {
-    if (!groupFreeTarget) return;
+    if (!groupFreeTarget || freeingTable) return;
+    setFreeingTable(true);
     const entries = groupFreeTarget.entries || [];
     const freed = [];
     const blocked = [];
-    for (const { parent } of entries) {
-      if (!parent || !parent.id) continue;
-      const tn = parent.tableNumber || '';
-      try {
-        // Live re-check: fetch the parent's current state.
-        const res = await pb.collection('waiter_orders').getList(1, 1, {
-          filter: pb.filter('id = {:id}', { id: parent.id }),
-          $autoCancel: false,
-          requestKey: `free-grp-get-${parent.id}`,
-        });
-        const live = res.items && res.items[0];
-        if (!live) { blocked.push(tn || parent.orderId); continue; }
-        if (!live.endedAt) { blocked.push(tn); continue; }
-        // Live re-check: recompute outstanding from current KOTs.
-        const liveKots = await pb.collection('kitchen_orders').getFullList({
-          filter: pb.filter('parentOrder = {:pid}', { pid: live.id }),
-          $autoCancel: false,
-          requestKey: `free-grp-kots-${live.id}`,
-        });
-        const fig = computePayment(liveKots);
-        if (fig.outstandingAmount > 0) { blocked.push(tn); continue; }
-        // Mark the member's parent order as freed — the ONLY action that
-        // releases its table. End Order only closed the order; the table
-        // stayed occupied until this explicit Free Table action.
-        await pb.collection('waiter_orders').update(
-          live.id,
-          { orderStatus: 'closed', freed: true },
-          { $autoCancel: false, requestKey: `free-grp-wo-${live.id}` },
-        );
-        // Release this table from its combination so it is immediately
-        // selectable again as a normal table (Linked: drops only this
-        // member's isActive; closes the group when the last member is
-        // freed). See releaseTableFromCombination.
-        await releaseTableFromCombination(live);
-        freed.push(tn);
-      } catch (err) {
-        console.error('Group Free: failed for', parent.id, err);
-        blocked.push(tn || parent.orderId);
+    try {
+      for (const { parent } of entries) {
+        if (!parent || !parent.id) continue;
+        const tn = parent.tableNumber || '';
+        try {
+          // Live re-check: fetch the parent's current state.
+          const res = await pb.collection('waiter_orders').getList(1, 1, {
+            filter: pb.filter('id = {:id}', { id: parent.id }),
+            $autoCancel: false,
+            requestKey: `free-grp-get-${parent.id}`,
+          });
+          const live = res.items && res.items[0];
+          if (!live) { blocked.push(tn || parent.orderId); continue; }
+          if (live.freed === true) {
+            await releaseTableFromCombination(live);
+            freed.push(tn);
+            continue;
+          }
+          if (!live.endedAt) { blocked.push(tn); continue; }
+          // Live re-check: recompute outstanding from current KOTs.
+          const liveKots = await pb.collection('kitchen_orders').getFullList({
+            filter: pb.filter('parentOrder = {:pid}', { pid: live.id }),
+            $autoCancel: false,
+            requestKey: `free-grp-kots-${live.id}`,
+          });
+          const fig = computePayment(liveKots);
+          if (fig.outstandingAmount > 0) { blocked.push(tn); continue; }
+          await pb.collection('waiter_orders').update(
+            live.id,
+            { orderStatus: 'closed', freed: true },
+            { $autoCancel: false, requestKey: `free-grp-wo-${live.id}` },
+          );
+          await releaseTableFromCombination(live);
+          freed.push(tn);
+        } catch (err) {
+          console.error('Group Free: failed for', parent.id, err);
+          blocked.push(tn || parent.orderId);
+        }
       }
+      await cleanupStaleCombinations();
+      fetchWaiterOrders();
+      fetchOrders();
+      fetchTableGroupMembers();
+      fetchTableGroups();
+      if (freed.length > 0 && blocked.length === 0) {
+        toast.success(`Freed ${freed.length} table(s): ${freed.join(', ')}`);
+      } else if (freed.length > 0 && blocked.length > 0) {
+        toast.message(`Freed ${freed.length}: ${freed.join(', ')}. Blocked ${blocked.length}: ${blocked.join(', ')}`);
+      } else if (blocked.length > 0) {
+        toast.error(`No tables freed — ${blocked.length} blocked: ${blocked.join(', ')}`);
+      } else {
+        toast.info('No tables to free in this group.');
+      }
+    } finally {
+      setFreeingTable(false);
+      setGroupFreeTarget(null);
     }
-    fetchWaiterOrders();
-    fetchOrders();
-    if (freed.length > 0 && blocked.length === 0) {
-      toast.success(`Freed ${freed.length} table(s): ${freed.join(', ')}`);
-    } else if (freed.length > 0 && blocked.length > 0) {
-      toast.message(`Freed ${freed.length}: ${freed.join(', ')}. Blocked ${blocked.length}: ${blocked.join(', ')}`);
-    } else if (blocked.length > 0) {
-      toast.error(`No tables freed — ${blocked.length} blocked: ${blocked.join(', ')}`);
-    } else {
-      toast.info('No tables to free in this group.');
-    }
-    setGroupFreeTarget(null);
   };
 
   // ---- Payment settlement ----
-  // Open the Pay picker: lists open orders with payable KOTs. If a table is
-  // already selected in the Order, auto-open that table's order directly.
-  const openPayFlow = async () => {
-    // Use the freshly returned list (state updates are async, so reading
-    // payableOrders here would be stale on the first open).
-    const list = await fetchPayableOrders();
-    if (!list || list.length === 0) {
-      toast.error('No open orders to settle');
-      return;
-    }
-    // If a table is selected, jump straight into that table's open order.
-    if (tableNumber) {
-      const match = list.find((g) => (g.parent.tableNumber || '') === tableNumber);
-      if (match) {
-        startPaymentSettlement(match);
-        return;
-      }
-    }
-    setPayPickerOpen(true);
-  };
+  // Unit price for a line (price is stored per unit; quantity multiplies).
+  const unitPrice = (it) => Number(it.price) || 0;
+  // Expand a line into N individual units for settlement UI. Qty of 3 →
+  // three selectable 1× rows. Selection keys are `${itemIndex}:${unitIndex}`.
+  const itemUnitCount = (it) => Math.max(0, Math.floor(Number(it.quantity) || 0));
+  const unitSelKey = (itemIndex, unitIndex) => `${itemIndex}:${unitIndex}`;
 
   // Begin settling a specific parent order. Loads its KOTs fresh and seeds
   // the selection map empty (nothing pre-selected — settlement is an
@@ -2633,27 +3116,57 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const startPaymentSettlement = async (group) => {
     setPaymentTarget(group);
     setPaymentSelections({});
-    setPayPickerOpen(false);
+    setPaymentFullOrderMode(false);
   };
 
-  // Toggle a single unpaid line entry in the payment selection. Already-
-  // cleared (paid) items cannot be selected — they are settled and are not
+  // Toggle a single unpaid unit in the payment selection. Already-cleared
+  // (paid) units cannot be selected — they are settled and are not
   // re-toggled back to unpaid by tapping.
-  const togglePaymentItem = (kotId, itemIndex) => {
+  const togglePaymentItem = (kotId, itemIndex, unitIndex) => {
+    const key = unitSelKey(itemIndex, unitIndex);
+    // Leaving full-order (grouped) view when the waiter picks units manually.
+    setPaymentFullOrderMode(false);
     setPaymentSelections((prev) => {
       const next = { ...prev };
       const kotSel = { ...(next[kotId] || {}) };
-      if (kotSel[itemIndex]) {
-        delete kotSel[itemIndex];
+      if (kotSel[key]) {
+        delete kotSel[key];
       } else {
-        kotSel[itemIndex] = true;
+        kotSel[key] = true;
       }
       next[kotId] = kotSel;
       return next;
     });
   };
 
-  // Select / deselect every unpaid line across all KOTs in the target order.
+  // Toggle every unit of one line (used in full-order grouped N× rows).
+  const togglePaymentLine = (kotId, itemIndex, it) => {
+    if (isCleared(it)) return;
+    const n = itemUnitCount(it);
+    setPaymentSelections((prev) => {
+      const next = { ...prev };
+      const kotSel = { ...(next[kotId] || {}) };
+      let allOn = true;
+      for (let u = 0; u < n; u += 1) {
+        if (!kotSel[unitSelKey(itemIndex, u)]) {
+          allOn = false;
+          break;
+        }
+      }
+      for (let u = 0; u < n; u += 1) {
+        const key = unitSelKey(itemIndex, u);
+        if (allOn) delete kotSel[key];
+        else kotSel[key] = true;
+      }
+      next[kotId] = kotSel;
+      return next;
+    });
+  };
+
+  // Select / deselect every unpaid unit across all KOTs in the target order.
+  // "Settle full order" selects every unpaid unit (which may still display
+  // as individual 1× rows); confirm then clears whole lines or splits
+  // partial quantities so totals stay exact.
   const toggleSelectAllUnpaid = (selectAll) => {
     if (!paymentTarget) return;
     const next = {};
@@ -2662,15 +3175,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         if (k.status === 'cancelled') return;
         const sel = {};
         (k.items || []).forEach((it, idx) => {
-          if (!isCleared(it)) sel[idx] = true;
+          if (isCleared(it)) return;
+          const n = itemUnitCount(it);
+          for (let u = 0; u < n; u += 1) {
+            sel[unitSelKey(idx, u)] = true;
+          }
         });
         if (Object.keys(sel).length > 0) next[k.id] = sel;
       });
     }
     setPaymentSelections(next);
+    // Full-order mode shows original N× grouped rows; clear returns to 1× units.
+    setPaymentFullOrderMode(!!selectAll);
   };
 
-  // Sum of the currently-selected unpaid line totals (the amount about to
+  // Sum of the currently-selected unpaid unit prices (the amount about to
   // be settled when the waiter confirms).
   // Plain computation (not useMemo): this runs after the `loading` early
   // return, so a hook here would break React's hook-order rule.
@@ -2681,15 +3200,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       if (k.status === 'cancelled') return;
       const sel = paymentSelections[k.id] || {};
       (k.items || []).forEach((it, idx) => {
-        if (sel[idx] && !isCleared(it)) sum += lineTotal(it);
+        if (isCleared(it)) return;
+        const n = itemUnitCount(it);
+        const up = unitPrice(it);
+        for (let u = 0; u < n; u += 1) {
+          if (sel[unitSelKey(idx, u)]) sum += up;
+        }
       });
     });
     return Math.round(sum * 100) / 100;
   })();
 
-  // Confirm payment: mark each selected unpaid line cleared = true on its
-  // KOT record, then recalc the parent's payment fields. Cleared items are
-  // a payment event — once true they are never silently flipped back.
+  // Confirm payment: for each line, count selected units. All units → mark
+  // the line cleared; partial → split into a cleared qty line + remaining
+  // unpaid qty line (so 3× can settle 1 unit without losing the other 2).
+  // Cleared items are a payment event — once true they are never flipped back.
   const handleConfirmPayment = async () => {
     if (!paymentTarget) return;
     const { parent, kots } = paymentTarget;
@@ -2702,24 +3227,17 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
     setPaymentSubmitting(true);
     try {
-      // Update each KOT that has selected lines. Use a distinct requestKey
+      // Update each KOT that has selected units. Use a distinct requestKey
       // per KOT so parallel updates don't auto-cancel each other.
       await Promise.all(
         kots.map(async (k, i) => {
           if (k.status === 'cancelled') return;
           const sel = paymentSelections[k.id] || {};
           if (Object.keys(sel).length === 0) return;
-          const items = (k.items || []).map((it, idx) => {
-            if (sel[idx] && !isCleared(it)) {
-              // Mark cleared. paidAt/paymentMode metadata can be attached
-              // here later when a payments collection is added.
-              return { ...it, cleared: true };
-            }
-            return it;
-          });
+          const split = splitForPayment(k, new Set(Object.keys(sel)));
           await pb.collection('kitchen_orders').update(
             k.id,
-            { items },
+            { items: split.items, itemStatuses: split.itemStatuses },
             { $autoCancel: false, requestKey: `pay-kot-${k.id}-${i}` },
           );
         }),
@@ -2736,6 +3254,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       // Close the modal.
       setPaymentTarget(null);
       setPaymentSelections({});
+      setPaymentFullOrderMode(false);
     } catch (err) {
       console.error('Payment settlement failed:', err);
       toast.error('Payment settlement failed');
@@ -2752,6 +3271,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const renderGroupedCard = (parent, kots) => {
               const isOpen = (parent && parent.orderStatus) !== 'closed';
               const isEnded = !!(parent && parent.endedAt);
+              const printDisabled = isEnded || !isOpen;
               const orderTotal = kots.reduce((s, k) => s + (k.totalPrice || 0), 0);
               const firstKot = kots[0];
               const tableNumber = tableDisplayForParent(parent, groupMap) || (firstKot && firstKot.tableNumber) || (parent && parent.tableNumber) || '';
@@ -2799,16 +3319,19 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               </div>
                             </div>
                             <ul className="space-y-1 text-sm">
-                              {(order.items || []).map((it, idx) => (
+                              {listUnits(order).map((unit) => {
+                                const it = unit.item;
+                                const idx = unit.itemIndex;
+                                return (
                                 <li
-                                  key={idx}
+                                  key={unit.key}
                                   className={`flex flex-wrap items-center gap-2 rounded px-1.5 py-1 border ${
                                     isCleared(it)
                                       ? 'bg-emerald-50 border-emerald-300'
                                       : 'bg-red-50 border-red-300'
                                   }`}
                                 >
-                                  <span className="font-bold text-primary">{it.quantity}×</span>
+                                  <span className="font-bold text-primary">1×</span>
                                   <span className="min-w-0 break-words">{it.name}</span>
                                   {it.spiceLevel && it.spiceLevel !== 'None' ? (
                                     <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded border ${SPICE_CLS[it.spiceLevel] || 'bg-muted text-muted-foreground border-border'}`}>
@@ -2821,10 +3344,36 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                     </span>
                                   ) : null}
                                   <div className="ml-auto flex items-center gap-1.5 shrink-0">
-                                    {order.status === 'pending' && (order.items || []).length >= 2 && (
+                                    {(() => {
+                                      const ist = unit.status;
+                                      const active = order.status === 'preparing' || order.status === 'ready';
+                                      if (ist === ITEM_STATUS.PREPARED) {
+                                        return (
+                                          <Button size="sm" className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => pickupItem(order, unit.itemIndex, unit.unitIndex)}>
+                                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> {t('waiter_pickupItem')}
+                                          </Button>
+                                        );
+                                      }
+                                      if (ist === ITEM_STATUS.PICKEDUP) {
+                                        return (
+                                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded border bg-primary/10 text-primary border-primary/30">
+                                            <CheckCircle2 className="h-3 w-3" /> {t('waiter_itemPickedUp')}
+                                          </span>
+                                        );
+                                      }
+                                      if (active) {
+                                        return (
+                                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border bg-muted text-muted-foreground border-border">
+                                            {t('waiter_itemInProgress')}
+                                          </span>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                    {order.status === 'pending' && listUnits(order).length >= 2 && (
                                       <button
                                         type="button"
-                                        onClick={() => handleDecreaseItem(order, idx)}
+                                        onClick={() => handleDecreaseItem(order, unit.itemIndex, unit.unitIndex)}
                                         className="group relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-destructive transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         title="Decrease quantity by 1"
                                         aria-label={`Decrease ${it.name} quantity by 1`}
@@ -2844,7 +3393,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                     </span>
                                   </div>
                                 </li>
-                              ))}
+                                );
+                              })}
                             </ul>
                             {order.notes ? (
                               <p className="text-xs italic text-muted-foreground">“{order.notes}”</p>
@@ -2855,13 +3405,19 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                 {order.status === 'ready' && (
                                   <Button size="sm" className="h-7" onClick={() => markServed(order)}>{t('waiter_markServed')}</Button>
                                 )}
-                                {printAllowed ? (
-                                  <Button size="sm" variant="outline" className="h-7" onClick={() => handlePrintKOT(order)}>
+                                {!isWaiterRole && (printAllowed ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7"
+                                    onClick={() => handlePrintKOT(order)}
+                                    disabled={printDisabled}
+                                  >
                                     <Printer className="h-3.5 w-3.5 mr-1" /> KOT
                                   </Button>
                                 ) : (
                                   <span className="text-[10px] text-destructive font-medium">Printing disabled</span>
-                                )}
+                                ))}
                               </div>
                             </div>
                             {order.status === 'pending' ? (
@@ -2919,10 +3475,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                 size="sm"
                                 variant="ghost"
                                 className="flex-1 text-primary"
-                                disabled={!freeable}
-                                onClick={() => markAvailable(firstKot)}
+                                disabled={!freeable || freeingTable}
+                                onClick={() => markAvailable(parent, kots)}
                               >
-                                <DoorOpen className="h-4 w-4 mr-1" /> Free Table
+                                {freeingTable
+                                  ? <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                  : <DoorOpen className="h-4 w-4 mr-1" />}
+                                Free Table
                               </Button>
                             )}
                           </div>
@@ -3108,7 +3667,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   {new Date(lastOrder.created).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                 </span>
               </div>
-              {printAllowed ? (
+              {!isWaiterRole && (printAllowed ? (
                 <Button variant="outline" size="sm" onClick={() => handlePrintKOT(lastOrder)}>
                   <Printer className="h-4 w-4 mr-1" /> Print KOT
                 </Button>
@@ -3116,7 +3675,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 <span className="text-xs text-destructive font-medium flex items-center gap-1.5">
                   <Printer className="h-4 w-4" /> Printing is currently disabled
                 </span>
-              )}
+              ))}
             </CardContent>
           </Card>
         )}
@@ -3138,12 +3697,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     setCombineMode(v);
                     if (v) { setTableNumber(''); setRoom(''); setPendingParent(null); }
                     else {
-                      setSelectedTables([]);
-                      setPendingCombined(null);
-                      setPendingShared(null);
-                      setCombineModeType('linked');
-                      resetLinkedState();
-                      setOrder({}); setNotes(''); setSpiceSelections({});
+                      // Clear temporary UI state AND clean up any persisted
+                      // placeholder linked group that never received an order,
+                      // so the selected tables become selectable again.
+                      exitLinkedCombineMode();
                     }
                   }}
                 />
@@ -3199,8 +3756,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     className="w-full touch-target"
                     onClick={() => {
                       setCombineMode(false);
-                      resetLinkedState();
-                      setOrder({}); setNotes(''); setSpiceSelections({});
+                      // Clean up placeholder linked group (if any) and reset
+                      // UI state so the tables become selectable again.
+                      exitLinkedCombineMode();
                     }}
                   >
                     <XCircle className="h-4 w-4 mr-1" /> Done — Exit Combine Tables
@@ -3273,6 +3831,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">No active tables configured.</p>
+                )}
+                {activeCombinationTableNumbers.size > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full touch-target border-amber-400 text-amber-900 hover:bg-amber-100"
+                    disabled={releasingCombinations || freeingTable}
+                    onClick={handleReleaseStuckCombinations}
+                  >
+                    {releasingCombinations
+                      ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                      : <DoorOpen className="h-4 w-4 mr-1.5" />}
+                    Release stuck combined tables
+                  </Button>
                 )}
                 {selectedTables.length < 2 && (
                   <p className="text-xs text-muted-foreground">
@@ -3401,6 +3974,30 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     <span>This table has an ended order — free the table before starting a new order.</span>
                   </p>
                 )}
+                {activeCombinationTableNumbers.size > 0 && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 space-y-2">
+                    <p className="text-xs text-amber-900 flex items-start gap-1.5">
+                      <Layers className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        {activeCombinationTableNumbers.size} table{activeCombinationTableNumbers.size === 1 ? '' : 's'} marked Combined.
+                        If no open combined order remains, release them so they can be selected again.
+                      </span>
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="w-full touch-target border-amber-400 text-amber-900 hover:bg-amber-100"
+                      disabled={releasingCombinations || freeingTable}
+                      onClick={handleReleaseStuckCombinations}
+                    >
+                      {releasingCombinations
+                        ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                        : <DoorOpen className="h-4 w-4 mr-1.5" />}
+                      Release stuck combined tables
+                    </Button>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
@@ -3416,6 +4013,30 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 bg-card"
           />
+        </div>
+
+        {/* Veg / Non-Veg dietary filter — lets the waiter narrow the menu by
+            dietary type while taking an order. 'all' shows every active item. */}
+        <div className="flex items-center gap-2">
+          {[
+            { id: 'all', label: 'All', icon: <UtensilsCrossed className="h-4 w-4" /> },
+            { id: 'veg', label: 'Veg', icon: <Leaf className="h-4 w-4" /> },
+            { id: 'nonveg', label: 'Non-Veg', icon: <Beef className="h-4 w-4" /> },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setDietFilter(opt.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 font-semibold text-xs transition-all min-h-touch ${
+                dietFilter === opt.id
+                  ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+                  : 'bg-card text-primary border-border hover:border-secondary'
+              }`}
+            >
+              {opt.icon}
+              <span>{opt.label}</span>
+            </button>
+          ))}
         </div>
 
         {categories.length === 0 ? (
@@ -3453,6 +4074,17 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               onClick={() => addItem(item)}
                               className="flex-1 flex flex-col items-start justify-start text-left p-3 min-h-touch hover:bg-accent/40 transition-colors"
                             >
+                              <span className="flex items-center gap-1.5 mb-1">
+                                {item.isVegetarian ? (
+                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-sm border-2 border-emerald-500 bg-emerald-50" title="Vegetarian">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-sm border-2 border-red-500 bg-red-50" title="Non-Vegetarian">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                  </span>
+                                )}
+                              </span>
                               <span className="font-medium text-sm text-foreground leading-snug line-clamp-2">
                                 {item.nameEN || item.name}
                               </span>
@@ -3636,7 +4268,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     }`}
                   >
                     <DoorOpen className="h-4 w-4" /> Walk-in
-                  </button>
+                        </button>
+                  {/*
                   <button
                     type="button"
                     onClick={() => setOrderType('preorder')}
@@ -3647,7 +4280,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                     }`}
                   >
                     <ListOrdered className="h-4 w-4" /> Pre-order
-                  </button>
+                        </button>
+                  */}
                 </div>
                 {pendingParent ? (
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
@@ -3671,18 +4305,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   </p>
                 </div>
               </div>
-
-              {/* Pay button — opens the payment settlement flow for the
-                  selected table's open order (or a picker of all open
-                  orders if no table is selected). */}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full border-2 border-secondary text-secondary-foreground bg-secondary/15 hover:bg-secondary/25 touch-target"
-                onClick={openPayFlow}
-              >
-                <CreditCard className="h-4 w-4 mr-2" /> Pay / Settle Order
-              </Button>
 
               <div className="space-y-2 max-h-[45vh] overflow-y-auto">
                 {orderEntries.map((e) => (
@@ -3733,7 +4355,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 />
               </div>
 
-              {!printAllowed && (
+              {!isWaiterRole && !printAllowed && (
                 <div className="flex items-start gap-2 rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-2">
                   <Printer className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
                   <p className="text-xs text-destructive font-medium">
@@ -4066,25 +4688,53 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       </div>
                     </div>
                     <ul className="space-y-1 text-sm">
-                      {(order.items || []).map((it, idx) => (
+                      {listUnits(order).map((unit) => {
+                        const it = unit.item;
+                        return (
                         <li
-                          key={idx}
+                          key={unit.key}
                           className={`flex flex-wrap items-center gap-2 rounded px-1.5 py-1 border ${
                             isCleared(it) ? 'bg-emerald-50 border-emerald-300' : 'bg-red-50 border-red-300'
                           }`}
                         >
-                          <span className="font-bold text-primary">{it.quantity}×</span>
+                          <span className="font-bold text-primary">1×</span>
                           <span className="min-w-0 break-words">{it.name}</span>
                           {it.spiceLevel && it.spiceLevel !== 'None' ? (
                             <span className={`inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded border ${SPICE_CLS[it.spiceLevel] || 'bg-muted text-muted-foreground border-border'}`}>
                               <Flame className="h-3 w-3" /> {it.spiceLevel}
                             </span>
                           ) : null}
-                          {order.status === 'pending' && (order.items || []).length >= 2 && (
+                          {(() => {
+                            const ist = unit.status;
+                            const active = order.status === 'preparing' || order.status === 'ready';
+                            if (ist === ITEM_STATUS.PREPARED) {
+                              return (
+                                <Button size="sm" className="ml-auto bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => pickupItem(order, unit.itemIndex, unit.unitIndex)}>
+                                  <CheckCircle2 className="h-4 w-4 mr-1" /> {t('waiter_pickupItem')}
+                                </Button>
+                              );
+                            }
+                            if (ist === ITEM_STATUS.PICKEDUP) {
+                              return (
+                                <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded border bg-primary/10 text-primary border-primary/30">
+                                  <CheckCircle2 className="h-3 w-3" /> {t('waiter_itemPickedUp')}
+                                </span>
+                              );
+                            }
+                            if (active) {
+                              return (
+                                <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border bg-muted text-muted-foreground border-border">
+                                  {t('waiter_itemInProgress')}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {order.status === 'pending' && listUnits(order).length >= 2 && (
                             <button
                               type="button"
-                              onClick={() => handleDecreaseItem(order, idx)}
-                              className="group relative ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-destructive transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              onClick={() => handleDecreaseItem(order, unit.itemIndex, unit.unitIndex)}
+                              className="group relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-destructive transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                               title="Decrease quantity by 1"
                               aria-label={`Decrease ${it.name} quantity by 1`}
                             >
@@ -4094,7 +4744,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                             </button>
                           )}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                     {order.notes ? <p className="text-xs italic text-muted-foreground">“{order.notes}”</p> : null}
                     <div className="flex items-center justify-between pt-2 border-t border-border/50">
@@ -4104,13 +4755,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      {printAllowed ? (
+                      {!isWaiterRole && (printAllowed ? (
                         <Button size="sm" variant="outline" className="flex-1" onClick={() => handlePrintKOT(order)}>
                           <Printer className="h-4 w-4 mr-1" /> Print KOT
                         </Button>
                       ) : (
                         <span className="flex-1 text-xs text-destructive font-medium text-center">Printing is currently disabled</span>
-                      )}
+                      ))}
                       <Button size="sm" variant="ghost" className="flex-1 text-primary" onClick={() => markAvailable(order)}>
                         <DoorOpen className="h-4 w-4 mr-1" /> Free Table
                       </Button>
@@ -4244,57 +4895,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Pay picker — choose which open order to settle */}
-      <Dialog open={payPickerOpen} onOpenChange={setPayPickerOpen}>
-        <DialogContent className="max-w-lg w-[95vw] modal-mobile-safe">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5" /> Select an order to settle
-            </DialogTitle>
-            <DialogDescription>
-              Open orders with items awaiting payment.
-            </DialogDescription>
-          </DialogHeader>
-          {payableOrders.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              No open orders to settle.
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-[55vh] overflow-y-auto">
-              {payableOrders.map((g) => {
-                const fig = computePayment(g.kots);
-                return (
-                  <button
-                    key={g.parent.id}
-                    type="button"
-                    onClick={() => startPaymentSettlement(g)}
-                    className="w-full text-left rounded-lg border-2 border-border hover:border-primary/60 bg-card p-3 transition-colors touch-target"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-bold text-sm">{tableDisplayForParent(g.parent, groupMap) || `Table ${g.parent.tableNumber}`}</p>
-                        <p className="text-[11px] font-mono text-primary">{g.parent.orderId}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className={`text-sm font-bold ${fig.outstandingAmount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                          €{fig.outstandingAmount.toFixed(2)} due
-                        </p>
-                        <p className="text-[10px] text-muted-foreground uppercase">{fig.paymentStatus}</p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPayPickerOpen(false)} className="w-full sm:w-auto">
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Payment settlement view — select unpaid items or settle in full */}
       <Dialog
         open={!!paymentTarget}
@@ -4302,6 +4902,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           if (!o) {
             setPaymentTarget(null);
             setPaymentSelections({});
+            setPaymentFullOrderMode(false);
           }
         }}
       >
@@ -4367,51 +4968,108 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                             <div key={k.id} className="rounded-lg border border-border bg-card/60 p-2.5 space-y-2">
                               <p className="text-[11px] font-mono font-bold text-primary">{resolveOrderId(k)}</p>
                               <ul className="space-y-1.5">
-                                {(k.items || []).map((it, idx) => {
-                                  const cleared = isCleared(it);
-                                  const picked = !!sel[idx];
-                                  return (
-                                    <li key={idx}>
-                                      <button
-                                        type="button"
-                                        disabled={cleared}
-                                        onClick={() => togglePaymentItem(k.id, idx)}
-                                        className={`w-full flex flex-wrap items-center gap-2 text-left rounded-md border-2 px-2 py-2 transition-colors touch-target ${
-                                          cleared
-                                            ? 'bg-emerald-50 border-emerald-300 cursor-not-allowed opacity-80'
-                                            : picked
-                                            ? 'bg-primary/10 border-primary'
-                                            : 'bg-red-50 border-red-300 hover:border-red-400'
-                                        }`}
-                                      >
-                                        <span className={`h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center ${
-                                          cleared
-                                            ? 'bg-emerald-500 border-emerald-500'
-                                            : picked
-                                            ? 'bg-primary border-primary'
-                                            : 'border-red-400 bg-white'
-                                        }`}>
-                                          {(cleared || picked) && <Check className="h-3 w-3 text-white" />}
-                                        </span>
-                                        <span className="font-bold text-primary text-sm">{it.quantity}×</span>
-                                        <span className="text-sm min-w-0 break-words flex-1">{it.name}</span>
-                                        {it.tableNumber ? (
-                                          <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-secondary/20 text-primary border-secondary/50 shrink-0 notranslate" translate="no">
-                                            <DoorOpen className="h-3 w-3 inline mr-0.5 -mt-0.5" />{it.tableNumber}
-                                          </span>
-                                        ) : null}
-                                        <span className="text-sm font-semibold">€{lineTotal(it).toFixed(2)}</span>
-                                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border ${
-                                          cleared
-                                            ? 'bg-emerald-100 text-emerald-800 border-emerald-400'
-                                            : 'bg-red-100 text-red-800 border-red-400'
-                                        }`}>
-                                          {cleared ? 'Paid' : 'Unpaid'}
-                                        </span>
-                                      </button>
-                                    </li>
-                                  );
-                                })}
+                                {paymentFullOrderMode
+                                  ? (k.items || []).map((it, idx) => {
+                                      const cleared = isCleared(it);
+                                      const n = Math.max(1, itemUnitCount(it) || 1);
+                                      let pickedCount = 0;
+                                      for (let u = 0; u < n; u += 1) {
+                                        if (sel[unitSelKey(idx, u)]) pickedCount += 1;
+                                      }
+                                      const picked = !cleared && pickedCount === n;
+                                      return (
+                                        <li key={idx}>
+                                          <button
+                                            type="button"
+                                            disabled={cleared}
+                                            onClick={() => togglePaymentLine(k.id, idx, it)}
+                                            className={`w-full flex flex-wrap items-center gap-2 text-left rounded-md border-2 px-2 py-2 transition-colors touch-target ${
+                                              cleared
+                                                ? 'bg-emerald-50 border-emerald-300 cursor-not-allowed opacity-80'
+                                                : picked
+                                                ? 'bg-primary/10 border-primary'
+                                                : 'bg-red-50 border-red-300 hover:border-red-400'
+                                            }`}
+                                          >
+                                            <span className={`h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center ${
+                                              cleared
+                                                ? 'bg-emerald-500 border-emerald-500'
+                                                : picked
+                                                ? 'bg-primary border-primary'
+                                                : 'border-red-400 bg-white'
+                                            }`}>
+                                              {(cleared || picked) && <Check className="h-3 w-3 text-white" />}
+                                            </span>
+                                            <span className="font-bold text-primary text-sm">{n}×</span>
+                                            <span className="text-sm min-w-0 break-words flex-1">{it.name}</span>
+                                            {it.tableNumber ? (
+                                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-secondary/20 text-primary border-secondary/50 shrink-0 notranslate" translate="no">
+                                                <DoorOpen className="h-3 w-3 inline mr-0.5 -mt-0.5" />{it.tableNumber}
+                                              </span>
+                                            ) : null}
+                                            <span className="text-sm font-semibold">€{lineTotal(it).toFixed(2)}</span>
+                                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border ${
+                                              cleared
+                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-400'
+                                                : 'bg-red-100 text-red-800 border-red-400'
+                                            }`}>
+                                              {cleared ? 'Paid' : 'Unpaid'}
+                                            </span>
+                                          </button>
+                                        </li>
+                                      );
+                                    })
+                                  : (k.items || []).flatMap((it, idx) => {
+                                      const cleared = isCleared(it);
+                                      const n = Math.max(1, itemUnitCount(it) || 1);
+                                      const up = unitPrice(it);
+                                      // Default: one selectable row per unit (3× → three 1× rows).
+                                      return Array.from({ length: n }, (_, u) => {
+                                        const key = unitSelKey(idx, u);
+                                        const picked = !cleared && !!sel[key];
+                                        return (
+                                          <li key={`${idx}-${u}`}>
+                                            <button
+                                              type="button"
+                                              disabled={cleared}
+                                              onClick={() => togglePaymentItem(k.id, idx, u)}
+                                              className={`w-full flex flex-wrap items-center gap-2 text-left rounded-md border-2 px-2 py-2 transition-colors touch-target ${
+                                                cleared
+                                                  ? 'bg-emerald-50 border-emerald-300 cursor-not-allowed opacity-80'
+                                                  : picked
+                                                  ? 'bg-primary/10 border-primary'
+                                                  : 'bg-red-50 border-red-300 hover:border-red-400'
+                                              }`}
+                                            >
+                                              <span className={`h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center ${
+                                                cleared
+                                                  ? 'bg-emerald-500 border-emerald-500'
+                                                  : picked
+                                                  ? 'bg-primary border-primary'
+                                                  : 'border-red-400 bg-white'
+                                              }`}>
+                                                {(cleared || picked) && <Check className="h-3 w-3 text-white" />}
+                                              </span>
+                                              <span className="font-bold text-primary text-sm">1×</span>
+                                              <span className="text-sm min-w-0 break-words flex-1">{it.name}</span>
+                                              {it.tableNumber ? (
+                                                <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-secondary/20 text-primary border-secondary/50 shrink-0 notranslate" translate="no">
+                                                  <DoorOpen className="h-3 w-3 inline mr-0.5 -mt-0.5" />{it.tableNumber}
+                                                </span>
+                                              ) : null}
+                                              <span className="text-sm font-semibold">€{up.toFixed(2)}</span>
+                                              <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border ${
+                                                cleared
+                                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-400'
+                                                  : 'bg-red-100 text-red-800 border-red-400'
+                                              }`}>
+                                                {cleared ? 'Paid' : 'Unpaid'}
+                                              </span>
+                                            </button>
+                                          </li>
+                                        );
+                                      });
+                                    })}
                               </ul>
                             </div>
                           );
@@ -4436,7 +5094,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           <DialogFooter className="flex-col sm:flex-row gap-2 shrink-0">
             <Button
               variant="outline"
-              onClick={() => { setPaymentTarget(null); setPaymentSelections({}); }}
+              onClick={() => {
+                setPaymentTarget(null);
+                setPaymentSelections({});
+                setPaymentFullOrderMode(false);
+              }}
               className="w-full sm:w-auto"
             >
               Close
@@ -4456,38 +5118,18 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         </DialogContent>
       </Dialog>
 
-      {/* Duplicate KOT print confirmation dialog — shown when a waiter
-          reprints a ticket that was already sent (printedAt set AND
-          printCount > 0). Informational only; the waiter may send again. */}
-      <AlertDialog open={!!reprintTarget} onOpenChange={(o) => { if (!o) setReprintTarget(null); }}>
-        <AlertDialogContent className="max-w-md w-[92vw]">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5 text-primary shrink-0" /> This KOT was already sent. Send again?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-left">
-              {reprintTarget
-                ? `Ticket ${resolveOrderId(reprintTarget)} for Table ${reprintTarget.tableNumber || ''} has already been printed${(Number(reprintTarget.printCount) || 0) > 1 ? ` (${reprintTarget.printCount} times)` : ''}. Sending again will reprint it to the kitchen printer.`
-                : ''}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
-            <AlertDialogCancel className="w-full sm:w-auto mt-0">Cancel</AlertDialogCancel>
-            {printAllowed && (
-              <AlertDialogAction
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  const target = reprintTarget;
-                  setReprintTarget(null);
-                  openKOT(target);
-                }}
-              >
-                Send Again
-              </AlertDialogAction>
-            )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* KOT print options — shown whenever the waiter prints a ticket
+          (first print or reprint). Offers the "Separate categories for
+          cutting" option and, for already-sent tickets, an informational
+          note. Runs the existing kotPrint.js iframe print on confirm. */}
+      <KotPrintOptionsDialog
+        open={!!reprintTarget}
+        order={reprintTarget}
+        onClose={() => setReprintTarget(null)}
+        alreadyPrinted={!!(reprintTarget && reprintTarget.printedAt && (Number(reprintTarget.printCount) || 0) > 0)}
+        printAllowed={printAllowed}
+        onPrinted={(order, options) => openKOT({ ...order, tableDisplay: order.tableDisplay || order.tableLabel || kdsTableLabel(order, groupMap) }, options)}
+      />
 
       {/* Cancel Ticket confirmation dialog */}
       <AlertDialog open={!!cancelTarget} onOpenChange={(o) => { if (!o) setCancelTarget(null); }}>

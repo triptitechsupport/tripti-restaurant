@@ -1,5 +1,4 @@
-import { elementZIndex } from '../../../utils/dom-utils.js';
-import { Z_OFFSET_TOOLBAR } from '../../../constants/theme.js';
+import { isolateEditorUiEvents } from '../../../utils/dom-utils.js';
 import { hideLinkAction, toggleLinkAction, positionLinkAction } from '../link-action/link-action.js';
 import { hideFontAction, toggleFontAction, positionFontAction } from '../font-family-action/font-family-action.js';
 import { isPanelVisible, PanelId } from '../../../state/panel-state.js';
@@ -195,6 +194,7 @@ function initToolbar() {
     wrapper.innerHTML = TOOLBAR_HTML;
     toolbarElement = wrapper.firstElementChild;
     document.body.appendChild(toolbarElement);
+    isolateEditorUiEvents(toolbarElement);
 
     const editWithAiLabel = getEditorTranslations().toolbarEditWithAi;
     if (editWithAiLabel) {
@@ -293,7 +293,6 @@ export function showTextFormatToolbar(targetElement) {
     setPositioningTarget(targetElement);
     resetDragOffset();
     toolbarElement.classList.add('tft-visible');
-    toolbarElement.style.zIndex = elementZIndex(targetElement) + Z_OFFSET_TOOLBAR;
     lockToolbarSide();
     positionToolbar();
     observeToolbarTarget();

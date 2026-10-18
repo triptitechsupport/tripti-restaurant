@@ -8,7 +8,7 @@ import sitePagesPlugin from './plugins/vite-plugin-site-pages.js';
 import pocketbaseAuthPlugin from './plugins/vite-plugin-pocketbase-auth.js';
 import sessionJournalPlugin from './plugins/session-journal/vite-plugin-session-journal.js';
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 const allDeps = Object.keys(pkg.dependencies || {});
@@ -239,7 +239,10 @@ window.fetch = function(...args) {
 				contentType.includes('text/html') ||
 				contentType.includes('application/xhtml+xml');
 
-			if (!response.ok && !isDocumentResponse) {
+			// no-cors requests (e.g. Google Analytics/Ads beacons) always return an opaque
+			const isOpaqueResponse = response.type === 'opaque';
+
+			if (!response.ok && !isDocumentResponse && !isOpaqueResponse) {
 					const responseClone = response.clone();
 					const errorFromRes = await responseClone.text();
 					const requestUrl = response.url;
@@ -355,6 +358,25 @@ const addTransformIndexHtml = {
 	},
 };
 
+// Vite serves public files only at their exact path; the published site also serves this shell at `/checkout/`.
+const domainCheckoutDevPlugin = {
+	name: 'horizons-domain-checkout',
+	apply: 'serve',
+	configureServer(server) {
+		const shellFile = path.join(server.config.publicDir, 'checkout', 'index.html');
+
+		server.middlewares.use((req, _res, next) => {
+			const url = new URL(req.url, 'http://localhost');
+
+			if ((url.pathname === '/checkout' || url.pathname === '/checkout/') && existsSync(shellFile)) {
+				req.url = `/checkout/index.html${url.search}`;
+			}
+
+			next();
+		});
+	},
+};
+
 console.warn = () => { };
 
 const logger = createLogger()
@@ -376,7 +398,8 @@ export default defineConfig({
 	plugins: [
 		...(isDev ? [inlineEditPlugin(), editModeDevPlugin(), iframeRouteRestorationPlugin(), sitePagesPlugin(), pocketbaseAuthPlugin(), sessionJournalPlugin()] : []),
 		react(),
-		addTransformIndexHtml
+		addTransformIndexHtml,
+		domainCheckoutDevPlugin,
 	],
 	server: {
 		port: 3000,

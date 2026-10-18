@@ -13,3 +13,10 @@ export const waiterPb = new PocketBase(
   POCKETBASE_API_URL,
   new LocalAuthStore('pb_waiter_auth')
 );
+
+// Stock/Waste management staff — independent auth store so stock staff can be
+// logged in alongside waiters/KDS/admins without clobbering any session.
+export const stockPb = new PocketBase(
+  POCKETBASE_API_URL,
+  new LocalAuthStore('pb_stock_auth')
+);

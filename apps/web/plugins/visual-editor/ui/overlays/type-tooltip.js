@@ -1,5 +1,4 @@
-import { getElementType, elementZIndex } from '../../utils/dom-utils.js';
-import { Z_OFFSET_TOOLTIP } from '../../constants/theme.js';
+import { getElementType } from '../../utils/dom-utils.js';
 import { TYPE_TOOLTIP_CURSOR_OFFSET, TOOLTIP_VIEWPORT_MARGIN } from '../../constants/layout.js';
 import { ELEMENT_TYPE_TRANSLATIONS } from '../../constants/selectors.js';
 import { showHoverOutline, hideHoverOutline } from './hover-outline.js';
@@ -58,7 +57,6 @@ export function showTypeTooltip(element, clientX, clientY) {
 		cachedHeight = typeTooltipElement.offsetHeight;
 	}
 
-	typeTooltipElement.style.zIndex = elementZIndex(element) + Z_OFFSET_TOOLTIP;
 	typeTooltipElement.classList.add('active');
 	positionAt(clientX, clientY);
 	showHoverOutline(element);

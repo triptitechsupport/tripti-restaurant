@@ -1,10 +1,9 @@
 /// <reference path="../pb_data/types.d.ts" />
 /* 
     - Usage: ./pocketbase horizons migrations:revert migration1.js migration2.js ... - reverts specific migrations by name (not by count like the built-in "down" command)
-    - Usage: ./pocketbase horizons migrations:up - runs migrations up and exits with code 1 if any migration fails
 */
 
-// Create a new "horizons" command group with "migrations:revert" and "migrations:up" subcommands
+// Create a new "horizons" command group with a "migrations:revert" subcommand
 const horizonsCmd = new Command({
     use: "horizons",
     short: "Additional migration utilities",
@@ -21,34 +20,6 @@ const exitOnError = (run) => (...args) => {
         $os.exit(1)
     }
 }
-
-horizonsCmd.addCommand(new Command({
-    use: "migrations:up",
-    short: "Run migrations up and exit with code 1 if any migration fails",
-    run: exitOnError((cmd, _args) => {
-        const allowedFlags = ["encryptionEnv", "dir", "migrationsDir", "hooksDir", "hooksWatch"]
-        const flags = []
-        cmd.flags().visitAll((flag) => {
-            if (allowedFlags.includes(flag.name)) {
-                const value = flag.value.string()
-                if (value) {
-                    flags.push(`--${flag.name}=${value}`)
-                }
-            }
-        })
-        
-        const cmdArgs = ["migrate", "up", ...flags]
-        
-        const result = $os.cmd(`${__hooks}/../pocketbase`, ...cmdArgs)
-        const output = toString(result.output())
-        
-        if (output.includes("failed to apply migration")) {
-            throw new Error(output)
-        }
-
-        console.log(output)
-    }),
-}))
 
 horizonsCmd.addCommand(new Command({
     use: "migrations:revert [migration names...]",

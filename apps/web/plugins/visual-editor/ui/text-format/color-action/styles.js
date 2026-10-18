@@ -1,5 +1,5 @@
 import { COLOR_ACTION_ID } from './template.js';
-import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_FOCUS, HOVER_BG, BOX_SHADOW_DROPDOWN, COLOR_WHITE } from '../../../constants/theme.js';
+import { PANEL_BG, BORDER_COLOR, BORDER_COLOR_FOCUS, HOVER_BG, BOX_SHADOW_DROPDOWN, COLOR_WHITE, Z_INDEX_EDITOR_PANEL } from '../../../constants/theme.js';
 
 /** Injected CSS for the text color and gradient action panel. */
 export const COLOR_ACTION_STYLES = `
@@ -15,6 +15,7 @@ export const COLOR_ACTION_STYLES = `
   box-shadow: ${BOX_SHADOW_DROPDOWN};
   font-family: DM Sans, sans-serif;
   user-select: none;
+  z-index: ${Z_INDEX_EDITOR_PANEL};
 }
 
 #${COLOR_ACTION_ID}.tca-visible {

@@ -39,7 +39,47 @@ onRecordCreateRequest((e) => {
     return;
   }
 
-  const groupId = e.record.get("tableGroup");
+  // PocketBase does not always expose relation values on e.record during
+  // onRecordCreateRequest. A shared/linked order sends tableGroup in the
+  // body; treating that as empty made every combined-table order look like
+  // a standalone order and rejected it after the combination was created.
+  const asId = (value) => {
+    if (value == null || value === "") return "";
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return asId(value[0]);
+    if (typeof value === "object" && value.id) return String(value.id);
+    return String(value);
+  };
+  let groupId = asId(e.record.get("tableGroup"));
+  if (!groupId) {
+    try {
+      const info = typeof e.requestInfo === "function" ? e.requestInfo() : e.requestInfo;
+      const body = info && info.body ? info.body : null;
+      const raw = body && (body.tableGroup || body["tableGroup"]);
+      groupId = asId(raw);
+    } catch (_) {
+      groupId = groupId || "";
+    }
+  }
+  // Relation values are often missing on e.record during create, and a
+  // failed body read must not turn a combined-table order into a standalone
+  // one. If this table is already an active combination member, attach the
+  // order to that group instead of rejecting the kitchen send.
+  if (!groupId) {
+    try {
+      const member = $app.findFirstRecordByFilter(
+        "table_group_members",
+        "tableNumber = {:tn} && isActive = true",
+        { tn: String(tableNumber) },
+      );
+      groupId = asId(member && member.get("tableGroup"));
+    } catch (_) {
+      groupId = groupId || "";
+    }
+  }
+  if (groupId && !asId(e.record.get("tableGroup"))) {
+    e.record.set("tableGroup", String(groupId));
+  }
   const tn = String(tableNumber);
 
   if (!groupId) {
@@ -70,6 +110,24 @@ onRecordCreateRequest((e) => {
       );
     } catch (_) {
       member = null;
+    }
+    if (!member) {
+      // A member row can exist with isActive still false when the create
+      // hook could not read the relation. Recover it so Send to Kitchen is
+      // not rejected after the combination was already reserved.
+      try {
+        member = $app.findFirstRecordByFilter(
+          "table_group_members",
+          "tableGroup = {:gid} && tableNumber = {:tn}",
+          { gid: String(groupId), tn },
+        );
+        if (member) {
+          member.set("isActive", true);
+          $app.save(member);
+        }
+      } catch (_) {
+        member = null;
+      }
     }
     if (!member) {
       throw new BadRequestError(
@@ -116,7 +174,14 @@ onRecordCreateRequest((e) => {
 // 2. table_group_members create — reject if the table already has an open
 //    standalone order.
 onRecordCreateRequest((e) => {
-  const tableNumber = e.record.get("tableNumber");
+  let tableNumber = e.record.get("tableNumber");
+  if (!tableNumber) {
+    try {
+      const info = typeof e.requestInfo === "function" ? e.requestInfo() : e.requestInfo;
+      const body = info && info.body ? info.body : null;
+      if (body && body.tableNumber) tableNumber = body.tableNumber;
+    } catch (_) { /* ignore */ }
+  }
   if (!tableNumber || String(tableNumber).trim() === "") {
     e.next();
     return;

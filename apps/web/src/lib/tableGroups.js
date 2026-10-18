@@ -8,6 +8,16 @@
 
 // Extract a numeric table number from a table record's name (e.g. "5",
 // "Table 7", "T3"). Returns NaN when no number is found.
+// Relation fields may arrive as an id string, a one-element array, or an
+// expanded record. Always reduce to the id before map lookups.
+export function relationId(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return relationId(value[0]);
+  if (typeof value === 'object' && value.id) return String(value.id);
+  return '';
+}
+
 export function parseTableNum(value) {
   if (value === null || value === undefined) return NaN;
   const m = String(value).match(/\d+/);
@@ -29,7 +39,7 @@ export function buildGroupMap(groups, members) {
     });
   });
   (members || []).forEach((m) => {
-    const gid = m.tableGroup;
+    const gid = relationId(m.tableGroup);
     if (!gid) return;
     if (!map.has(gid)) {
       map.set(gid, { id: gid, mode: 'linked', status: '', label: '', tables: [] });
@@ -37,6 +47,12 @@ export function buildGroupMap(groups, members) {
     if (m.tableNumber) map.get(gid).tables.push(m.tableNumber);
   });
   map.forEach((g) => {
+    const seen = new Set();
+    g.tables = g.tables.filter((name) => {
+      if (!name || seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    });
     g.tables.sort((a, b) => (parseTableNum(a) || 0) - (parseTableNum(b) || 0));
   });
   return map;
@@ -49,7 +65,7 @@ export function buildGroupMap(groups, members) {
 // keeps its own tableNumber).
 export function tableDisplayForParent(parent, groupMap) {
   if (!parent) return '';
-  const gid = parent.tableGroup;
+  const gid = relationId(parent.tableGroup);
   if (gid && groupMap && groupMap.has(gid)) {
     const g = groupMap.get(gid);
     if (g.mode === 'shared' && g.tables && g.tables.length > 1) {
@@ -59,27 +75,61 @@ export function tableDisplayForParent(parent, groupMap) {
   return parent.tableNumber || '';
 }
 
+// Label used on the KDS screen and kitchen print. Shared AND linked
+// combinations show every member table. A persisted tableLabel wins so a
+// missed group lookup cannot collapse the ticket back to one table.
+export function kdsTableLabel(kot, groupMap) {
+  if (!kot) return '';
+  // A persisted combined label wins. A single-table label must NOT short-circuit
+  // group lookup — older tickets stored only the primary table and would hide
+  // the rest of a Shared/Linked combination on the KDS screen and kitchen print.
+  const persisted = kot.tableLabel && String(kot.tableLabel).trim();
+  if (persisted && String(persisted).includes('+')) return String(persisted).trim();
+  if (kot.tableDisplay && String(kot.tableDisplay).includes('+')) return String(kot.tableDisplay).trim();
+  const parent = (kot.expand && kot.expand.parentOrder) || null;
+  const expandedGroup = parent && parent.expand && parent.expand.tableGroup;
+  if (expandedGroup && expandedGroup.status !== 'closed' && expandedGroup.label && String(expandedGroup.label).includes('+')) {
+    return String(expandedGroup.label).trim();
+  }
+  const gid = relationId(parent && parent.tableGroup) || relationId(expandedGroup);
+  if (gid && groupMap && groupMap.has(gid)) {
+    const g = groupMap.get(gid);
+    if (g.status !== 'closed' && g.tables && g.tables.length > 1) {
+      return `Tables ${g.tables.join(' + ')}`;
+    }
+  }
+  const tn = (parent && parent.tableNumber) || kot.tableNumber || '';
+  if (tn && groupMap) {
+    for (const g of groupMap.values()) {
+      if (g.status !== 'active') continue;
+      if (g.tables && g.tables.length > 1 && g.tables.indexOf(tn) !== -1) {
+        return `Tables ${g.tables.join(' + ')}`;
+      }
+    }
+  }
+  if (persisted) return String(persisted).trim();
+  return tn;
+}
+
 // Resolve the table display for a kitchen_orders KOT, using its expanded
 // parentOrder when available. Falls back to the KOT's own copied tableNumber
 // for legacy unparented KOTs.
 export function tableDisplayForKot(kot, groupMap) {
-  const parent = (kot && kot.expand && kot.expand.parentOrder) || null;
-  const label = tableDisplayForParent(parent, groupMap);
-  if (label) return label;
-  return (kot && kot.tableNumber) || '';
+  return kdsTableLabel(kot, groupMap);
 }
 
 // Whether a parent order belongs to a Shared Order combination.
 export function isSharedParent(parent, groupMap) {
-  if (!parent || !parent.tableGroup) return false;
-  const g = groupMap && groupMap.get(parent.tableGroup);
+  if (!parent || !relationId(parent.tableGroup)) return false;
+  const g = groupMap && groupMap.get(relationId(parent.tableGroup));
   return !!(g && g.mode === 'shared' && g.tables && g.tables.length > 1);
 }
 
 // Resolve the table_groups entry a parent order belongs to (or null).
 export function groupForParent(parent, groupMap) {
-  if (!parent || !parent.tableGroup) return null;
-  return (groupMap && groupMap.get(parent.tableGroup)) || null;
+  const gid = relationId(parent && parent.tableGroup);
+  if (!gid) return null;
+  return (groupMap && groupMap.get(gid)) || null;
 }
 
 // Whether a parent order belongs to any multi-table combination (Linked or

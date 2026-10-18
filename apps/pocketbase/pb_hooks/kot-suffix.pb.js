@@ -12,7 +12,29 @@
 // a concurrent first-create that loses the race re-finds the winner's row).
 
 onRecordCreateRequest((e) => {
-  const parentId = e.record.get("parentOrder");
+  // Relation fields are often empty on e.record inside onRecordCreateRequest
+  // even when the client sent parentOrder. Read the request body so a
+  // combined-table KOT still gets a suffix and stays linked to its order.
+  const asId = (value) => {
+    if (value == null || value === "") return "";
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return asId(value[0]);
+    if (typeof value === "object" && value.id) return String(value.id);
+    return String(value);
+  };
+  let parentId = asId(e.record.get("parentOrder"));
+  if (!parentId) {
+    try {
+      const info = typeof e.requestInfo === "function" ? e.requestInfo() : e.requestInfo;
+      const body = info && info.body ? info.body : null;
+      parentId = asId(body && (body.parentOrder || body["parentOrder"]));
+    } catch (_) {
+      parentId = parentId || "";
+    }
+  }
+  if (parentId && !asId(e.record.get("parentOrder"))) {
+    e.record.set("parentOrder", String(parentId));
+  }
   if (!parentId) {
     // Legacy KOT with no parent — no suffix. Leave kotSuffix unset.
     e.next();
