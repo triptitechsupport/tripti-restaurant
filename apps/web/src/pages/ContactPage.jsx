@@ -3,14 +3,15 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { MapPin, Phone, Mail, Clock } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
-import { Button } from '@/components/ui/button';
+import { Link } from 'react-router-dom';
+import PageCover from '@/components/menu/PageCover.jsx';
 import pb from '@/lib/pocketbaseClient.js';
 
 // closedWeekday is stored as a JS getDay() integer: 0=Sunday ... 6=Saturday
 const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 export default function ContactPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [closedWeekday, setClosedWeekday] = useState(3); // default Wednesday
 
   useEffect(() => {
@@ -37,30 +38,25 @@ export default function ContactPage() {
         <title>{t('contactUs')} - Tripti Genusswelt</title>
       </Helmet>
       
-      <main className="py-12 md:py-24 bg-background min-h-screen relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 indian-decorative-border-burgundy"></div>
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 relative z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            className="text-center mb-16"
+      <main className="bg-background min-h-screen relative overflow-hidden">
+        <div className="tg-home">
+          <PageCover
+            eyebrow={language === 'de' ? 'Kontakt · Contact' : 'Contact · Kontakt'}
+            title={t('contactUs')}
+            lead={t('contactSubtitle') || 'We would love to hear from you. Get in touch with us for any inquiries.'}
           >
-            <h1 className="text-4xl md:text-6xl font-serif font-bold text-primary mb-6 drop-shadow-sm">{t('contactUs')}</h1>
-            <div className="w-24 h-1.5 bg-secondary mx-auto rounded-full mb-6 shadow-sm animate-pulse-glow" />
-            <p className="text-muted-foreground text-lg md:text-xl font-medium max-w-2xl mx-auto leading-relaxed">
-              {t('contactSubtitle') || 'We would love to hear from you. Get in touch with us for any inquiries.'}
-            </p>
-          </motion.div>
-
+            <a className="btn btn-gold" href="tel:+436641219289">{language === 'de' ? 'Anrufen' : 'Call us'}</a>
+            <Link className="btn btn-line" to="/table-reservation">{t('bookTable') || (language === 'de' ? 'Tisch reservieren' : 'Book a table')}</Link>
+          </PageCover>
+        </div>
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 relative z-10 py-12 md:py-20">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10 lg:gap-16">
             <motion.div
               initial={{ opacity: 0, x: -40 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.7, ease: "easeOut", delay: 0.1 }}
-              className="bg-card border-2 border-border rounded-3xl p-8 sm:p-10 shadow-xl space-y-10 relative overflow-hidden hover:shadow-2xl transition-shadow duration-500"
+              className="tg-paper p-8 sm:p-10 space-y-10 relative overflow-hidden"
             >
-              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary via-secondary to-primary opacity-50" />
               
               <div className="flex items-start gap-6 pt-4 group">
                 <div className="p-4 bg-primary rounded-2xl text-primary-foreground shadow-md shrink-0 group-hover:scale-110 group-hover:bg-secondary group-hover:text-primary transition-all duration-300">
@@ -124,7 +120,7 @@ export default function ContactPage() {
               initial={{ opacity: 0, x: 40 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.7, ease: "easeOut", delay: 0.2 }}
-              className="h-full min-h-[450px] rounded-3xl overflow-hidden border-2 border-border shadow-xl relative hover:shadow-2xl transition-shadow duration-500"
+              className="tg-paper h-full min-h-[450px] overflow-hidden relative"
             >
               <iframe 
                 src="https://www.google.com/maps?q=Italiener+Stra%C3%9Fe+17,+9500+Villach,+Austria&output=embed" 

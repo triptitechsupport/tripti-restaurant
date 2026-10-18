@@ -344,7 +344,7 @@
 .tg-home .add:hover{background:#f3e2bd}
 .tg-home .add.on{background:var(--maroon-2);color:var(--cream);border-color:var(--maroon-2)}
 .tg-home .add:focus-visible{outline:2px solid var(--gold)}
-.tg-home .menu-more{display:flex;justify-content:center;margin-top:28px}
+.tg-home .menu-more{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:28px}
 .tg-home .btn-out{border-color:var(--maroon-2);color:var(--maroon-2);background:transparent}
 .tg-home .btn-out:hover{background:rgba(101,15,31,.06)}
 .tg-home .res-main{background:var(--paper);color:var(--ink);border-radius:8px;padding:32px;display:flex;flex-direction:column;gap:16px;align-items:flex-start;box-shadow:0 0 0 1px var(--gold),0 0 0 6px var(--paper),0 0 0 7px rgba(233,189,98,.6),0 40px 60px -30px rgba(0,0,0,.7)}

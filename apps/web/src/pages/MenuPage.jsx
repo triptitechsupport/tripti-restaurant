@@ -1,13 +1,20 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Helmet } from 'react-helmet';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Leaf, Beef, ChevronLeft, ChevronRight, LayoutGrid, SlidersHorizontal, X, FileText, Plus, Minus, ShoppingCart } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { useCart } from '@/hooks/useCart.jsx';
 import PdfMenuDisplay from '@/components/PdfMenuDisplay.jsx';
-import useEmblaCarousel from 'embla-carousel-react';
+import MenuBook from '@/components/menu/MenuBook.jsx';
+import PageCover from '@/components/menu/PageCover.jsx';
+import DishRow from '@/components/menu/DishRow.jsx';
+import { useMenuData, buildCats, normalizeItem } from '@/components/menu/menuData.js';
+import { ALG } from '@/pages/home/homeData.js';
 import pb from '@/lib/pocketbaseClient.js';
+import '@/pages/home/home.css';
+import '@/components/menu/menubook.css';
+import imgCornerA from '@/assets/home/corner-a.webp';
+import imgCornerB from '@/assets/home/corner-b.webp';
+import imgDividerSrc from '@/assets/home/divider.webp';
 
 /* ─── Category config ─────────────────────────────────────────────────────── */
 const CATEGORY_DEFS = [
@@ -23,8 +30,6 @@ const CATEGORY_DEFS = [
   { id: 'One-pot rice specials', tKey: 'cat_onepot_rice' },
 ];
 
-// Returns the translated display label for a category definition.
-const catLabel = (cat, t) => (cat && cat.tKey ? t(cat.tKey) : cat?.label || cat?.id || '');
 
 /* ─── Static fallback data ────────────────────────────────────────────────── */
 const STATIC_ITEMS = [
@@ -91,373 +96,56 @@ const STATIC_ITEMS = [
   { id: 'op4', nameEN: 'Uppma & Kesari', nameDE: 'Uppma & Kesari', descriptionEN: 'Savoury semolina upma served with sweet rava kesari.', descriptionDE: 'Herzhaftes Grieß-Upma mit süßem Rava-Kesari.', price: 9.90, category: 'One-pot rice specials', isVegetarian: true, image: null },
 ];
 
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
-const PLACEHOLDER_IMG = 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=200&h=200&fit=crop';
+const TX = {
+  de: {
+    eyebrow: 'Speisekarte · Menu', lead: 'Südindische Küche, frisch gekocht in Villach. Wählen Sie „Alle“, um jedes Gericht zu sehen, oder eine Kategorie.',
+    book: 'Speisekarte aufschlagen', reserve: 'Tisch reservieren', cart: 'Zum Warenkorb',
+    search: 'Gericht suchen, z. B. Dosa', all: 'Alle', veg: 'Vegetarisch', nv: 'Mit Fleisch',
+    pdf: 'Speisekarte als PDF', empty: 'Keine passenden Gerichte gefunden.', results: 'Suchergebnisse',
+    count: '{n} Gerichte', loading: 'Speisekarte wird geladen …',
+    order: 'Bestellmodus: Gerichte in den Warenkorb legen', orderHint: 'Mit + hinzufügen, mit − entfernen.',
+    allergens: 'Allergene (Kennzeichnung nach österreichischem Lebensmittelrecht)', note: 'Preise in Euro inkl. MwSt.',
+  },
+  en: {
+    eyebrow: 'Menu · Speisekarte', lead: 'South Indian cooking, made fresh in Villach. Choose “All” to see every dish, or pick a category.',
+    book: 'Open the menu book', reserve: 'Book a table', cart: 'Go to cart',
+    search: 'Search dishes, e.g. dosa', all: 'All', veg: 'Vegetarian', nv: 'Meat',
+    pdf: 'Menu as PDF', empty: 'No matching dishes.', results: 'Search results',
+    count: '{n} dishes', loading: 'Loading the menu …',
+    order: 'Ordering mode: add dishes to your cart', orderHint: 'Tap + to add, − to remove.',
+    allergens: 'Allergens (Austrian labelling codes)', note: 'Prices in euro incl. VAT.',
+  },
+};
 
-function getItemImage(item) {
-  if (!item.image) return PLACEHOLDER_IMG;
-  try { return pb.files.getURL(item, item.image, { thumb: '200x200' }); }
-  catch { return PLACEHOLDER_IMG; }
-}
+const FALLBACK_ITEMS = STATIC_ITEMS.map(normalizeItem);
 
-/* ─── breakpoint hook ─────────────────────────────────────────────────────── */
-function useBreakpoint() {
-  const get = () => {
-    if (typeof window === 'undefined') return 'desktop';
-    if (window.innerWidth < 640) return 'mobile';
-    if (window.innerWidth < 1024) return 'tablet';
-    return 'desktop';
-  };
-  const [bp, setBp] = useState(get);
-  useEffect(() => {
-    const handler = () => setBp(get());
-    window.addEventListener('resize', handler);
-    return () => window.removeEventListener('resize', handler);
-  }, []);
-  return bp;
-}
-
-/* ─── Items per page by breakpoint ───────────────────────────────────────── */
-function itemsPerPage(bp) {
-  if (bp === 'mobile') return 5;
-  if (bp === 'tablet') return 8;   // 2 cols × 4 rows
-  return 12;                        // 3 cols × 4 rows
-}
-
-/* ─── Item Card ───────────────────────────────────────────────────────────── */
-function MenuItemCard({ item, language, orderMode, t }) {
-  const title = language === 'de' ? (item.nameDE || item.name) : (item.nameEN || item.name);
-  const desc = language === 'de' ? (item.descriptionDE || item.description || '') : (item.descriptionEN || item.description || '');
-  const imgSrc = getItemImage(item);
-  const { cartItems, addToCart, updateQuantity } = useCart();
-  const qty = cartItems.find(i => i.id === item.id)?.quantity || 0;
-
-  const handleAdd = () => addToCart({ ...item, name: title });
-  const handleInc = () => addToCart({ ...item, name: title });
-  const handleDec = () => updateQuantity(item.id, Math.max(0, qty - 1));
-
-  const vegBadge = item.isVegetarian ? (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded px-1.5 py-0.5">
-      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />{t('vegetarian')}
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-700 bg-red-50 border border-red-300 rounded px-1.5 py-0.5">
-      <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />{t('nonVeg')}
-    </span>
-  );
-
-  if (orderMode) {
-    return (
-      <div className="group w-full flex flex-row rounded-xl overflow-hidden bg-card border border-border hover:border-secondary shadow-sm hover:shadow-lg transition-all duration-300 min-h-[88px]">
-        <div className="w-[90px] sm:w-[110px] shrink-0 min-h-[88px] sm:min-h-[110px] bg-muted overflow-hidden">
-          <img
-            src={imgSrc}
-            alt={title}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            onError={(e) => { e.target.onerror = null; e.target.src = PLACEHOLDER_IMG; }}
-          />
-        </div>
-        <div className="flex flex-col flex-1 p-3 min-w-0">
-          <div className="flex items-start justify-between gap-2 mb-0.5">
-            <span className="font-serif font-bold text-primary text-sm leading-snug line-clamp-1 flex-1">{title}</span>
-            <span className="font-bold text-secondary text-sm shrink-0">€{Number(item.price).toFixed(2)}</span>
-          </div>
-          <div className="flex items-center gap-1.5 mb-1.5">
-            {vegBadge}
-          </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">
-            {desc || (language === 'de' ? 'Keine Beschreibung verfügbar.' : 'No description available.')}
-          </p>
-          <div className="mt-2 flex items-center justify-end">
-            {qty === 0 ? (
-              <button
-                onClick={handleAdd}
-                className="flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-bold shadow-sm hover:bg-primary/90 active:scale-95 transition-all min-h-[36px]"
-              >
-                <ShoppingCart className="w-3.5 h-3.5" />
-                {language === 'de' ? 'Hinzufügen' : 'Add'}
-              </button>
-            ) : (
-              <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
-                <button
-                  onClick={handleDec}
-                  aria-label="Decrease quantity"
-                  className="flex items-center justify-center w-8 h-8 rounded-md text-primary hover:bg-secondary/20 active:scale-90 transition-all"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <span className="w-7 text-center text-sm font-bold text-primary tabular-nums">{qty}</span>
-                <button
-                  onClick={handleInc}
-                  aria-label="Increase quantity"
-                  className="flex items-center justify-center w-8 h-8 rounded-md text-primary hover:bg-secondary/20 active:scale-90 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="group w-full flex flex-row rounded-xl overflow-hidden bg-card border border-border hover:border-secondary shadow-sm hover:shadow-lg transition-all duration-300 text-left min-h-[88px]"
-    >
-      <div className="w-[90px] sm:w-[110px] shrink-0 min-h-[88px] sm:min-h-[110px] bg-muted overflow-hidden">
-        <img
-          src={imgSrc}
-          alt={title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          onError={(e) => { e.target.onerror = null; e.target.src = PLACEHOLDER_IMG; }}
-        />
-      </div>
-      <div className="flex flex-col flex-1 p-3 min-w-0">
-        <div className="flex items-start justify-between gap-2 mb-0.5">
-          <span className="font-serif font-bold text-primary text-sm leading-snug line-clamp-1 flex-1">{title}</span>
-          <span className="font-bold text-secondary text-sm shrink-0">€{Number(item.price).toFixed(2)}</span>
-        </div>
-        <div className="flex items-center gap-1.5 mb-1.5">
-          {vegBadge}
-        </div>
-        <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 flex-1">
-          {desc || 'No description available.'}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Inner carousel (items within one category) ─────────────────────────── */
-function InnerCarousel({ categoryItems, language, bp, isActive, orderMode, t }) {
-  const perPage = itemsPerPage(bp);
-  const pages = [];
-  for (let i = 0; i < categoryItems.length; i += perPage) pages.push(categoryItems.slice(i, i + perPage));
-  const pageCount = pages.length;
-
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
-  const [current, setCurrent] = useState(0);
-
-  // Reset to slide 0 when this category becomes active
-  useEffect(() => {
-    if (isActive && emblaApi) {
-      emblaApi.scrollTo(0);
-      setCurrent(0);
-    }
-  }, [isActive, emblaApi]);
-
-  useEffect(() => {
-    if (!emblaApi) return;
-    const onSelect = () => setCurrent(emblaApi.selectedScrollSnap());
-    emblaApi.on('select', onSelect);
-    return () => { emblaApi.off('select', onSelect); };
-  }, [emblaApi]);
-
-  const goTo = useCallback((i) => {
-    if (emblaApi) emblaApi.scrollTo(i);
-  }, [emblaApi]);
-
-  if (!pages.length) return null;
-
-  const gridCols = bp === 'mobile' ? 'grid-cols-1' : bp === 'tablet' ? 'grid-cols-2' : 'grid-cols-3';
-
-  return (
-    <div className="relative">
-      <div ref={emblaRef} className="overflow-hidden">
-        <div className="flex">
-          {pages.map((pageItems, pi) => (
-            <div key={pi} className="flex-[0_0_100%] min-w-0">
-              <div className={`grid ${gridCols} gap-3`}>
-                {pageItems.map(item => (
-                  <MenuItemCard key={item.id} item={item} language={language} orderMode={orderMode} t={t} />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Inner arrows — desktop/tablet only */}
-      {pageCount > 1 && (
-        <>
-          <button
-            onClick={() => goTo(current - 1)}
-            disabled={current === 0}
-            aria-label="Previous items"
-            className="hidden sm:flex absolute -left-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-card border border-border shadow-md items-center justify-center text-primary hover:bg-secondary hover:text-card transition-colors disabled:opacity-30 disabled:pointer-events-none z-10"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => goTo(current + 1)}
-            disabled={current === pageCount - 1}
-            aria-label="Next items"
-            className="hidden sm:flex absolute -right-4 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-card border border-border shadow-md items-center justify-center text-primary hover:bg-secondary hover:text-card transition-colors disabled:opacity-30 disabled:pointer-events-none z-10"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </>
-      )}
-
-      {/* Inner dots */}
-      {pageCount > 1 && (
-        <div className="flex justify-center gap-2 mt-4 flex-wrap">
-          {Array.from({ length: pageCount }).map((_, i) => (
-            <button
-              key={i}
-              onClick={() => goTo(i)}
-              aria-label={`Items page ${i + 1}`}
-              className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${i === current ? 'bg-primary scale-125' : 'bg-border hover:bg-secondary'}`}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Mobile swipe hint for inner carousel */}
-      {pageCount > 1 && bp === 'mobile' && (
-        <p className="text-center text-[11px] text-muted-foreground mt-2 opacity-60">{t('swipeToSeeMore')}</p>
-      )}
-    </div>
-  );
-}
-
-/* ─── Main category carousel ──────────────────────────────────────────────── */
-function CategoryCarousel({ visibleCategories, allItems, language, bp, orderMode, t }) {
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: true });
-  const [current, setCurrent] = useState(0);
-
-  useEffect(() => {
-    if (!emblaApi) return;
-    const onSelect = () => setCurrent(emblaApi.selectedScrollSnap());
-    emblaApi.on('select', onSelect);
-    return () => { emblaApi.off('select', onSelect); };
-  }, [emblaApi]);
-
-  // Re-init when visible categories change, reset to first
-  useEffect(() => {
-    if (emblaApi) { emblaApi.reInit(); setCurrent(0); }
-  }, [emblaApi, visibleCategories.length]);
-
-  const goTo = useCallback((i) => {
-    if (emblaApi) emblaApi.scrollTo(i);
-  }, [emblaApi]);
-
-  if (!visibleCategories.length) return (
-    <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
-      <LayoutGrid className="w-12 h-12 text-muted-foreground/40" />
-      <p className="font-serif text-xl text-primary font-bold">{t('noCategoriesSelected')}</p>
-      <p className="text-muted-foreground text-sm">{t('noCategoriesSelectedDesc')}</p>
-    </div>
-  );
-
-  return (
-    <div>
-      {/* Top navigation: arrows on sides, category heading in center */}
-      {visibleCategories.length > 1 && (
-        <div className="flex items-center justify-between gap-2 sm:gap-4 mb-6">
-          <button
-            onClick={() => { if (emblaApi) emblaApi.scrollPrev(); }}
-            aria-label={t('previousCategory')}
-            className="flex items-center justify-center w-10 h-10 rounded-full border border-border bg-card text-primary hover:bg-secondary hover:text-card transition-colors shrink-0"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-
-          <div className="flex-1 text-center">
-            <h2 className="font-serif text-xl sm:text-2xl font-bold text-primary tracking-wide">
-              {catLabel(visibleCategories[current], t)}
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1 font-medium tracking-wide max-w-none">
-              ({current + 1} / {visibleCategories.length})
-            </p>
-          </div>
-
-          <button
-            onClick={() => { if (emblaApi) emblaApi.scrollNext(); }}
-            aria-label={t('nextCategory')}
-            className="flex items-center justify-center w-10 h-10 rounded-full border border-border bg-card text-primary hover:bg-secondary hover:text-card transition-colors shrink-0"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
-      )}
-
-      {/* Single category heading (when only one category) */}
-      {visibleCategories.length === 1 && (
-        <div className="flex items-center gap-3 mb-6">
-          <div className="h-px flex-1 bg-gradient-to-l from-secondary/60 to-transparent" />
-          <h2 className="font-serif text-xl sm:text-2xl font-bold text-primary tracking-wide text-center whitespace-nowrap">
-            {catLabel(visibleCategories[0], t)}
-          </h2>
-          <div className="h-px flex-1 bg-gradient-to-r from-secondary/60 to-transparent" />
-        </div>
-      )}
-
-      {/* Pagination dots */}
-      {visibleCategories.length > 1 && (
-        <div className="flex justify-center gap-2 flex-wrap mb-6">
-          {visibleCategories.map((cat, i) => (
-            <button
-              key={cat.id}
-              title={catLabel(cat, t)}
-              onClick={() => goTo(i)}
-              aria-label={catLabel(cat, t)}
-              className={`h-2.5 rounded-full transition-all duration-300 ${i === current ? 'bg-primary w-6' : 'bg-border hover:bg-secondary w-2.5'}`}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Main embla viewport */}
-      <div ref={emblaRef} className="overflow-hidden">
-        <div className="flex">
-          {visibleCategories.map((catDef, ci) => {
-            const catItems = allItems.filter(item => item.category === catDef.id);
-            const isActive = ci === current;
-            return (
-              <div key={catDef.id} className="flex-[0_0_100%] min-w-0 px-1">
-                {catItems.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground italic text-sm">
-                    {t('noItemsInCategory')}
-                  </div>
-                ) : (
-                  <InnerCarousel
-                    categoryItems={catItems}
-                    language={language}
-                    bp={bp}
-                    isActive={isActive}
-                    orderMode={orderMode}
-                    t={t}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
+function dishImage(d) {
+  if (!d.raw || !d.raw.image) return null;
+  try { return pb.files.getURL(d.raw, d.raw.image, { thumb: '100x100' }); } catch { return null; }
 }
 
 /* ─── Main Page ───────────────────────────────────────────────────────────── */
 export default function MenuPage() {
   const { t, language, isOrderingEnabled } = useLanguage();
-  const bp = useBreakpoint();
-  const [searchParams] = useSearchParams();
-  const { cartItems } = useCart();
+  const lang = language === 'en' ? 'en' : 'de';
+  const tx = TX[lang];
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { cartItems, addToCart, updateQuantity } = useCart();
   const orderMode = searchParams.get('order') === '1' && isOrderingEnabled;
+  const listView = searchParams.get('view') === 'list';
 
   const [pdfSettings, setPdfSettings] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(true);
-  const [menuItems, setMenuItems] = useState([]);
-  const [menuLoading, setMenuLoading] = useState(true);
-
-  const [dietFilter, setDietFilter] = useState('All');
-  const [selectedCats, setSelectedCats] = useState(CATEGORY_DEFS.map(c => c.id));
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [marquee, setMarquee] = useState(null);
+  const [cat, setCat] = useState('*');
+  const [diet, setDiet] = useState('all');
+  const [queryInput, setQueryInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [bookOpen, setBookOpen] = useState(false);
+  const [stuck, setStuck] = useState(false);
+  const autoOpened = useRef(false);
+  const rootRef = useRef(null);
+  const stickRef = useRef(null);
 
   /* Fetch marquee settings */
   useEffect(() => {
@@ -466,10 +154,10 @@ export default function MenuPage() {
       .getFirstListItem('', { requestKey: 'menu-marquee', $autoCancel: false })
       .then(rec => { if (alive) setMarquee(rec); })
       .catch(() => { });
-    const unsub = pb.collection('marquee_settings').subscribe('*', (e) => {
+    pb.collection('marquee_settings').subscribe('*', (e) => {
       if (e.action === 'create' || e.action === 'update') setMarquee(e.record);
       if (e.action === 'delete') setMarquee(null);
-    });
+    }).catch(() => { });
     return () => {
       alive = false;
       void pb.collection('marquee_settings').unsubscribe('*').catch(() => { });
@@ -496,270 +184,202 @@ export default function MenuPage() {
   const isImgEnabled = pdfSettings?.imageMenuEnabled === true && hasMenuImages;
   const showStatic = (isPdfEnabled || isImgEnabled) && !orderMode;
 
-  /* Fetch live menu items */
+  /* Live dishes (shared with the menu book); the built-in list is only a fallback */
+  const { loading, items: liveItems, categories } = useMenuData(true);
+  const items = !loading && liveItems.length === 0 ? FALLBACK_ITEMS : liveItems;
+  const cats = useMemo(() => {
+    const list = categories.length
+      ? categories
+      : CATEGORY_DEFS.map((c) => ({ name: c.id, name_de: t(c.tKey) }));
+    return buildCats(items, list);
+  }, [items, categories, t]);
+
+  /* Clicking "Speisekarte" opens the menu book straight away, like being handed a menu. */
   useEffect(() => {
-    if (showStatic) { setMenuLoading(false); return; }
-    let alive = true;
-    (async () => {
-      try {
-        const res = await pb.collection('menu_items').getList(1, 500, {
-          filter: 'availability = true',
-          sort: 'category,nameEN',
-          $autoCancel: false,
-        });
-        if (!alive) return;
-        setMenuItems(res.items.length > 0
-          ? res.items.map(i => ({ ...i, isVegetarian: i.isVegetarian === true }))
-          : STATIC_ITEMS
-        );
-      } catch { if (alive) setMenuItems(STATIC_ITEMS); }
-      finally { if (alive) setMenuLoading(false); }
-    })();
-    return () => { alive = false; };
-  }, [showStatic]);
+    if (autoOpened.current || pdfLoading) return;
+    autoOpened.current = true;
+    if (!orderMode && !listView && !showStatic) setBookOpen(true);
+  }, [pdfLoading, orderMode, listView, showStatic]);
 
-  const filteredItems = menuItems.filter(item => {
-    if (dietFilter === 'Veg' && !item.isVegetarian) return false;
-    if (dietFilter === 'NonVeg' && item.isVegetarian) return false;
-    return true;
-  });
+  const closeBook = () => {
+    setBookOpen(false);
+    if (!listView) {
+      const p = new URLSearchParams(searchParams);
+      p.set('view', 'list');
+      setSearchParams(p, { replace: true });
+    }
+  };
 
-  const visibleCategories = CATEGORY_DEFS.filter(c =>
-    selectedCats.includes(c.id) && filteredItems.some(i => i.category === c.id)
-  );
+  useEffect(() => {
+    const id = setTimeout(() => setQuery(queryInput.trim().toLowerCase()), 120);
+    return () => clearTimeout(id);
+  }, [queryInput]);
 
-  const toggleCat = (id) => setSelectedCats(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
-  const allSelected = selectedCats.length === CATEGORY_DEFS.length;
-  const toggleAll = () => setSelectedCats(allSelected ? [] : CATEGORY_DEFS.map(c => c.id));
+  /* The filter bar sticks under the site header while scrolling */
+  useEffect(() => {
+    const hdr = document.querySelector('.sticky-header');
+    const setHdr = () => {
+      if (rootRef.current) rootRef.current.style.setProperty('--tg-hdr', `${hdr ? hdr.offsetHeight : 0}px`);
+    };
+    setHdr();
+    const onScroll = () => {
+      const el = stickRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      setStuck(top <= (hdr ? hdr.offsetHeight : 0) + 1 && window.scrollY > 200);
+    };
+    window.addEventListener('resize', setHdr);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.removeEventListener('resize', setHdr); window.removeEventListener('scroll', onScroll); };
+  }, []);
+
+  const visible = useMemo(() => items.filter((d) => {
+    if (diet === 'v' && !d.veg) return false;
+    if (diet === 'n' && d.veg) return false;
+    if (query) return `${d.de} ${d.en} ${d.descDe} ${d.descEn}`.toLowerCase().includes(query);
+    return cat === '*' || d.cat === cat;
+  }), [items, diet, query, cat]);
+
+  const catTitle = (c) => (lang === 'de' ? c.de : c.en);
+  const catSub = (c) => (c.de !== c.en ? (lang === 'de' ? c.en : c.de) : '');
+  const groups = useMemo(() => {
+    if (query) return visible.length ? [{ key: 'q', title: tx.results, sub: tx.count.replace('{n}', visible.length), its: visible }] : [];
+    return cats
+      .filter((c) => cat === '*' || c.id === cat)
+      .map((c) => ({ key: c.id, title: catTitle(c), sub: catSub(c), its: visible.filter((d) => d.cat === c.id) }))
+      .filter((g) => g.its.length);
+  }, [query, visible, cats, cat, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pickCat = (id) => {
+    setCat(id);
+    setQueryInput('');
+    setQuery('');
+    const top = rootRef.current?.querySelector('.menu-body');
+    if (top && top.getBoundingClientRect().top < 0) top.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const qtyOf = (id) => cartItems.find((c) => c.id === id)?.quantity || 0;
+  const cartCount = cartItems.reduce((s, i) => s + (i.quantity || 0), 0);
+  const onAdd = (d) => addToCart({ ...d.raw, name: lang === 'de' ? d.de : d.en });
+  const onLess = (d) => updateQuantity(d.id, qtyOf(d.id) - 1);
+
+  const pdfField = language === 'de'
+    ? (pdfSettings?.pdfMenuDE || pdfSettings?.pdfMenuEN)
+    : (pdfSettings?.pdfMenuEN || pdfSettings?.pdfMenuDE);
+  const pdfUrl = hasPdfFiles && pdfField ? pb.files.getURL(pdfSettings, pdfField) : null;
 
   return (
-    <>
+    <div className="tg-home tg-menu" ref={rootRef}>
       <Helmet>
         <title>{t('menuTitle') || 'Our Menu'} - Tripti Genusswelt</title>
         <meta name="description" content="Explore authentic Indian dishes at Tripti Genusswelt — vegetarian and non-vegetarian options." />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=EB+Garamond:ital,wght@0,500;0,600;1,400;1,500&family=Hind:wght@400;500;600&display=swap" />
       </Helmet>
 
-      <main className="min-h-screen bg-background py-6 sm:py-10">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <PageCover eyebrow={tx.eyebrow} title={t('menuTitle') || 'Unsere Speisekarte'} lead={tx.lead}>
+        <button type="button" className="btn btn-gold" onClick={() => setBookOpen(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5c3-1.5 6.5-1.5 10 1 3.5-2.5 7-2.5 10-1v14c-3-1.5-6.5-1.5-10 1-3.5-2.5-7-2.5-10-1z" /><path d="M12 6v14" /></svg>
+          <span>{tx.book}</span>
+        </button>
+        {orderMode && cartCount > 0 ? (
+          <Link className="btn btn-line" to="/cart">{tx.cart} ({cartCount})</Link>
+        ) : (
+          <Link className="btn btn-line" to="/table-reservation">{tx.reserve}</Link>
+        )}
+      </PageCover>
 
-          {/* Page title */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="text-center mb-6"
-          >
-            <h1 className="font-serif text-4xl md:text-5xl font-bold text-primary mb-2">
-              {t('menuTitle') || 'Our Menu'}
-            </h1>
-            <div className="w-20 h-1 bg-secondary mx-auto rounded-full" />
-          </motion.div>
+      <div className="wrap menu-body">
+        {orderMode && (
+          <div className="order-note">
+            <span>{tx.order} <small>{tx.orderHint}</small></span>
+            {cartCount > 0 && <Link className="btn btn-maroon" style={{ padding: '.7em 1.2em' }} to="/cart">{tx.cart} ({cartCount})</Link>}
+          </div>
+        )}
 
-          {/* ── Ordering Mode Banner ── */}
-          {orderMode && (
-            <div className="mb-5 rounded-xl border-2 border-secondary bg-secondary/10 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2 text-primary font-bold">
-                <ShoppingCart className="w-5 h-5 text-secondary" />
-                <span className="text-sm sm:text-base">{language === 'de' ? 'Bestellmodus — fügen Sie Artikel zum Warenkorb hinzu' : 'Ordering Mode — add items to your cart'}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground hidden sm:inline">{language === 'de' ? 'Tippe + zum Hinzufügen, − zum Entfernen' : 'Tap + to add, − to remove'}</span>
-                {cartItems.length > 0 && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground px-3 py-1 text-xs font-bold">
-                    <ShoppingCart className="w-3.5 h-3.5" />
-                    {cartItems.reduce((s, i) => s + i.quantity, 0)}
-                  </span>
-                )}
-              </div>
+        {marquee?.enabled && (marquee.textDE || marquee.textEN) && (
+          <div className="marquee-wrap overflow-hidden rounded-xl border-2 border-secondary bg-primary text-primary-foreground relative" style={{ height: '2.6rem' }}>
+            <div className="absolute top-0 left-0 flex items-center h-full whitespace-nowrap" style={{ animation: 'marquee-scroll 28s linear infinite', willChange: 'transform' }}>
+              {[1, 2, 3].map(i => (
+                <span key={i} className="inline-flex items-center gap-4 px-8 text-sm font-semibold tracking-wide">
+                  <span className="text-secondary">✦</span>
+                  {language === 'de' ? (marquee.textDE || marquee.textEN) : (marquee.textEN || marquee.textDE)}
+                  <span className="text-secondary">✦</span>
+                </span>
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ── Marquee ── */}
-          {marquee?.enabled && (marquee.textDE || marquee.textEN) && (
-            <div className="overflow-hidden rounded-xl border-2 border-secondary bg-primary text-primary-foreground mb-5 relative" style={{ height: '2.6rem' }}>
-              <div
-                className="absolute top-0 left-0 flex items-center h-full whitespace-nowrap"
-                style={{
-                  animation: 'marquee-scroll 28s linear infinite',
-                  willChange: 'transform',
-                }}
-              >
-                {[1, 2, 3].map(i => (
-                  <span key={i} className="inline-flex items-center gap-4 px-8 text-sm font-semibold tracking-wide">
-                    <span className="text-secondary">✦</span>
-                    {language === 'de' ? (marquee.textDE || marquee.textEN) : (marquee.textEN || marquee.textDE)}
-                    <span className="text-secondary">✦</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {showStatic ? (
-            pdfLoading
-              ? <div className="flex items-center justify-center py-24 text-muted-foreground">{t('loadingMenu')}</div>
-              : <PdfMenuDisplay pdfSettings={pdfSettings} language={language} t={t} />
-          ) : (
-            <>
-              {/* ── Top dietary filter bar ── */}
-              <div className="flex justify-center gap-2 sm:gap-3 mb-5 flex-wrap">
-                {[
-                  { id: 'All', label: t('allItems'), icon: <LayoutGrid className="w-4 h-4" /> },
-                  { id: 'Veg', label: t('vegetarian'), icon: <Leaf className="w-4 h-4" /> },
-                  { id: 'NonVeg', label: t('nonVeg'), icon: <Beef className="w-4 h-4" /> },
-                ].map(opt => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setDietFilter(opt.id)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 font-semibold text-sm transition-all duration-200 min-h-[44px] ${dietFilter === opt.id
-                        ? 'bg-primary text-primary-foreground border-primary shadow-md scale-105'
-                        : 'bg-card text-primary border-border hover:border-secondary hover:shadow'
-                      }`}
-                  >
-                    {opt.icon}
-                    <span>{opt.label}</span>
-                  </button>
-                ))}
-
-                {/* Full Menu PDF button */}
-                {hasPdfFiles && (() => {
-                  const pdfField = language === 'de'
-                    ? (pdfSettings?.pdfMenuDE || pdfSettings?.pdfMenuEN)
-                    : (pdfSettings?.pdfMenuEN || pdfSettings?.pdfMenuDE);
-                  const pdfUrl = pdfField ? pb.files.getURL(pdfSettings, pdfField) : null;
-                  return pdfUrl ? (
-                    <button
-                      onClick={() => window.open(pdfUrl, '_blank', 'noopener,noreferrer')}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 font-semibold text-sm transition-all duration-200 min-h-[44px] bg-card text-primary border-border hover:border-secondary hover:shadow"
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span>{t('fullMenu')}</span>
-                    </button>
-                  ) : null;
-                })()}
-
-                {/* Mobile: Categories toggle */}
-                <button
-                  onClick={() => setSidebarOpen(true)}
-                  className="md:hidden flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 font-semibold text-sm transition-all duration-200 min-h-[44px] bg-card text-primary border-border hover:border-secondary"
-                >
-                  <SlidersHorizontal className="w-4 h-4" />
-                  <span>{t('categories')}</span>
-                  {selectedCats.length < CATEGORY_DEFS.length && (
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
-                      {selectedCats.length}
-                    </span>
-                  )}
-                </button>
-              </div>
-
-              {/* ── Main layout: sidebar + carousel ── */}
-              <div className="flex gap-4 items-start">
-
-                {/* ── Categories Sidebar (desktop) ── */}
-                <aside className="hidden md:block w-52 shrink-0 bg-card border border-border rounded-2xl p-4 shadow-sm sticky top-4">
-                  <p className="font-serif font-bold text-primary text-base mb-3">{t('categories')}</p>
-                  <label className="flex items-center gap-2.5 cursor-pointer mb-3 group">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                      className="w-4 h-4 rounded border-border accent-[hsl(var(--primary))] cursor-pointer" />
-                    <span className="font-semibold text-sm text-primary group-hover:text-secondary transition-colors">{t('selectAll')}</span>
-                  </label>
-                  <div className="h-px bg-border mb-3" />
-                  <div className="space-y-2">
-                    {CATEGORY_DEFS.map(cat => (
-                      <label key={cat.id} className="flex items-start gap-2.5 cursor-pointer group">
-                        <input type="checkbox" checked={selectedCats.includes(cat.id)} onChange={() => toggleCat(cat.id)}
-                          className="mt-0.5 w-4 h-4 rounded border-border accent-[hsl(var(--primary))] cursor-pointer shrink-0" />
-                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground group-hover:text-primary transition-colors leading-snug">
-                          {catLabel(cat, t)}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </aside>
-
-                {/* ── Mobile Categories Drawer ── */}
-                <AnimatePresence>
-                  {sidebarOpen && (
-                    <>
-                      <motion.div key="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
-                      <motion.aside key="drawer"
-                        initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        className="fixed left-0 top-0 bottom-0 w-72 max-w-[85vw] bg-card border-r border-border shadow-2xl z-50 flex flex-col md:hidden"
-                      >
-                        <div className="flex items-center justify-between p-4 border-b border-border">
-                          <p className="font-serif font-bold text-primary text-lg">{t('categories')}</p>
-                          <button onClick={() => setSidebarOpen(false)}
-                            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-muted transition-colors text-primary">
-                            <X className="w-5 h-5" />
-                          </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-4">
-                          <label className="flex items-center gap-3 cursor-pointer mb-4 group min-h-[44px]">
-                            <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                              className="w-5 h-5 rounded border-border accent-[hsl(var(--primary))] cursor-pointer" />
-                            <span className="font-bold text-sm text-primary group-hover:text-secondary transition-colors">{t('selectAll')}</span>
-                          </label>
-                          <div className="h-px bg-border mb-4" />
-                          <div className="space-y-1">
-                            {CATEGORY_DEFS.map(cat => (
-                              <label key={cat.id} className="flex items-center gap-3 cursor-pointer group min-h-[44px] rounded-lg px-2 hover:bg-muted/50 transition-colors">
-                                <input type="checkbox" checked={selectedCats.includes(cat.id)} onChange={() => toggleCat(cat.id)}
-                                  className="w-5 h-5 rounded border-border accent-[hsl(var(--primary))] cursor-pointer shrink-0" />
-                                <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground group-hover:text-primary transition-colors">
-                                  {catLabel(cat, t)}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="p-4 border-t border-border">
-                          <button onClick={() => setSidebarOpen(false)}
-                            className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 transition-opacity">
-                            {t('applyFilters')}
-                          </button>
-                        </div>
-                      </motion.aside>
-                    </>
-                  )}
-                </AnimatePresence>
-
-                {/* ── Carousel Panel ── */}
-                <div className="flex-1 min-w-0 bg-card border border-border rounded-2xl p-3 sm:p-4 md:p-6 shadow-sm">
-                  {menuLoading ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="h-[110px] rounded-xl bg-muted animate-pulse" />
+        {showStatic ? (
+          pdfLoading
+            ? <p className="menu-loading">{t('loadingMenu')}</p>
+            : <PdfMenuDisplay pdfSettings={pdfSettings} language={language} t={t} />
+        ) : (
+          <div className="frame book">
+            <img className="c tl" src={imgCornerA} alt="" />
+            <img className="c tr" src={imgCornerB} alt="" />
+            {loading ? (
+              <p className="menu-loading">{tx.loading}</p>
+            ) : (
+              <>
+                <div className={`stick${stuck ? ' stuck' : ''}`} ref={stickRef}>
+                  <div className="book-tools">
+                    <label className="search">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                      <input type="search" value={queryInput} onChange={(e) => setQueryInput(e.target.value)} placeholder={tx.search} aria-label={tx.search} />
+                    </label>
+                    <div className="seg" role="group" aria-label="Filter">
+                      {[['all', tx.all], ['v', tx.veg], ['n', tx.nv]].map(([k, label]) => (
+                        <button key={k} type="button" aria-pressed={diet === k} onClick={() => setDiet(k)}>{label}</button>
                       ))}
                     </div>
-                  ) : selectedCats.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 gap-4">
-                      <LayoutGrid className="w-10 h-10 text-muted-foreground/40" />
-                      <p className="font-serif font-bold text-primary text-lg">{t('noCategoriesSelected')}</p>
-                      <button onClick={() => setSelectedCats(CATEGORY_DEFS.map(c => c.id))}
-                        className="px-5 py-2 rounded-lg bg-secondary text-secondary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
-                        {t('selectAll')}
-                      </button>
-                    </div>
-                  ) : (
-                    <CategoryCarousel
-                      visibleCategories={visibleCategories}
-                      allItems={filteredItems}
-                      language={language}
-                      bp={bp}
-                      orderMode={orderMode}
-                      t={t}
-                    />
-                  )}
+                    {pdfUrl && (
+                      <button type="button" className="pdf-btn" onClick={() => window.open(pdfUrl, '_blank', 'noopener,noreferrer')}>{tx.pdf}</button>
+                    )}
+                  </div>
+                  <div className="tabs" role="group" aria-label={t('categories') || 'Kategorien'}>
+                    <button type="button" aria-pressed={cat === '*' && !query} onClick={() => pickCat('*')}>{tx.all}</button>
+                    {cats.map((c) => (
+                      <button key={c.id} type="button" aria-pressed={cat === c.id && !query} onClick={() => pickCat(c.id)}>{catTitle(c)}</button>
+                    ))}
+                  </div>
                 </div>
 
-              </div>
-            </>
-          )}
-        </div>
-      </main>
-    </>
+                {groups.length === 0 && <p className="empty" style={{ padding: '40px 0' }}>{tx.empty}</p>}
+                {groups.map((g) => (
+                  <section key={g.key} className="grp" aria-label={g.title}>
+                    <div className="cat-head">
+                      <h3>{g.title}</h3>
+                      {g.sub && <div className="sub">{g.sub}</div>}
+                      <img src={imgDividerSrc} alt="" />
+                      {g.key !== 'q' && <div className="count">{tx.count.replace('{n}', g.its.length)}</div>}
+                    </div>
+                    <ul className="items">
+                      {g.its.map((d) => (
+                        <DishRow key={d.id} d={d} lang={lang} canOrder={orderMode} qty={qtyOf(d.id)} onAdd={onAdd} onLess={onLess} image={dishImage(d)} />
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+
+                <div className="book-foot">
+                  <details className="allergens">
+                    <summary>{tx.allergens}</summary>
+                    <ul>
+                      {Object.keys(ALG).map((k) => <li key={k}><b>{k}</b>{ALG[k][lang === 'de' ? 0 : 1]}</li>)}
+                    </ul>
+                  </details>
+                  <span>{tx.note}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <MenuBook open={bookOpen} onClose={closeBook} startCat={cat !== '*' ? cat : ''} onShowList={() => {}} />
+    </div>
   );
 }

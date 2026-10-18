@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
+import PageCover from '@/components/menu/PageCover.jsx';
 
 const isTimeSlotValid = (selectedDate, timeString) => {
   if (!selectedDate || !timeString) return true;
@@ -145,41 +146,21 @@ export default function TableReservationPage() {
         <title>{t('bookTable') || 'Reserve Table'} - Tripti Genusswelt</title>
       </Helmet>
 
-      <main className="py-12 md:py-24 bg-background min-h-screen relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 indian-decorative-border-burgundy"></div>
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 relative z-10">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            className="text-center mb-12"
-          >
-            <motion.h1
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="text-4xl md:text-6xl font-serif font-bold text-primary mb-6 drop-shadow-sm"
-            >
-              {t('bookTable') || 'Reserve Table'}
-            </motion.h1>
-            <div className="w-24 h-1.5 bg-secondary mx-auto rounded-full mb-6 shadow-sm animate-pulse-glow" />
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4, duration: 0.8 }}
-              className="text-muted-foreground text-lg md:text-xl font-medium max-w-xl mx-auto"
-            >
-              {t('reservationSubtitle') || 'Join us for an unforgettable dining experience. Reserve your table below.'}
-            </motion.p>
-          </motion.div>
-
+      <main className="bg-background min-h-screen relative overflow-hidden">
+        <div className="tg-home">
+          <PageCover
+            eyebrow={language === 'de' ? 'Reservierung · Booking' : 'Booking · Reservierung'}
+            title={t('bookTable') || 'Reserve Table'}
+            lead={t('reservationSubtitle') || 'Join us for an unforgettable dining experience. Reserve your table below.'}
+          />
+        </div>
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 relative z-10 py-12 md:py-20">
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.2, ease: "easeOut" }}
-            className="bg-card border-2 border-border rounded-3xl p-6 sm:p-12 shadow-xl hover:shadow-2xl transition-shadow duration-500 relative overflow-hidden"
+            className="tg-paper p-6 sm:p-12 relative overflow-hidden"
           >
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary via-secondary to-primary opacity-50" />
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
 
