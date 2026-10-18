@@ -5,6 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
 import { useCart } from '@/hooks/useCart.jsx';
 import CustomerFeedback from '@/components/CustomerFeedback.jsx';
+import MenuBook from '@/components/menu/MenuBook.jsx';
 import pb from '@/lib/pocketbaseClient.js';
 
 import { T, ALG, EXCLUDABLE, SIGNATURES, GLOSS, SPOTS, SERVICE, PHONE, PHONE_TEL } from '@/pages/home/homeData.js';
@@ -239,6 +240,7 @@ export default function HomePage() {
   const [flashId, setFlashId] = useState('');
   const [turnKey, setTurnKey] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [bookOpen, setBookOpen] = useState(false);
 
   const sceneRef = useRef(null);
   const templeRef = useRef(null);
@@ -293,7 +295,7 @@ export default function HomePage() {
       if (d.alg.some((a) => excl[a])) return false;
       if (q) {
         if (!`${d.de} ${d.en} ${d.descDe} ${d.descEn}`.toLowerCase().includes(q)) return false;
-      } else if (d.cat !== cat) return false;
+      } else if (cat !== '*' && d.cat !== cat) return false;
       if (diet === 'v' && !d.veg) return false;
       if (diet === 'n' && d.veg) return false;
       return true;
@@ -301,6 +303,18 @@ export default function HomePage() {
   }, [items, query, cat, diet, excl]);
 
   const curCat = cats.find((c) => c.id === cat);
+  const catTitle = (c) => (lang === 'de' ? c.de : c.en);
+  const catSub = (c) => (c.de !== c.en ? (lang === 'de' ? c.en : c.de) : '');
+  // "Alle" lists every dish, grouped by category in the admin's order.
+  const groups = useMemo(() => {
+    if (query) return visible.length ? [{ key: 'q', title: tx['menu.results'], sub: tx['menu.found'].replace('{n}', visible.length), its: visible }] : [];
+    if (cat === '*') {
+      return cats
+        .map((c) => ({ key: c.id, title: catTitle(c), sub: catSub(c), its: visible.filter((d) => d.cat === c.id) }))
+        .filter((g) => g.its.length);
+    }
+    return visible.length && curCat ? [{ key: curCat.id, title: catTitle(curCat), sub: catSub(curCat), its: visible }] : [];
+  }, [query, cat, cats, visible, curCat, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const vegCount = items.filter((i) => i.veg).length;
   const inCart = (id) => cartItems.find((c) => c.id === id)?.quantity || 0;
 
@@ -513,7 +527,7 @@ export default function HomePage() {
               {canOrder ? (
                 <Link className="btn btn-line" to="/menu?order=1">{tx['cta.order']}</Link>
               ) : (
-                <a className="btn btn-line" href="#speisekarte">{tx['cta.menu']}</a>
+                <button className="btn btn-line" type="button" onClick={() => setBookOpen(true)}>{tx['cta.menu']}</button>
               )}
             </div>
             <div className={`status${status.open ? ' open' : ''}`} aria-live="polite"><span className="dot" /><span>{status.text}</span></div>
@@ -585,6 +599,7 @@ export default function HomePage() {
                   </div>
                 </div>
                 <div className="tabs" role="group" aria-label="Kategorien">
+                  <button type="button" aria-pressed={cat === '*' && !query} onClick={() => pickCat('*')}>{tx['menu.all']}</button>
                   {cats.map((c) => (
                     <button key={c.id} type="button" aria-pressed={cat === c.id && !query} onClick={() => pickCat(c.id)}>{lang === 'de' ? c.de : c.en}</button>
                   ))}
@@ -597,39 +612,45 @@ export default function HomePage() {
                 </div>
                 <div className="leaf">
                   <div className={`leaf-inner${turnKey && !reduceMotion() ? ' turn' : ''}`} key={turnKey}>
-                    <div className="cat-head">
-                      <h3>{query ? tx['menu.results'] : (curCat ? (lang === 'de' ? curCat.de : curCat.en) : '')}</h3>
-                      <div className="sub">{query ? tx['menu.found'].replace('{n}', visible.length) : (curCat && curCat.de !== curCat.en ? (lang === 'de' ? curCat.en : curCat.de) : '')}</div>
-                      <img src={imgDivider} alt="" />
-                    </div>
-                    <ul className="items">
-                      {visible.length === 0 && <li className="empty">{tx['menu.empty']}</li>}
-                      {visible.map((d) => {
-                        const q = inCart(d.id);
-                        return (
-                          <li key={d.id} className={`it${flashId === d.id ? ' flash' : ''}`} data-item={d.id}>
-                            <div className="it-top">
-                              <VegMark veg={d.veg} tx={tx} />
-                              <span className="it-name">{nm(d)}</span>
-                              <span className="lead-dots" />
-                              <span className="it-price">{fmtPrice(d.price, lang)}</span>
-                            </div>
-                            {alt(d) && alt(d) !== nm(d) && <div className="it-alt">{alt(d)}</div>}
-                            {ds(d) && <p className="it-desc">{ds(d)}</p>}
-                            <div className="it-meta">
-                              {d.alg.map((a) => (
-                                <span key={a} className="al" title={ALG[a] ? ALG[a][lang === 'de' ? 0 : 1] : ''}>{a}</span>
-                              ))}
-                              {canOrder && (
-                                <button className={`add${q ? ' on' : ''}`} type="button" onClick={() => add(d)}>
-                                  {q ? `${tx.added}${q > 1 ? ` (${q})` : ''}` : tx.add}
-                                </button>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    {groups.length === 0 && (
+                      <ul className="items"><li className="empty">{tx['menu.empty']}</li></ul>
+                    )}
+                    {groups.map((group) => (
+                      <React.Fragment key={group.key}>
+                        <div className="cat-head">
+                          <h3>{group.title}</h3>
+                          {group.sub && <div className="sub">{group.sub}</div>}
+                          <img src={imgDivider} alt="" />
+                        </div>
+                        <ul className="items">
+                          {group.its.map((d) => {
+                            const q = inCart(d.id);
+                            return (
+                              <li key={d.id} className={`it${flashId === d.id ? ' flash' : ''}`} data-item={d.id}>
+                                <div className="it-top">
+                                  <VegMark veg={d.veg} tx={tx} />
+                                  <span className="it-name">{nm(d)}</span>
+                                  <span className="lead-dots" />
+                                  <span className="it-price">{fmtPrice(d.price, lang)}</span>
+                                </div>
+                                {alt(d) && alt(d) !== nm(d) && <div className="it-alt">{alt(d)}</div>}
+                                {ds(d) && <p className="it-desc">{ds(d)}</p>}
+                                <div className="it-meta">
+                                  {d.alg.map((a) => (
+                                    <span key={a} className="al" title={ALG[a] ? ALG[a][lang === 'de' ? 0 : 1] : ''}>{a}</span>
+                                  ))}
+                                  {canOrder && (
+                                    <button className={`add${q ? ' on' : ''}`} type="button" onClick={() => add(d)}>
+                                      {q ? `${tx.added}${q > 1 ? ` (${q})` : ''}` : tx.add}
+                                    </button>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </React.Fragment>
+                    ))}
                   </div>
                 </div>
                 <div className="book-foot">
@@ -645,8 +666,10 @@ export default function HomePage() {
             )}
           </div>
           <div className="menu-more">
-            <Link className="btn btn-out" to={canOrder ? '/menu?order=1' : '/menu'}>{canOrder ? tx['cta.order'] : tx['menu.full']}</Link>
+            <button className="btn btn-maroon" type="button" onClick={() => setBookOpen(true)}>{tx['menu.book']}</button>
+            <Link className="btn btn-out" to={canOrder ? '/menu?order=1' : '/menu?view=list'}>{canOrder ? tx['cta.order'] : tx['menu.full']}</Link>
           </div>
+          <MenuBook open={bookOpen} onClose={() => setBookOpen(false)} startCat={cat && cat !== '*' ? cat : ''} />
         </div>
       </section>
 
