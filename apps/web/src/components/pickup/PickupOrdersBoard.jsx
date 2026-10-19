@@ -6,6 +6,7 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import {
   PICKUP_STATUS, TONE_CLASS, viennaToday, formatPickupDay, euro,
   staffRelease, staffSetStatus, staffMarkSeen,
@@ -50,26 +51,31 @@ const viennaDateTime = (iso) => {
     return new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso.replace(' ', 'T')));
   } catch { return ''; }
 };
-const dishName = (it) => it.nameDE || it.name || '?';
+const dishName = (it, en) => (en ? (it.nameEN || it.name) : (it.nameDE || it.name)) || '?';
 
-const QUICK_REASONS = ['Küche ausgelastet', 'Gericht nicht verfügbar', 'Gast hat angerufen', 'Geschlossen'];
+const QUICK_REASONS = {
+  de: ['Küche ausgelastet', 'Gericht nicht verfügbar', 'Gast hat angerufen', 'Geschlossen'],
+  en: ['Kitchen fully booked', 'Dish not available', 'Guest called', 'Closed'],
+};
 
-function tabsFor(role, previewDays) {
+function tabsFor(role, previewDays, lang) {
+  const en = lang === 'en';
+  const tr = (de, e) => (en ? e : de);
   const today = viennaToday(0);
   if (role === 'kds') {
-    const tabs = [{ key: 'preview', label: `Alle (${previewDays + 1} Tage)` }];
-    for (let i = 0; i <= previewDays; i += 1) tabs.push({ key: `d:${viennaToday(i)}`, label: formatPickupDay(viennaToday(i), 'de') });
+    const tabs = [{ key: 'preview', label: tr(`Alle (${previewDays + 1} Tage)`, `All (${previewDays + 1} days)`) }];
+    for (let i = 0; i <= previewDays; i += 1) tabs.push({ key: `d:${viennaToday(i)}`, label: formatPickupDay(viennaToday(i), lang) });
     return tabs;
   }
   if (role === 'waiter') {
-    return [{ key: `d:${today}`, label: 'Heute' }, { key: `d:${viennaToday(1)}`, label: 'Morgen' }, { key: 'upcoming', label: 'Später' }];
+    return [{ key: `d:${today}`, label: tr('Heute', 'Today') }, { key: `d:${viennaToday(1)}`, label: tr('Morgen', 'Tomorrow') }, { key: 'upcoming', label: tr('Später', 'Later') }];
   }
   return [
-    { key: 'open', label: 'Offen' },
-    { key: `d:${today}`, label: 'Heute' },
-    { key: `d:${viennaToday(1)}`, label: 'Morgen' },
-    { key: 'upcoming', label: 'Später' },
-    { key: 'past', label: 'Vergangen' },
+    { key: 'open', label: tr('Offen', 'Open') },
+    { key: `d:${today}`, label: tr('Heute', 'Today') },
+    { key: `d:${viennaToday(1)}`, label: tr('Morgen', 'Tomorrow') },
+    { key: 'upcoming', label: tr('Später', 'Later') },
+    { key: 'past', label: tr('Vergangen', 'Past') },
   ];
 }
 
@@ -84,6 +90,12 @@ function matchTab(o, tab) {
 }
 
 export default function PickupOrdersBoard({ client, role = 'admin', onActiveCount, onNewOrder, initialTab, silent = false }) {
+  const { language } = useLanguage();
+  const lang = language === 'en' ? 'en' : 'de';
+  const en = lang === 'en';
+  const tr = (de, e) => (en ? e : de);
+  const langRef = useRef(lang);
+  langRef.current = lang;
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,7 +129,7 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
         const fresh = list.filter((o) => !known.current.has(o.id) && ACTIVE.includes(o.status));
         if (fresh.length && !silent) {
           pickupChime();
-          fresh.forEach((o) => toast(`Neue Vorbestellung ${o.orderNumber}: ${formatPickupDay(o.pickupDate, 'de')} ${o.pickupTime}`, { icon: '🛍️', duration: 10000 }));
+          fresh.forEach((o) => toast(`${langRef.current === 'en' ? 'New pre-order' : 'Neue Vorbestellung'} ${o.orderNumber}: ${formatPickupDay(o.pickupDate, langRef.current)} ${o.pickupTime}`, { icon: '🛍️', duration: 10000 }));
         }
         if (fresh.length) onNewOrder?.(fresh);
       }
@@ -125,7 +137,7 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
       setOrders(list);
       setError('');
     } catch (err) {
-      setError(err?.message || 'Laden fehlgeschlagen');
+      setError(err?.message || (langRef.current === 'en' ? 'Loading failed' : 'Laden fehlgeschlagen'));
     } finally {
       setLoading(false);
       busyLoad.current = false;
@@ -161,7 +173,7 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
   const activeCount = useMemo(() => orders.filter((o) => ACTIVE.includes(o.status) && o.pickupDate >= viennaToday(0)).length, [orders]);
   useEffect(() => { onActiveCount?.(activeCount); }, [activeCount, onActiveCount]);
 
-  const tabs = tabsFor(role, previewDays);
+  const tabs = tabsFor(role, previewDays, lang);
   const shown = orders
     .filter((o) => matchTab(o, tab))
     .filter((o) => showDone || ACTIVE.includes(o.status))
@@ -176,10 +188,10 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
     shown.filter((o) => ACTIVE.includes(o.status) && o.status !== 'ready').forEach((o) => {
       if (!days.has(o.pickupDate)) days.set(o.pickupDate, new Map());
       const m = days.get(o.pickupDate);
-      (o.items || []).forEach((it) => m.set(dishName(it), (m.get(dishName(it)) || 0) + (Number(it.quantity) || 1)));
+      (o.items || []).forEach((it) => m.set(dishName(it, en), (m.get(dishName(it, en)) || 0) + (Number(it.quantity) || 1)));
     });
     return [...days.entries()].map(([d, m]) => ({ date: d, dishes: [...m.entries()].sort((a, b) => b[1] - a[1]) }));
-  }, [shown, role]);
+  }, [shown, role, en]);
 
   const act = async (o, kind, extra) => {
     setBusy(`${o.id}:${kind}`);
@@ -188,9 +200,13 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
       else if (kind === 'seen') await staffMarkSeen(o.id, token);
       else await staffSetStatus(o.id, kind, token, extra);
       const msg = {
-        release: `${o.orderNumber} ist jetzt in der Küche`, seen: `${o.orderNumber} als gesehen markiert`,
-        confirmed: `${o.orderNumber} bestätigt`, ready: `${o.orderNumber} ist abholbereit`, picked_up: `${o.orderNumber} abgeholt`,
-        no_show: `${o.orderNumber} als nicht abgeholt markiert`, cancelled: `${o.orderNumber} storniert`,
+        release: tr(`${o.orderNumber} ist jetzt in der Küche`, `${o.orderNumber} sent to the kitchen`),
+        seen: tr(`${o.orderNumber} als gesehen markiert`, `${o.orderNumber} marked as seen`),
+        confirmed: tr(`${o.orderNumber} bestätigt`, `${o.orderNumber} confirmed`),
+        ready: tr(`${o.orderNumber} ist abholbereit`, `${o.orderNumber} is ready for pickup`),
+        picked_up: tr(`${o.orderNumber} abgeholt`, `${o.orderNumber} picked up`),
+        no_show: tr(`${o.orderNumber} als nicht abgeholt markiert`, `${o.orderNumber} marked as not picked up`),
+        cancelled: tr(`${o.orderNumber} storniert`, `${o.orderNumber} cancelled`),
       }[kind];
       toast.success(msg);
       setCancelFor(''); setReason('');
@@ -212,21 +228,21 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
   const actions = (o) => {
     const s = o.status;
     const out = [];
-    if (s === 'received' && role !== 'kds') out.push(<B key="c" o={o} kind="confirmed" icon={CheckCircle2} variant="default">Bestätigen</B>);
+    if (s === 'received' && role !== 'kds') out.push(<B key="c" o={o} kind="confirmed" icon={CheckCircle2} variant="default">{tr('Bestätigen', 'Confirm')}</B>);
     if ((s === 'confirmed' || s === 'received') && !o.kitchenOrder) {
-      out.push(<B key="r" o={o} kind="release" icon={Send}>{role === 'kds' ? 'Jetzt starten' : 'Jetzt an Küche'}</B>);
+      out.push(<B key="r" o={o} kind="release" icon={Send}>{role === 'kds' ? tr('Jetzt starten', 'Start now') : tr('Jetzt an Küche', 'Send to kitchen now')}</B>);
     }
-    if (role === 'kds' && !o.kitchenSeenAt && ACTIVE.includes(s)) out.push(<B key="s" o={o} kind="seen" icon={Eye}>Gesehen</B>);
-    if (s === 'in_kitchen' || (s === 'confirmed' && role !== 'kds')) out.push(<B key="y" o={o} kind="ready" icon={PackageCheck} variant={role === 'kds' ? 'default' : 'outline'}>Fertig</B>);
+    if (role === 'kds' && !o.kitchenSeenAt && ACTIVE.includes(s)) out.push(<B key="s" o={o} kind="seen" icon={Eye}>{tr('Gesehen', 'Seen')}</B>);
+    if (s === 'in_kitchen' || (s === 'confirmed' && role !== 'kds')) out.push(<B key="y" o={o} kind="ready" icon={PackageCheck} variant={role === 'kds' ? 'default' : 'outline'}>{tr('Fertig', 'Ready')}</B>);
     if (role !== 'kds' && ['confirmed', 'in_kitchen', 'ready'].includes(s)) {
-      out.push(<B key="p" o={o} kind="picked_up" icon={CheckCircle2} variant={s === 'ready' ? 'default' : 'outline'}>Abgeholt</B>);
-      if (o.pickupDate <= viennaToday(0)) out.push(<B key="n" o={o} kind="no_show" icon={UserX} className="text-amber-800">Nicht abgeholt</B>);
+      out.push(<B key="p" o={o} kind="picked_up" icon={CheckCircle2} variant={s === 'ready' ? 'default' : 'outline'}>{tr('Abgeholt', 'Picked up')}</B>);
+      if (o.pickupDate <= viennaToday(0)) out.push(<B key="n" o={o} kind="no_show" icon={UserX} className="text-amber-800">{tr('Nicht abgeholt', 'No-show')}</B>);
     }
     if (role !== 'kds' && ACTIVE.includes(s)) {
       out.push(
         <Button key="x" size="sm" variant="ghost" className="h-9 text-destructive hover:text-destructive" disabled={!!busy}
           onClick={() => { setCancelFor(cancelFor === o.id ? '' : o.id); setReason(''); }}>
-          <XCircle className="w-4 h-4 mr-1" />Stornieren
+          <XCircle className="w-4 h-4 mr-1" />{tr('Stornieren', 'Cancel')}
         </Button>,
       );
     }
@@ -250,19 +266,19 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
         </div>
         <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />
-          Erledigte zeigen
+          {tr('Erledigte zeigen', 'Show finished')}
         </label>
-        <Button size="sm" variant="ghost" onClick={load} aria-label="Neu laden"><RefreshCw className="w-4 h-4" /></Button>
+        <Button size="sm" variant="ghost" onClick={load} aria-label={tr('Neu laden', 'Reload')}><RefreshCw className="w-4 h-4" /></Button>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {loading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Lade Vorbestellungen ...</p>}
+      {loading && <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{tr('Lade Vorbestellungen ...', 'Loading pre-orders ...')}</p>}
 
       {role === 'kds' && prep.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {prep.map((p) => (
             <div key={p.date} className="rounded-xl border bg-amber-50 border-amber-200 p-3 text-amber-950">
-              <p className="font-semibold mb-1.5 flex items-center gap-2"><UtensilsCrossed className="w-4 h-4" />Vorbereiten · {formatPickupDay(p.date, 'de', { long: true })}</p>
+              <p className="font-semibold mb-1.5 flex items-center gap-2"><UtensilsCrossed className="w-4 h-4" />{tr('Vorbereiten', 'To prepare')} · {formatPickupDay(p.date, lang, { long: true })}</p>
               <ul className="text-sm grid grid-cols-1 gap-0.5">
                 {p.dishes.map(([n, q]) => <li key={n} className="flex justify-between gap-2"><span>{n}</span><strong className="tabular-nums">{q}×</strong></li>)}
               </ul>
@@ -272,7 +288,7 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
       )}
 
       {!loading && !shown.length && (
-        <p className="text-sm text-muted-foreground py-6 text-center">Keine Vorbestellungen in dieser Ansicht.</p>
+        <p className="text-sm text-muted-foreground py-6 text-center">{tr('Keine Vorbestellungen in dieser Ansicht.', 'No pre-orders in this view.')}</p>
       )}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -288,20 +304,20 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
                 <div>
                   <p className="text-xl font-bold tabular-nums flex items-center gap-2">
                     <Clock className="w-5 h-5 text-primary" />{o.pickupTime}
-                    <span className="text-sm font-medium text-muted-foreground">{formatPickupDay(o.pickupDate, 'de')}</span>
+                    <span className="text-sm font-medium text-muted-foreground">{formatPickupDay(o.pickupDate, lang)}</span>
                   </p>
                   <p className="text-sm"><strong>{o.orderNumber}</strong> · {o.customerName}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${TONE_CLASS[st.tone]}`}>{st.de}</span>
-                  {late && <span className="text-xs font-semibold text-red-700">Abholzeit vorbei</span>}
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${TONE_CLASS[st.tone]}`}>{st[lang]}</span>
+                  {late && <span className="text-xs font-semibold text-red-700">{tr('Abholzeit vorbei', 'Pickup time passed')}</span>}
                 </div>
               </header>
 
               <ul className="text-sm border rounded-lg divide-y">
                 {items.map((it, i) => (
                   <li key={i} className="flex justify-between gap-2 px-3 py-1.5">
-                    <span><strong className="tabular-nums">{it.quantity}×</strong> {dishName(it)}</span>
+                    <span><strong className="tabular-nums">{it.quantity}×</strong> {dishName(it, en)}</span>
                     {role !== 'kds' && <span className="text-muted-foreground whitespace-nowrap">{euro(it.price * it.quantity)}</span>}
                   </li>
                 ))}
@@ -319,24 +335,28 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
                     <Euro className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                     <span>
                       <strong className="text-foreground whitespace-nowrap">{euro(o.totalPrice)}</strong>
-                      {o.paymentStatus === 'completed' ? ' · bezahlt' : ' · zahlt bei Abholung'}
-                      {o.paymentStatus !== 'completed' && o.kitchenOrder && role === 'waiter' && ` (Kasse: Aktiv → ${o.orderNumber})`}
+                      {o.paymentStatus === 'completed' ? tr(' · bezahlt', ' · paid') : tr(' · zahlt bei Abholung', ' · pays at pickup')}
+                      {o.paymentStatus !== 'completed' && o.kitchenOrder && role === 'waiter' && tr(` (Kasse: Aktiv → ${o.orderNumber})`, ` (till: Active → ${o.orderNumber})`)}
                     </span>
                   </p>
                 )}
                 <p className="flex items-center gap-1.5">
                   <ChefHat className="w-3.5 h-3.5" />
-                  {o.kitchenOrder ? `In der Küche seit ${viennaTime(o.releasedAt)}` : ACTIVE.includes(o.status) ? `Geht automatisch an die Küche um ${viennaTime(o.releaseAt)}${o.pickupDate !== viennaToday(0) ? ` (${formatPickupDay(o.pickupDate, 'de')})` : ''}` : '—'}
-                  {o.prepMinutes ? ` · ${o.prepMinutes} Min. Zubereitung` : ''}
+                  {o.kitchenOrder
+                    ? tr(`In der Küche seit ${viennaTime(o.releasedAt)}`, `In the kitchen since ${viennaTime(o.releasedAt)}`)
+                    : ACTIVE.includes(o.status)
+                      ? `${tr('Geht automatisch an die Küche um', 'Goes to the kitchen automatically at')} ${viennaTime(o.releaseAt)}${o.pickupDate !== viennaToday(0) ? ` (${formatPickupDay(o.pickupDate, lang)})` : ''}`
+                      : '—'}
+                  {o.prepMinutes ? tr(` · ${o.prepMinutes} Min. Zubereitung`, ` · ${o.prepMinutes} min prep`) : ''}
                 </p>
-                {o.kitchenSeenAt && <p className="flex items-center gap-1.5"><Eye className="w-3.5 h-3.5" />Küche hat gesehen: {o.kitchenSeenBy} {viennaDateTime(o.kitchenSeenAt)}</p>}
-                {o.status === 'cancelled' && o.cancelReason && <p className="text-red-700">Grund: {o.cancelReason}</p>}
+                {o.kitchenSeenAt && <p className="flex items-center gap-1.5"><Eye className="w-3.5 h-3.5" />{tr('Küche hat gesehen', 'Seen by kitchen')}: {o.kitchenSeenBy} {viennaDateTime(o.kitchenSeenAt)}</p>}
+                {o.status === 'cancelled' && o.cancelReason && <p className="text-red-700">{tr('Grund', 'Reason')}: {o.cancelReason}</p>}
               </div>
 
               {role !== 'kds' && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   {o.customerPhone && <a className="flex items-center gap-1 text-primary hover:underline" href={`tel:${o.customerPhone.replace(/[^\d+]/g, '')}`}><Phone className="w-4 h-4" />{o.customerPhone}</a>}
-                  {role === 'admin' && o.customerEmail && <a className="flex items-center gap-1 text-primary hover:underline break-all" href={`mailto:${o.customerEmail}?subject=${encodeURIComponent(`Ihre Bestellung ${o.orderNumber}`)}`}><Mail className="w-4 h-4" />{o.customerEmail}</a>}
+                  {role === 'admin' && o.customerEmail && <a className="flex items-center gap-1 text-primary hover:underline break-all" href={`mailto:${o.customerEmail}?subject=${encodeURIComponent(`${o.lang === 'en' ? 'Your order' : 'Ihre Bestellung'} ${o.orderNumber}`)}`}><Mail className="w-4 h-4" />{o.customerEmail}</a>}
                 </div>
               )}
 
@@ -344,17 +364,17 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
 
               {cancelFor === o.id && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 space-y-2">
-                  <p className="text-sm font-medium text-red-900">Grund für die Stornierung (der Gast bekommt ihn per E-Mail):</p>
+                  <p className="text-sm font-medium text-red-900">{tr('Grund für die Stornierung (der Gast bekommt ihn per E-Mail):', 'Reason for cancelling (the guest receives it by email):')}</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {QUICK_REASONS.map((r) => (
+                    {QUICK_REASONS[lang].map((r) => (
                       <button key={r} type="button" onClick={() => setReason(r)} className={`text-xs rounded-full border px-2.5 py-1 ${reason === r ? 'bg-red-600 text-white border-red-600' : 'bg-white'}`}>{r}</button>
                     ))}
                   </div>
-                  <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} placeholder="Grund" className="bg-white" />
+                  <Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} placeholder={tr('Grund', 'Reason')} className="bg-white" />
                   <div className="flex gap-2 justify-end">
-                    <Button size="sm" variant="outline" onClick={() => setCancelFor('')}>Zurück</Button>
+                    <Button size="sm" variant="outline" onClick={() => setCancelFor('')}>{tr('Zurück', 'Back')}</Button>
                     <Button size="sm" variant="destructive" disabled={!!busy || !reason.trim()} onClick={() => act(o, 'cancelled', reason.trim())}>
-                      {busy === `${o.id}:cancelled` && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}Stornieren
+                      {busy === `${o.id}:cancelled` && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}{tr('Stornieren', 'Cancel order')}
                     </Button>
                   </div>
                 </div>
@@ -363,12 +383,12 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
               {role === 'admin' && log.length > 0 && (
                 <div>
                   <button type="button" className="text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground" onClick={() => setOpenLog(openLog === o.id ? '' : o.id)}>
-                    <History className="w-3.5 h-3.5" />Verlauf ({log.length})
+                    <History className="w-3.5 h-3.5" />{tr('Verlauf', 'History')} ({log.length})
                   </button>
                   {openLog === o.id && (
                     <ul className="mt-1 text-xs text-muted-foreground space-y-0.5">
-                      {log.map((l, i) => <li key={i}>{viennaDateTime(l.at)} · {(PICKUP_STATUS[l.status] || {}).de || l.status} · {l.by}</li>)}
-                      <li>Eingegangen: {viennaDateTime(o.created)}</li>
+                      {log.map((l, i) => <li key={i}>{viennaDateTime(l.at)} · {(PICKUP_STATUS[l.status] || {})[lang] || l.status} · {l.by}</li>)}
+                      <li>{tr('Eingegangen', 'Received')}: {viennaDateTime(o.created)}</li>
                     </ul>
                   )}
                 </div>

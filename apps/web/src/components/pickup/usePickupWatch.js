@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { viennaToday, formatPickupDay } from '@/lib/pickupApi.js';
+import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pickupChime } from './PickupOrdersBoard.jsx';
 
 // Keeps a staff screen informed about online pickup orders while the list is
@@ -13,6 +14,9 @@ export default function usePickupWatch(client, { days = 2, sound = true } = {}) 
   const timer = useRef(null);
   const soundRef = useRef(sound);
   soundRef.current = sound;
+  const { language } = useLanguage();
+  const langRef = useRef(language);
+  langRef.current = language === 'en' ? 'en' : 'de';
 
   const busy = useRef(false);
   const again = useRef(false);
@@ -34,7 +38,7 @@ export default function usePickupWatch(client, { days = 2, sound = true } = {}) 
         const fresh = list.filter((o) => !known.current.has(o.id));
         if (fresh.length) {
           if (soundRef.current) pickupChime();
-          fresh.forEach((o) => toast(`Neue Vorbestellung ${o.orderNumber}: ${formatPickupDay(o.pickupDate, 'de')} ${o.pickupTime}`, { icon: '🛍️', duration: 12000 }));
+          fresh.forEach((o) => toast(`${langRef.current === 'en' ? 'New pre-order' : 'Neue Vorbestellung'} ${o.orderNumber}: ${formatPickupDay(o.pickupDate, langRef.current)} ${o.pickupTime}`, { icon: '🛍️', duration: 12000 }));
         }
       }
       known.current = new Set(list.map((o) => o.id));

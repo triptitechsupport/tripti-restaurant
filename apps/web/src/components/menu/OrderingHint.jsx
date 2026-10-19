@@ -6,7 +6,8 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 // Shown to signed-in admins only: explains why the menu has no order buttons.
 export default function OrderingHint({ style }) {
   const { isAdminAuthenticated } = useAuth();
-  const { isOrderingEnabled } = useLanguage();
+  const { isOrderingEnabled, language } = useLanguage();
+  const en = language === 'en';
   if (!isAdminAuthenticated) return null;
   const off = !isOrderingEnabled;
   return (
@@ -18,13 +19,28 @@ export default function OrderingHint({ style }) {
         fontFamily: 'Hind, system-ui, sans-serif', fontSize: '.92rem', lineHeight: 1.45, ...style,
       }}
     >
-      <strong>Nur für Admins sichtbar: </strong>
-      {off ? (
-        <>Online-Bestellung ist <strong>ausgeschaltet</strong>, darum sehen Gäste keine „Hinzufügen“-Knöpfe. Einschalten unter{' '}
-          <Link to="/admin-dashboard" style={{ textDecoration: 'underline' }}>Admin → Bestellungen → Einstellungen</Link>.</>
+      {en ? (
+        <>
+          <strong>Only visible to admins: </strong>
+          {off ? (
+            <>Online ordering is <strong>switched off</strong>, so guests see no “Add” buttons. Switch it on under{' '}
+              <Link to="/admin-dashboard" style={{ textDecoration: 'underline' }}>Admin → Orders → Settings</Link>.</>
+          ) : (
+            <>Online ordering is on. The order buttons are hidden here because you are signed in as admin.
+              To test as a guest, open a private window or sign out.</>
+          )}
+        </>
       ) : (
-        <>Online-Bestellung ist eingeschaltet. Weil Sie als Admin angemeldet sind, sind die Bestell-Knöpfe hier ausgeblendet.
-          Zum Testen als Gast ein privates Fenster öffnen oder abmelden.</>
+        <>
+          <strong>Nur für Admins sichtbar: </strong>
+          {off ? (
+            <>Online-Bestellung ist <strong>ausgeschaltet</strong>, darum sehen Gäste keine „Hinzufügen“-Knöpfe. Einschalten unter{' '}
+              <Link to="/admin-dashboard" style={{ textDecoration: 'underline' }}>Admin → Bestellungen → Einstellungen</Link>.</>
+          ) : (
+            <>Online-Bestellung ist eingeschaltet. Weil Sie als Admin angemeldet sind, sind die Bestell-Knöpfe hier ausgeblendet.
+              Zum Testen als Gast ein privates Fenster öffnen oder abmelden.</>
+          )}
+        </>
       )}
     </div>
   );

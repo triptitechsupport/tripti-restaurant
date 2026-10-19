@@ -430,17 +430,17 @@ async function releaseNow(orderId, by) {
   });
   const d = o.pickupDate.split('-');
   const when = `${d[2]}.${d[1]}. ${o.pickupTime}`;
-  const label = `Abholung ${o.orderNumber} · ${when} · ${o.customerName}`;
+  const label = `Pickup/Abholung ${o.orderNumber} · ${when} · ${o.customerName}`;
   const kot = await pb.collection('kitchen_orders').create({
     tableNumber: o.orderNumber,
     tableLabel: label,
-    room: 'Abholung',
+    room: 'Pickup/Abholung',
     items: kotItems,
     status: 'pending',
     totalPrice: o.totalPrice,
     placedBy: 'Online',
     placedByRole: 'online',
-    notes: [`ABHOLUNG ${o.pickupTime}`, o.customerName, o.customerPhone, o.notes].filter(Boolean).join(' · '),
+    notes: [`PICKUP/ABHOLUNG ${o.pickupTime}`, o.customerName, o.customerPhone, o.notes].filter(Boolean).join(' · '),
     parentOrder: parentId,
   });
   const log = Array.isArray(o.statusLog) ? o.statusLog : [];
