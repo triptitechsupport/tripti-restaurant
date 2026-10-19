@@ -79,6 +79,11 @@ export default function PickupSettingsForm({ client }) {
   const toggleOrdering = async (on) => {
     if (!ordering) return;
     try {
+      // The website reads the first record. Older versions sometimes created
+      // extra records, so switch them all to keep them in step.
+      const all = await client.collection('order_settings').getFullList({ fields: 'id', $autoCancel: false });
+      await Promise.all(all.filter((r) => r.id !== ordering.id)
+        .map((r) => client.collection('order_settings').update(r.id, { isOrderingEnabled: on }, { $autoCancel: false })));
       const saved = await client.collection('order_settings').update(ordering.id, { isOrderingEnabled: on });
       setOrdering(saved);
       toast.success(on ? 'Online-Bestellungen eingeschaltet' : 'Online-Bestellungen ausgeschaltet');
