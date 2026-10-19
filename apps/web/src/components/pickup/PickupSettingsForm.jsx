@@ -88,7 +88,7 @@ export default function PickupSettingsForm({ client }) {
       setOrdering(saved);
       toast.success(on ? 'Online-Bestellungen eingeschaltet' : 'Online-Bestellungen ausgeschaltet');
     } catch (e) {
-      toast.error(e.message);
+      toast.error([401, 403, 404].includes(e?.status) ? 'Speichern fehlgeschlagen: Admin-Anmeldung abgelaufen. Bitte ab- und wieder anmelden.' : e.message);
     }
   };
 

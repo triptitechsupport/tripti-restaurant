@@ -20,3 +20,19 @@ export const stockPb = new PocketBase(
   POCKETBASE_API_URL,
   new LocalAuthStore('pb_stock_auth')
 );
+
+// Sign out a saved kitchen or waiter login the server no longer knows (for
+// example after the test server was redeployed with a fresh database).
+function dropStaleLogin(client, collection) {
+  try {
+    const model = client.authStore.isValid ? (client.authStore.model || client.authStore.record) : null;
+    if (!model || model.collectionName !== collection) return;
+    client.collection(collection).authRefresh({ $autoCancel: false }).catch((err) => {
+      if ([401, 403, 404].includes(err?.status)) client.authStore.clear();
+    });
+  } catch { /* ignore */ }
+}
+if (typeof window !== 'undefined') {
+  dropStaleLogin(kdsPb, 'kds_users');
+  dropStaleLogin(waiterPb, 'waiter_users');
+}

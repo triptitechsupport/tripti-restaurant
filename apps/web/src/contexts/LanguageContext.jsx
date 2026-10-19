@@ -60,6 +60,11 @@ export function LanguageProvider({ children }) {
     setIsOrderingEnabledState(enabled);
     try {
       if (settingsId) {
+        // A fresh database has several seeded records; keep them all in step
+        // so every screen reads the same value.
+        const all = await pb.collection('order_settings').getFullList({ fields: 'id', $autoCancel: false });
+        await Promise.all(all.filter((r) => r.id !== settingsId).map((r) => pb.collection('order_settings')
+          .update(r.id, { isOrderingEnabled: enabled }, { $autoCancel: false })));
         await pb.collection('order_settings').update(settingsId, {
           isOrderingEnabled: enabled
         }, { $autoCancel: false });
@@ -74,7 +79,10 @@ export function LanguageProvider({ children }) {
       }
     } catch (err) {
       console.error('Failed to update ordering settings:', err);
-      toast.error('Failed to save ordering settings.');
+      setIsOrderingEnabledState(!enabled);
+      toast.error([401, 403, 404].includes(err?.status)
+        ? 'Saving failed: your admin login has expired. Please log out and log in again.'
+        : 'Failed to save ordering settings.');
     }
   };
 

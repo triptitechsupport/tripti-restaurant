@@ -26,6 +26,17 @@ export function AdminAuthProvider({ children }) {
     syncFromStore();
     setInitialLoading(false);
 
+    // A saved login can outlive its account: the test server starts with a
+    // fresh database on every deploy, so the old token looks valid here but
+    // the server treats it as a guest (saves then fail with "not found").
+    // Check it once and sign out if the server no longer knows it.
+    const saved = pb.authStore.isValid ? (pb.authStore.model || pb.authStore.record) : null;
+    if (saved && saved.collectionName === 'admin_users') {
+      pb.collection('admin_users').authRefresh({ $autoCancel: false }).catch((err) => {
+        if ([401, 403, 404].includes(err?.status)) pb.authStore.clear();
+      });
+    }
+
     const unsubscribe = pb.authStore.onChange(syncFromStore);
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
