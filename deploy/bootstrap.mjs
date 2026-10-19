@@ -34,6 +34,15 @@ if (!configured) {
   ]) {
     await new PocketBase(url).collection(collection).authWithPassword(identity, password);
   }
+  // The demo database is new after every deploy and its seed data has online
+  // ordering switched off. Switch it on so the test site can take orders
+  // straight away (set DEMO_ORDERING=off to keep it off).
+  if (process.env.DEMO_ORDERING !== 'off') {
+    for (const record of await pb.collection('order_settings').getFullList()) {
+      await pb.collection('order_settings').update(record.id, {isOrderingEnabled: true});
+    }
+    console.log('Demo online ordering switched on.');
+  }
   await writeFile(marker, 'Seeded passwords replaced before public startup.\n', {mode: 0o600});
   console.log('Demo login configuration completed.');
 }

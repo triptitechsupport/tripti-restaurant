@@ -47,6 +47,10 @@ logins are checked before the public listener opens. This only happens for a fre
 database; passwords edited in the UI remain until the ephemeral disk resets.
 The superuser account is separate from Admin UI login.
 
+On a fresh database the setup also switches online ordering on, so the test
+site takes pickup orders right after each deploy. Set `DEMO_ORDERING=off` to
+keep it off.
+
 ## Verification
 
 Check Logs for migration success, demo login configuration completion, API startup,
