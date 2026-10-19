@@ -9,6 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
 import { useCart } from '@/hooks/useCart.jsx';
 import { useMenuData, buildCats } from '@/components/menu/menuData.js';
+import OrderingHint from './OrderingHint.jsx';
 import DishRow, { VegMark } from '@/components/menu/DishRow.jsx';
 import { ALG, PHONE, PHONE_TEL } from '@/pages/home/homeData.js';
 import { swish } from '@/pages/home/homeSound.js';
@@ -320,6 +321,7 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
             {other !== catName(pg.c) && <div className="sub">{other}</div>}
             <img src={imgDivider} alt="" />
           </div>
+          <OrderingHint style={{ margin: '0 0 14px', fontSize: '.85rem' }} />
           <ul className="items one">
             {pg.its.map((d) => (
               <DishRow key={d.id} d={d} lang={lang} canOrder={canOrder && live} qty={qtyOf(d.id)} onAdd={onAdd} onLess={onLess} />
