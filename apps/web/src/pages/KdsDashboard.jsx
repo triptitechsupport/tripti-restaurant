@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
+import StaffPickupButton from '@/components/pickup/StaffPickupButton.jsx';
 import KdsQuickMessage from '@/components/KdsQuickMessage.jsx';
 import { resolveOrderId, resolveBaseOrderId, printKOT } from '@/lib/kotPrint.js';
 import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
@@ -807,6 +808,7 @@ export default function KdsDashboard() {
                 <span className="hidden sm:inline ml-1">Admin</span>
               </Button>
             )}
+            <StaffPickupButton client={pb} role="kds" sound={settings.soundEnabled} />
             {settings.soundEnabled ? <Volume2 className="h-4 w-4 opacity-80 shrink-0" /> : <VolumeX className="h-4 w-4 opacity-60 shrink-0" />}
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={() => setSettingsOpen(true)} aria-label={t('kds_settings')}>
               <Settings className="h-4 w-4" />

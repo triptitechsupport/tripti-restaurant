@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { waiterPb } from '@/lib/staffClients.js';
+import StaffPickupButton from '@/components/pickup/StaffPickupButton.jsx';
 import pbDefault from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
 import { ConciergeBell, LogOut, Zap, Clock, LogIn, ArrowLeft, HelpCircle } from 'lucide-react';
@@ -229,6 +230,7 @@ export default function WaiterDashboard() {
                 <span className="hidden lg:inline">{t('waiter_clockIn')}</span>
               </Button>
             )}
+            <StaffPickupButton client={pb} role="waiter" days={0} />
             <ContactKitchenButton pbClient={pb} displayName={displayName} />
             <Button
               variant="secondary"

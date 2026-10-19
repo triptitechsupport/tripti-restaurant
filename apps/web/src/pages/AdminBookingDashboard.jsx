@@ -7,7 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
-import OrderManagementTable from '@/components/OrderManagementTable.jsx';
+import AdminPickupSection from '@/components/pickup/AdminPickupSection.jsx';
 import AdminTableReservations from '@/components/AdminTableReservations.jsx';
 import MenuItemsList from '@/components/MenuItemsList.jsx';
 import MenuItemForm from '@/components/MenuItemForm.jsx';
@@ -356,7 +356,7 @@ export default function AdminBookingDashboard() {
     }
   };
 
-  const renderOrdersSection = () => <OrderManagementTable />;
+  const renderOrdersSection = () => <AdminPickupSection />;
   
   const renderReservationsSection = () => (
     <div ref={reservationsSectionRef} className="space-y-6 scroll-mt-24">

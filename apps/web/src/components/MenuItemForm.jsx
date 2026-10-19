@@ -44,6 +44,9 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
     vat_Rate: 'REDUCED_1',
     availability: true,
     isVegetarian: false,
+    prepMinutes: '',
+    noticeHours: '',
+    pickupBlocked: false,
   });
   const [imageFile, setImageFile] = useState(null);
   const [errors, setErrors] = useState({});
@@ -137,6 +140,9 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
         vat_Rate: initialData.vat_Rate || (/beverages|getränke|getraenke/i.test(initialData.category || '') ? 'STANDARD' : 'REDUCED_1'),
         availability: initialData.availability ?? true,
         isVegetarian: initialData.isVegetarian ?? false,
+        prepMinutes: initialData.prepMinutes ? String(initialData.prepMinutes) : '',
+        noticeHours: initialData.noticeHours ? String(initialData.noticeHours) : '',
+        pickupBlocked: initialData.pickupBlocked ?? false,
       });
       setImageFile(null);
       setErrors({});
@@ -144,6 +150,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
       setFormData({
         nameEN: '', nameDE: '', descriptionEN: '', descriptionDE: '', allergens: [],
         price: '', category: '', vat_Rate: 'REDUCED_1', availability: true, isVegetarian: false,
+        prepMinutes: '', noticeHours: '', pickupBlocked: false,
       });
       setImageFile(null);
       setErrors({});
@@ -216,6 +223,10 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
       submitData.append('vat_Rate', formData.vat_Rate);
       submitData.append('availability', formData.availability);
       submitData.append('isVegetarian', formData.isVegetarian);
+      const wholeNumber = (v, max) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
+      submitData.append('prepMinutes', wholeNumber(formData.prepMinutes, 600));
+      submitData.append('noticeHours', wholeNumber(formData.noticeHours, 720));
+      submitData.append('pickupBlocked', formData.pickupBlocked);
       
       // Handle array appending for PocketBase FormData (select MULTI)
       const allergensArr = formData.allergens || [];
@@ -386,6 +397,61 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
             className="cursor-pointer file:text-primary file:font-medium file:bg-primary/10 file:border-0 file:rounded-md file:mr-4 file:px-4 file:py-1 hover:file:bg-primary/20 pt-[9px]"
           />
         </MobileFormField>
+
+        {/* Kitchen timing for online pickup orders */}
+        <div className="rounded-xl border border-border/50 bg-muted/30 p-4 space-y-4">
+          <div>
+            <p className="font-medium text-base">Kitchen &amp; online pickup</p>
+            <p className="text-sm text-muted-foreground">
+              Used for online pre-orders: the earliest pickup time and when the ticket goes to the kitchen.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="menuItemPrep">Preparation time (minutes)</Label>
+              <Input
+                id="menuItemPrep"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={600}
+                step={5}
+                placeholder="Default from pickup settings"
+                value={formData.prepMinutes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, prepMinutes: e.target.value }))}
+                className="h-12 sm:h-11"
+              />
+              <p className="text-xs text-muted-foreground">Zubereitungszeit. Leave empty to use the default.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="menuItemNotice">Order in advance (hours)</Label>
+              <Input
+                id="menuItemNotice"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={720}
+                placeholder="0 = same day"
+                value={formData.noticeHours}
+                onChange={(e) => setFormData((prev) => ({ ...prev, noticeHours: e.target.value }))}
+                className="h-12 sm:h-11"
+              />
+              <p className="text-xs text-muted-foreground">Vorlaufzeit, e.g. 24 for dishes that need marinating overnight.</p>
+            </div>
+          </div>
+          <div className="flex items-start space-x-3">
+            <Switch
+              id="menuItemPickupBlocked"
+              checked={formData.pickupBlocked}
+              onCheckedChange={(checked) => setFormData((prev) => ({ ...prev, pickupBlocked: checked }))}
+              className="mt-1 shrink-0"
+            />
+            <div className="grid gap-1.5 leading-tight">
+              <Label htmlFor="menuItemPickupBlocked" className="cursor-pointer font-medium text-base">Not for online orders</Label>
+              <p className="text-sm text-muted-foreground">The dish stays on the menu but guests cannot order it for pickup.</p>
+            </div>
+          </div>
+        </div>
 
         {/* Toggle Switches */}
         <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 pt-2 pb-4 bg-muted/30 p-4 rounded-xl border border-border/50">
