@@ -125,7 +125,7 @@ export default function PickupSettingsForm({ client }) {
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground mt-1">Ruhetag und Betriebsurlaub kommen aus den Öffnungszeiten (Reservierungen).</p>
+        <p className="text-xs text-muted-foreground mt-1">Beide Felder leer lassen, um Mittag oder Abend auszuschalten. Ruhetag und Betriebsurlaub kommen aus den Öffnungszeiten (Reservierungen).</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

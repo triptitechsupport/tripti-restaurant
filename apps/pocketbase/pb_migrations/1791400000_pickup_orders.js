@@ -51,11 +51,15 @@ migrate(
     addField(orders, new TextField({ name: 'kitchenSeenBy', max: 100 }));
     addField(orders, new JSONField({ name: 'statusLog', maxSize: 20000 }));
     // Orders now come only through the API (prices are taken from the menu,
-    // the pickup slot is checked). Staff can see and update them.
+    // the pickup slot is checked).
+    // Staff read them; every change goes through the API (which checks the
+    // allowed status steps), so only admins may edit records directly.
+    // customerId must be set for the "own order" rule: a guest order has none,
+    // and an empty value would otherwise match a signed-out visitor.
     orders.listRule = STAFF;
-    orders.viewRule = `customerId = @request.auth.id || ${STAFF}`;
+    orders.viewRule = `(customerId != "" && customerId = @request.auth.id) || ${STAFF}`;
     orders.createRule = null;
-    orders.updateRule = STAFF;
+    orders.updateRule = ADMIN;
     orders.deleteRule = ADMIN;
     app.save(orders);
 
@@ -153,6 +157,8 @@ migrate(
       'prepMinutes', 'notes', 'staffNote', 'cancelReason', 'paymentMethod', 'lang', 'publicToken',
       'kitchenOrder', 'waiterOrder', 'kitchenSeenAt', 'kitchenSeenBy', 'statusLog']);
     const orders = app.findCollectionByNameOrId('orders');
+    const addr = orders.fields.getByName('deliveryAddress');
+    if (addr) addr.required = true;
     orders.listRule = ADMIN;
     orders.viewRule = `customerId = @request.auth.id || ${ADMIN}`;
     orders.createRule = '';

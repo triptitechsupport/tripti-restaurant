@@ -82,7 +82,9 @@ export async function loadSettings() {
       const r = res.items[0];
       const out = { ...DEFAULT_SETTINGS, id: r.id };
       Object.keys(DEFAULT_SETTINGS).forEach((k) => {
-        if (r[k] !== undefined && r[k] !== null && r[k] !== '') out[k] = r[k];
+        // An empty time window means "no pickups then" (e.g. no lunch service).
+        const isTime = /^(lunch|dinner)(Start|End)$/.test(k);
+        if (r[k] !== undefined && r[k] !== null && (r[k] !== '' || isTime)) out[k] = r[k];
       });
       // Booleans saved as false must stay false.
       out.enabled = r.enabled === true;
@@ -351,9 +353,25 @@ export async function getPublicOrder(id, token) {
   return publicView(o);
 }
 
+// One change at a time per order, so a cancel can't cross a kitchen hand-over
+// (the API runs as a single process).
+const locks = new Map();
+function withLock(id, fn) {
+  const prev = locks.get(id) || Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  const tail = run.catch(() => {});
+  locks.set(id, tail);
+  tail.then(() => { if (locks.get(id) === tail) locks.delete(id); });
+  return run;
+}
+
 // The guest may cancel until the order goes to the kitchen.
 export async function cancelByGuest(id, token) {
   await getPublicOrder(id, token);
+  return withLock(id, () => cancelByGuestNow(id));
+}
+
+async function cancelByGuestNow(id) {
   const o = await pb.collection('orders').getOne(id);
   if (!['received', 'confirmed'].includes(o.status) || o.kitchenOrder) throw new PickupError('This order is already being prepared. Please call us.', 'too_late', 409);
   const log = Array.isArray(o.statusLog) ? o.statusLog : [];
@@ -367,78 +385,74 @@ export async function cancelByGuest(id, token) {
 
 /* ---------- hand-over to the kitchen ---------- */
 
-const releasing = new Set();
-
 // Turns a pickup order into a till order (so it can be paid and gets an RKSV
 // receipt like any other order) plus a kitchen ticket on the KDS.
-export async function releaseToKitchen(orderId, by = 'System') {
-  if (releasing.has(orderId)) return null;
-  releasing.add(orderId);
-  try {
-    const o = await pb.collection('orders').getOne(orderId);
-    if (o.kitchenOrder) return o;
-    if (!['confirmed', 'received'].includes(o.status)) throw new PickupError(`Order is ${o.status}.`, 'state', 409);
+export function releaseToKitchen(orderId, by = 'System') {
+  return withLock(orderId, () => releaseNow(orderId, by));
+}
 
-    let parentId = o.waiterOrder;
-    if (!parentId) {
-      const parent = await pb.collection('waiter_orders').create({
-        orderType: 'preorder',
-        tableNumber: o.orderNumber,
-        orderStatus: 'open',
-        placedBy: 'Online',
-        placedByRole: 'online',
-        channel: 'online',
-        pickupOrder: o.id,
-      });
-      parentId = parent.id;
-      await pb.collection('orders').update(o.id, { waiterOrder: parentId });
-    }
+async function releaseNow(orderId, by) {
+  const o = await pb.collection('orders').getOne(orderId);
+  if (o.kitchenOrder) return o;
+  if (!['confirmed', 'received'].includes(o.status)) throw new PickupError(`Order is ${o.status}.`, 'state', 409);
 
-    const stamp = Date.now().toString(36);
-    const kotItems = [];
-    (Array.isArray(o.items) ? o.items : []).forEach((it, li) => {
-      const n = Math.max(1, Math.floor(Number(it.quantity) || 1));
-      for (let u = 0; u < n; u += 1) {
-        kotItems.push({
-          id: it.id,
-          name: it.nameEN || it.name,
-          category: it.category,
-          quantity: 1,
-          price: Number(it.price) || 0,
-          spiceLevel: 'None',
-          cleared: false,
-          lineId: `${it.id}-${li}-${u}-${stamp}`,
-        });
-      }
-    });
-    const d = o.pickupDate.split('-');
-    const when = `${d[2]}.${d[1]}. ${o.pickupTime}`;
-    const label = `Abholung ${o.orderNumber} · ${when} · ${o.customerName}`;
-    const kot = await pb.collection('kitchen_orders').create({
+  let parentId = o.waiterOrder;
+  if (!parentId) {
+    const parent = await pb.collection('waiter_orders').create({
+      orderType: 'preorder',
       tableNumber: o.orderNumber,
-      tableLabel: label,
-      room: 'Abholung',
-      items: kotItems,
-      status: 'pending',
-      totalPrice: o.totalPrice,
+      orderStatus: 'open',
       placedBy: 'Online',
       placedByRole: 'online',
-      notes: [`ABHOLUNG ${o.pickupTime}`, o.customerName, o.customerPhone, o.notes].filter(Boolean).join(' · '),
-      parentOrder: parentId,
+      channel: 'online',
+      pickupOrder: o.id,
     });
-    const log = Array.isArray(o.statusLog) ? o.statusLog : [];
-    const updated = await pb.collection('orders').update(o.id, {
-      kitchenOrder: kot.id,
-      waiterOrder: parentId,
-      status: 'in_kitchen',
-      releasedAt: new Date().toISOString(),
-      statusLog: [...log, { at: new Date().toISOString(), status: 'in_kitchen', by }],
-    });
-    logger.info(`[pickup] ${o.orderNumber} sent to kitchen (${by})`);
-    return updated;
-  } finally {
-    releasing.delete(orderId);
+    parentId = parent.id;
+    await pb.collection('orders').update(o.id, { waiterOrder: parentId });
   }
+
+  const stamp = Date.now().toString(36);
+  const kotItems = [];
+  (Array.isArray(o.items) ? o.items : []).forEach((it, li) => {
+    const n = Math.max(1, Math.floor(Number(it.quantity) || 1));
+    for (let u = 0; u < n; u += 1) {
+      kotItems.push({
+        id: it.id,
+        name: it.nameEN || it.name,
+        category: it.category,
+        quantity: 1,
+        price: Number(it.price) || 0,
+        spiceLevel: 'None',
+        cleared: false,
+        lineId: `${it.id}-${li}-${u}-${stamp}`,
+      });
+    }
+  });
+  const d = o.pickupDate.split('-');
+  const when = `${d[2]}.${d[1]}. ${o.pickupTime}`;
+  const label = `Abholung ${o.orderNumber} · ${when} · ${o.customerName}`;
+  const kot = await pb.collection('kitchen_orders').create({
+    tableNumber: o.orderNumber,
+    tableLabel: label,
+    room: 'Abholung',
+    items: kotItems,
+    status: 'pending',
+    totalPrice: o.totalPrice,
+    placedBy: 'Online',
+    placedByRole: 'online',
+    notes: [`ABHOLUNG ${o.pickupTime}`, o.customerName, o.customerPhone, o.notes].filter(Boolean).join(' · '),
+    parentOrder: parentId,
+  });
+  const log = Array.isArray(o.statusLog) ? o.statusLog : [];
+  const updated = await pb.collection('orders').update(o.id, {
+    kitchenOrder: kot.id,
+    waiterOrder: parentId,
+    status: 'in_kitchen',
+    releasedAt: new Date().toISOString(),
+    statusLog: [...log, { at: new Date().toISOString(), status: 'in_kitchen', by }],
+  });
+  logger.info(`[pickup] ${o.orderNumber} sent to kitchen (${by})`);
+  return updated;
 }
 
 /* ---------- staff actions ---------- */
@@ -457,11 +471,20 @@ const KOT_FOR = { ready: 'ready', picked_up: 'completed', no_show: 'completed', 
 export async function staffSetStatus(orderId, { status, reason }, staff) {
   if (!STAFF_MOVES[status]) throw new PickupError('Unknown status.', 'status');
   if (status === 'cancelled' && staff.role === 'kds_users') throw new PickupError('Only service or admin can cancel.', 'forbidden', 403);
+  return withLock(orderId, () => staffSetStatusNow(orderId, status, reason, staff));
+}
+
+async function staffSetStatusNow(orderId, status, reason, staff) {
   let o;
   try { o = await pb.collection('orders').getOne(orderId); } catch { throw new PickupError('Order not found.', 'not_found', 404); }
   if (o.orderType !== 'pickup') throw new PickupError('Not a pickup order.', 'state', 409);
   if (o.status === status) return o;
   if (!STAFF_MOVES[status].includes(o.status)) throw new PickupError(`Order is already ${o.status}.`, 'state', 409);
+  // Ready or picked up before the kitchen hand-over: create the till order
+  // and ticket first, so the order can still be paid with a receipt.
+  if ((status === 'ready' || status === 'picked_up') && !o.kitchenOrder) {
+    o = await releaseNow(o.id, staff.name);
+  }
 
   if (o.kitchenOrder && KOT_FOR[status]) {
     try {
@@ -497,7 +520,7 @@ export async function staffSetStatus(orderId, { status, reason }, staff) {
   logger.info(`[pickup] ${o.orderNumber} -> ${status} (${staff.name})`);
   // Confirmed after its kitchen time already passed: send it now.
   if (status === 'confirmed' && o.releaseAt && new Date(o.releaseAt) <= new Date()) {
-    try { return await releaseToKitchen(o.id, staff.name); } catch (err) { logger.error(`[pickup] release after confirm: ${err.message}`); }
+    try { return await releaseNow(o.id, staff.name); } catch (err) { logger.error(`[pickup] release after confirm: ${err.message}`); }
   }
   return updated;
 }

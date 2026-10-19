@@ -99,8 +99,12 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
 
   const token = client?.authStore?.token;
 
+  const busyLoad = useRef(false);
+  const loadAgain = useRef(false);
   const load = useCallback(async () => {
     if (!client) return;
+    if (busyLoad.current) { loadAgain.current = true; return; }
+    busyLoad.current = true;
     try {
       const from = role === 'admin' ? viennaToday(-30) : viennaToday(0);
       const to = role === 'admin' ? viennaToday(90) : viennaToday(role === 'kds' ? previewDays : 14);
@@ -124,6 +128,8 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
       setError(err?.message || 'Laden fehlgeschlagen');
     } finally {
       setLoading(false);
+      busyLoad.current = false;
+      if (loadAgain.current) { loadAgain.current = false; setTimeout(() => load(), 0); }
     }
   }, [client, role, previewDays, onNewOrder, silent]);
 
@@ -138,12 +144,14 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
     load();
     const t = setInterval(load, 60000);
     let unsub = null;
+    let gone = false;
     client?.collection('orders').subscribe('*', (e) => {
       if (e.record?.orderType !== 'pickup') return;
       clearTimeout(reloadTimer.current);
       reloadTimer.current = setTimeout(load, 400);
-    }).then((u) => { unsub = u; }).catch(() => {});
+    }).then((u) => { if (gone) Promise.resolve(u()).catch(() => {}); else unsub = u; }).catch(() => {});
     return () => {
+      gone = true;
       clearInterval(t);
       clearTimeout(reloadTimer.current);
       if (unsub) Promise.resolve(unsub()).catch(() => {});

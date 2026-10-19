@@ -9,14 +9,27 @@ import {
 
 const router = express.Router();
 
+// nginx in front of the API overwrites X-Forwarded-For, so the address
+// can't be faked, but on some hosts many guests share it: keep this one
+// generous and also limit per email address.
 const createLimit = rateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 8,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false },
   keyGenerator: (req) => ipKeyGenerator(req),
   message: { message: 'Too many orders from this device. Please call us.' },
+});
+
+const emailLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { trustProxy: false, keyGeneratorIpFallback: false },
+  keyGenerator: (req) => `mail:${String((req.body && req.body.email) || '').trim().toLowerCase().slice(0, 120)}`,
+  message: { message: 'Too many orders for this email address. Please call us.' },
 });
 
 const handle = (fn) => async (req, res) => {
@@ -45,7 +58,7 @@ router.get('/options', handle(async (req, res) => {
   res.json(await computeOptions(items));
 }));
 
-router.post('/orders', createLimit, handle(async (req, res) => {
+router.post('/orders', createLimit, emailLimit, handle(async (req, res) => {
   res.status(201).json(await createPickupOrder(req.body || {}));
 }));
 

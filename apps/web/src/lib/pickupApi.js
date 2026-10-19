@@ -54,9 +54,12 @@ export const TONE_CLASS = {
 };
 
 const TZ = 'Europe/Vienna';
+// Today's date in Vienna plus N calendar days ("YYYY-MM-DD"); safe across clock changes.
 export function viennaToday(offsetDays = 0) {
-  const d = new Date(Date.now() + offsetDays * 86400000);
-  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if (!offsetDays) return today;
+  const [y, m, d] = today.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + offsetDays)).toISOString().slice(0, 10);
 }
 
 export function formatPickupDay(dateStr, lang = 'de', { long = false } = {}) {

@@ -14,8 +14,13 @@ export default function usePickupWatch(client, { days = 2, sound = true } = {}) 
   const soundRef = useRef(sound);
   soundRef.current = sound;
 
+  const busy = useRef(false);
+  const again = useRef(false);
   const load = useCallback(async () => {
     if (!client?.authStore?.isValid) return;
+    // One load at a time (two at once would chime twice); run again after if asked.
+    if (busy.current) { again.current = true; return; }
+    busy.current = true;
     try {
       const list = await client.collection('orders').getFullList({
         filter: client.filter(
@@ -35,19 +40,24 @@ export default function usePickupWatch(client, { days = 2, sound = true } = {}) 
       known.current = new Set(list.map((o) => o.id));
       setCount(list.length);
       setUnseen(list.filter((o) => !o.kitchenSeenAt).length);
-    } catch { /* keep last numbers */ }
+    } catch { /* keep last numbers */ } finally {
+      busy.current = false;
+      if (again.current) { again.current = false; setTimeout(() => load(), 0); }
+    }
   }, [client, days]);
 
   useEffect(() => {
     load();
     const poll = setInterval(load, 60000);
     let unsub = null;
+    let gone = false;
     client?.collection('orders').subscribe('*', (e) => {
       if (e.record?.orderType !== 'pickup') return;
       clearTimeout(timer.current);
       timer.current = setTimeout(load, 500);
-    }).then((u) => { unsub = u; }).catch(() => {});
+    }).then((u) => { if (gone) Promise.resolve(u()).catch(() => {}); else unsub = u; }).catch(() => {});
     return () => {
+      gone = true;
       clearInterval(poll);
       clearTimeout(timer.current);
       if (unsub) Promise.resolve(unsub()).catch(() => {});

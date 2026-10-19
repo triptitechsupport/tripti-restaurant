@@ -38,7 +38,7 @@ export default function StaffPickupButton({ client, role, sound = true, days = 2
                 : 'Online-Bestellungen zur Abholung. Bezahlt wird an der Kasse unter „Aktiv“ mit der Nummer AB-….'}
             </SheetDescription>
           </SheetHeader>
-          {open && <PickupOrdersBoard client={client} role={role} silent onNewOrder={reload} />}
+          {open && <PickupOrdersBoard client={client} role={role} silent />}
         </SheetContent>
       </Sheet>
     </>

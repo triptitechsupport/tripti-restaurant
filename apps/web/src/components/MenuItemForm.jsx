@@ -368,7 +368,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
                   id={`allergen-${allergen.id}`}
                   checked={(formData.allergens || []).includes(allergen.id)}
                   onCheckedChange={() => handleAllergenToggle(allergen.id)}
-                  className="mt-0.5"
+                  className="mt-0.5 h-5 w-5 !min-h-0 !min-w-0"
                 />
                 <div className="grid gap-1.5 leading-tight">
                   <Label 
