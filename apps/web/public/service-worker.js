@@ -2,7 +2,7 @@
 // Network-first strategy so the app always shows fresh content when online,
 // and falls back to the last cached response when offline.
 
-const CACHE_NAME = 'tripti-genusswelt-v1';
+const CACHE_NAME = 'tripti-genusswelt-v2';
 const PRECACHE_URLS = ['/', '/manifest.webmanifest', '/app-icon.png'];
 
 self.addEventListener('install', (event) => {
@@ -24,6 +24,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET' || !request.url.startsWith('http')) return;
+  // Live data (menu, pickup times, orders, logins) always comes from the
+  // server and is never stored on the device.
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/hcgi/')) return;
 
   event.respondWith(
     fetch(request)

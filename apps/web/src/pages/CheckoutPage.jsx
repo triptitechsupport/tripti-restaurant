@@ -123,6 +123,7 @@ export default function CheckoutPage() {
   const [errors, setErrors] = useState({});
   const [sending, setSending] = useState(false);
   const [reload, setReload] = useState(0);
+  const [submitError, setSubmitError] = useState('');
   const placed = useRef(false);
 
   const cartKey = cartItems.map((i) => `${i.id}:${i.quantity}`).join(',');
@@ -164,7 +165,7 @@ export default function CheckoutPage() {
     ].filter((g) => g.slots.length);
   }, [dayInfo, tx]);
 
-  const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: null })); };
+  const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: null })); setSubmitError(''); };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -173,8 +174,17 @@ export default function CheckoutPage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) errs.email = tx.errEmail;
     if (form.phone.replace(/\D/g, '').length < 6) errs.phone = tx.errPhone;
     setErrors(errs);
-    if (Object.keys(errs).length) return;
-    if (!day || !time) { toast.error(tx.choose); return; }
+    setSubmitError('');
+    const firstBad = ['name', 'email', 'phone'].find((k) => errs[k]);
+    if (firstBad) {
+      // The button sits beside or above the form, so bring the problem into view.
+      const el = document.getElementById(`co-${firstBad}`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); }
+      setSubmitError(errs[firstBad]);
+      toast.error(errs[firstBad]);
+      return;
+    }
+    if (!day || !time) { toast.error(tx.choose); setSubmitError(tx.choose); return; }
     setSending(true);
     try {
       const res = await placePickupOrder({
@@ -190,6 +200,7 @@ export default function CheckoutPage() {
       navigate(`/order-confirmation/${res.id}?t=${res.token}`, { replace: true });
     } catch (err) {
       toast.error(err.message);
+      setSubmitError(err.message);
       if (err.code === 'slot_taken') { setTime(''); setReload((n) => n + 1); }
     } finally {
       setSending(false);
@@ -390,6 +401,11 @@ export default function CheckoutPage() {
                       ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />{tx.sending}</>
                       : <><CheckCircle2 className="w-5 h-5 mr-2 shrink-0" />{day && time ? tx.place : tx.choose}</>}
                   </Button>
+                  {submitError && (
+                    <p role="alert" className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      {submitError}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground mt-3">
                     {tx.agree} <Link className="underline" to="/terms-of-service">{tx.terms}</Link> {tx.and}{' '}
                     <Link className="underline" to="/privacy-policy">{tx.privacy}</Link>.

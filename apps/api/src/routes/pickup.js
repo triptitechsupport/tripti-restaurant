@@ -19,17 +19,17 @@ const createLimit = rateLimit({
   legacyHeaders: false,
   validate: { trustProxy: false },
   keyGenerator: (req) => ipKeyGenerator(req),
-  message: { message: 'Too many orders from this device. Please call us.' },
+  message: { message: 'Too many orders from this device. Please call us.', code: 'rate_limited' },
 });
 
 const emailLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 6,
+  max: 12,
   standardHeaders: true,
   legacyHeaders: false,
   validate: { trustProxy: false, keyGeneratorIpFallback: false },
   keyGenerator: (req) => `mail:${String((req.body && req.body.email) || '').trim().toLowerCase().slice(0, 120)}`,
-  message: { message: 'Too many orders for this email address. Please call us.' },
+  message: { message: 'Too many orders for this email address. Please call us.', code: 'rate_limited' },
 });
 
 const handle = (fn) => async (req, res) => {

@@ -3,15 +3,53 @@ import { API_SERVER_URL } from '@/lib/apiServerClient.js';
 
 const BASE = `${API_SERVER_URL}/pickup`;
 
+// The API answers in English; German guests get these instead.
+const DE_TEXT = {
+  name: 'Bitte geben Sie Ihren Namen ein.',
+  email: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.',
+  phone: 'Bitte geben Sie eine Telefonnummer ein.',
+  slot: 'Bitte wählen Sie eine Abholzeit.',
+  slot_taken: 'Diese Abholzeit ist nicht mehr frei. Bitte wählen Sie eine andere.',
+  disabled: 'Online-Bestellungen sind gerade ausgeschaltet.',
+  empty: 'Ihr Warenkorb ist leer.',
+  invalid_item: 'Ein Gericht im Warenkorb ist ungültig. Bitte Warenkorb neu füllen.',
+  too_many: 'Zu viele Gerichte für eine Online-Bestellung. Bitte rufen Sie uns an.',
+  not_found: 'Bestellung nicht gefunden.',
+  too_late: 'Die Bestellung wird schon zubereitet. Bitte rufen Sie uns an.',
+  rate_limited: 'Zu viele Bestellungen in kurzer Zeit. Bitte rufen Sie uns an.',
+};
+
+function localMessage(data, en) {
+  if (!data || !data.message) return '';
+  if (en) return data.message;
+  if (data.code === 'unavailable') return data.message.replace(/^Not available for pickup:/, 'Online nicht bestellbar:');
+  return DE_TEXT[data.code] || data.message;
+}
+
 async function call(path, { method = 'GET', body, token } = {}) {
   const headers = { Accept: 'application/json' };
   if (body) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const en = (() => { try { return localStorage.getItem('language') === 'en'; } catch { return false; } })();
+  let res;
+  try {
+    res = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  } catch {
+    const err = new Error(en ? 'No connection to the restaurant server. Please check your internet and try again.'
+      : 'Keine Verbindung zum Server. Bitte Internet prüfen und erneut versuchen.');
+    err.code = 'network';
+    throw err;
+  }
   let data = null;
   try { data = await res.json(); } catch { data = null; }
   if (!res.ok) {
-    const err = new Error((data && data.message) || `Request failed (${res.status})`);
+    const busy = !data || res.status >= 502;
+    const fallback = res.status === 429
+      ? (en ? 'Too many attempts. Please wait a few minutes or call us.' : 'Zu viele Versuche. Bitte ein paar Minuten warten oder anrufen.')
+      : busy
+        ? (en ? 'The server is restarting. Please try again in a minute.' : 'Der Server startet gerade neu. Bitte in einer Minute erneut versuchen.')
+        : `Request failed (${res.status})`;
+    const err = new Error(localMessage(data, en) || fallback);
     err.code = data && data.code;
     err.status = res.status;
     throw err;
