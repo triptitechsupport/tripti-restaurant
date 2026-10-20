@@ -13,14 +13,40 @@ One Android app for all staff. It opens the staff sign-in of the website
 | Auditor | Receipts and DEP7 export, view only |
 
 The app shows the live website screens, so every website update reaches the
-app without a new install. Printing goes through Android printing, and
-exports are saved to `Downloads/Tripti`.
+app without a new install. Inside the app:
+
+- Printing (kitchen tickets, receipts, barcode labels) goes through Android
+  printing. For the Epson TM-T20III install "Epson iPrint" or the Epson
+  print service plugin on the device.
+- Exports (DEP7, CSV) are saved to `Downloads/Tripti`.
+- Camera (barcode scanning) and microphone (staff calls) ask for permission
+  the first time.
+- The screen stays on; logins are not included in phone backups.
+- Without internet, an offline page with "Try again" is shown.
 
 ## Get the APK
 
-GitHub → Actions → "Android staff app" → latest run → Artifacts →
-`tripti-staff-apk`. Unzip it and install `app-debug.apk` on the phone or
-tablet (allow "install unknown apps" once).
+Every build is published here (also shown with a QR code in the admin
+dashboard under "Staff app" and on `/staff-login`):
+
+https://github.com/triptitechsupport/tripti-restaurant/releases/download/staff-app-latest/tripti-staff.apk
+
+Open it on the phone or tablet and allow "install unknown apps" once.
+
+The screens come from the website, so the app itself rarely needs an update.
+
+## Smooth updates (optional, once)
+
+Without a fixed signing key, each build is signed differently and Android
+asks you to uninstall the old app first. To avoid that, add two repository
+secrets (GitHub → Settings → Secrets and variables → Actions):
+
+- `ANDROID_KEYSTORE_B64`: the keystore file, base64 encoded
+- `ANDROID_KEYSTORE_PASSWORD`: its password (key alias `tripti`)
+
+Create the keystore once with
+`keytool -genkeypair -keystore tripti.jks -storetype PKCS12 -alias tripti -keyalg RSA -keysize 2048 -validity 10000`
+and keep a backup of it; the same key is needed for the Play Store later.
 
 ## Change the server
 
