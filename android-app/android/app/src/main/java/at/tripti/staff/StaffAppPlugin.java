@@ -2,6 +2,7 @@ package at.tripti.staff;
 
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -15,6 +16,8 @@ import android.util.Base64;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -89,15 +92,24 @@ public class StaffAppPlugin extends Plugin {
                 }
                 where = "Downloads/Tripti/" + name;
             } else {
-                File dir = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                // Android 7 to 9: save in the app's folder and open the share
+                // sheet, so the file can be put in Downloads, Drive or email.
+                File dir = new File(getContext().getCacheDir(), "exports");
+                dir.mkdirs();
                 File file = new File(dir, name);
                 try (FileOutputStream out = new FileOutputStream(file)) {
                     out.write(bytes);
                 }
-                where = file.getAbsolutePath();
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", file);
+                Intent share = new Intent(Intent.ACTION_SEND);
+                share.setType(mime);
+                share.putExtra(Intent.EXTRA_STREAM, uri);
+                share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                getActivity().startActivity(Intent.createChooser(share, name));
+                where = name;
             }
             final String shown = where;
-            getActivity().runOnUiThread(() -> Toast.makeText(getContext(), "Saved: " + shown, Toast.LENGTH_LONG).show());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) getActivity().runOnUiThread(() -> Toast.makeText(getContext(), "Saved: " + shown, Toast.LENGTH_LONG).show());
             JSObject result = new JSObject();
             result.put("path", where);
             call.resolve(result);

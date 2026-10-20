@@ -31,6 +31,18 @@ export function nativePrint(win = window, title = 'Tripti') {
   // and scripts would start the whole website again inside the print view.
   const copy = win.document.documentElement.cloneNode(true);
   copy.querySelectorAll('script, link[rel="modulepreload"]').forEach((el) => el.remove());
+  // A copied <canvas> is empty (barcode labels draw on canvas): use pictures.
+  const drawn = win.document.querySelectorAll('canvas');
+  copy.querySelectorAll('canvas').forEach((canvas, i) => {
+    try {
+      const img = win.document.createElement('img');
+      img.src = drawn[i].toDataURL('image/png');
+      img.setAttribute('style', canvas.getAttribute('style') || '');
+      img.className = canvas.className;
+      if (canvas.getAttribute('width')) img.setAttribute('width', canvas.getAttribute('width'));
+      canvas.replaceWith(img);
+    } catch { /* leave it */ }
+  });
   const html = `<!doctype html>${copy.outerHTML}`;
   plugin.printHtml({ html, title, baseUrl: window.location.origin + '/' }).catch((err) => {
     console.error('[StaffApp] print failed', err);
@@ -64,3 +76,7 @@ if (typeof window !== 'undefined' && typeof HTMLAnchorElement !== 'undefined') {
     click.call(this);
   };
 }
+
+// Where a signed-out staff member goes: the one staff sign-in in the app,
+// otherwise the role's own login page.
+export const loginPath = (path) => (isStaffApp ? '/staff-login' : path);

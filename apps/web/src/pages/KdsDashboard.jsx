@@ -32,6 +32,7 @@ import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
+import { loginPath } from '@/lib/staffApp.js';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -575,7 +576,7 @@ export default function KdsDashboard() {
 
   useEffect(() => {
     if (!authed) {
-      navigate('/kds-login', { replace: true });
+      navigate(loginPath('/kds-login'), { replace: true });
       return;
     }
     fetchOrders();
@@ -780,10 +781,10 @@ export default function KdsDashboard() {
     }
     try { pb.collection('kitchen_orders').unsubscribe('*'); } catch (_) { /* ignore */ }
     pb.authStore.clear();
-    navigate('/kds-login', { replace: true });
+    navigate(loginPath('/kds-login'), { replace: true });
     setTimeout(() => {
-      if (window.location.pathname !== '/kds-login') {
-        window.location.assign('/kds-login');
+      if (window.location.pathname !== loginPath('/kds-login')) {
+        window.location.assign(loginPath('/kds-login'));
       }
     }, 120);
   };

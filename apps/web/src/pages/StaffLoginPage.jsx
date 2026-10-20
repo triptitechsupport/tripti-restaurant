@@ -17,7 +17,6 @@ import StaffAppDownload from '@/components/StaffAppDownload.jsx';
 
 // One sign-in for every staff member. The username and password are checked
 // against each staff login list; the person then lands on their own screen.
-// If the same login exists in more than one list, they pick which work to open.
 const AREAS = [
   { collection: 'admin_users', client: pb, to: '/admin-dashboard' },
   { collection: 'waiter_users', client: waiterPb, to: '/waiter-dashboard', clockIn: true },
@@ -31,7 +30,7 @@ const T = {
     title: 'Mitarbeiter-Anmeldung', desc: 'Mit Benutzername und Passwort anmelden. Die App öffnet Ihren Arbeitsbereich.',
     user: 'Benutzername oder E-Mail', userPh: 'z. B. kellner1', pw: 'Passwort', signIn: 'Anmelden', busy: 'Wird geprüft …',
     required: 'Bitte Benutzername und Passwort eingeben.', wrong: 'Benutzername oder Passwort ist falsch.',
-    offline: 'Keine Verbindung zum Server. Bitte Internet prüfen.', pick: 'Welchen Bereich öffnen?',
+    offline: 'Keine Verbindung zum Server. Bitte Internet prüfen.', tooMany: 'Zu viele Anmeldeversuche. Bitte einige Minuten warten.',
     continueAs: 'Angemeldet bleiben als', other: 'Andere Person anmelden',
     roles: { admin: 'Admin', waiter: 'Service', cashier: 'Kasse', kitchen: 'Küche', kitchen_manager: 'Küchenleitung', stock: 'Lager', auditor: 'Prüfer' },
   },
@@ -39,7 +38,7 @@ const T = {
     title: 'Staff sign-in', desc: 'Sign in with your username and password. The app opens your work area.',
     user: 'Username or email', userPh: 'e.g. waiter1', pw: 'Password', signIn: 'Sign in', busy: 'Checking …',
     required: 'Enter your username and password.', wrong: 'Wrong username or password.',
-    offline: 'Cannot reach the server. Check the internet connection.', pick: 'Which work area do you want to open?',
+    offline: 'Cannot reach the server. Check the internet connection.', tooMany: 'Too many sign-in attempts. Please wait a few minutes.',
     continueAs: 'Continue as', other: 'Sign in as someone else',
     roles: { admin: 'Admin', waiter: 'Waiter', cashier: 'Cashier', kitchen: 'Kitchen', kitchen_manager: 'Kitchen manager', stock: 'Stock manager', auditor: 'Auditor' },
   },
@@ -79,7 +78,6 @@ export default function StaffLoginPage() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [choices, setChoices] = useState(null);
   const [saved, setSaved] = useState([]);
   const [checking, setChecking] = useState(() => savedLogins().length > 0);
 
@@ -126,25 +124,42 @@ export default function StaffLoginPage() {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
-    setChoices(null);
     const id = form.id.trim();
     if (!id || !form.pw) { setError(tx.required); return; }
     setBusy(true);
     try {
-      // Each check uses a throwaway client so nothing is saved until the
-      // person's work area is known.
-      const results = await Promise.allSettled(AREAS.map(async (area) => {
+      // The server allows only a few sign-in attempts per few minutes, so the
+      // login lists are tried one after another and we stop at the first
+      // match. The list that worked for this username last time goes first;
+      // admins sign in with their email, so the admin list is only tried
+      // for an email address.
+      let last = '';
+      try { last = JSON.parse(localStorage.getItem('tripti_staff_last_area') || '{}')[id.toLowerCase()] || ''; } catch { /* ignore */ }
+      const order = AREAS
+        .filter((a) => a.collection !== 'admin_users' || id.includes('@'))
+        .sort((a, b) => (b.collection === last) - (a.collection === last) || (id.includes('@') && (b.collection === 'admin_users') - (a.collection === 'admin_users')));
+      let offline = true;
+      let limited = false;
+      for (const area of order) {
+        // A throwaway client, so nothing is saved until the work area is known.
         const probe = new PocketBase(area.client.baseURL, new BaseAuthStore());
-        const auth = await probe.collection(area.collection).authWithPassword(id, form.pw, { $autoCancel: false });
-        const record = { ...auth.record, collectionName: auth.record.collectionName || area.collection };
-        return { area, record, token: auth.token, role: roleOf(area, record) };
-      }));
-      const matches = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
-      if (matches.length) { try { localStorage.setItem('tripti_staff_last_id', id); } catch { /* ignore */ } }
-      if (matches.length === 1) { await open(matches[0]); return; }
-      if (matches.length > 1) { setChoices(matches); return; }
-      const offline = results.every((r) => r.status === 'rejected' && !r.reason?.status);
-      setError(offline ? tx.offline : tx.wrong);
+        try {
+          const auth = await probe.collection(area.collection).authWithPassword(id, form.pw, { $autoCancel: false });
+          const record = { ...auth.record, collectionName: auth.record.collectionName || area.collection };
+          try {
+            localStorage.setItem('tripti_staff_last_id', id);
+            const map = JSON.parse(localStorage.getItem('tripti_staff_last_area') || '{}');
+            map[id.toLowerCase()] = area.collection;
+            localStorage.setItem('tripti_staff_last_area', JSON.stringify(map));
+          } catch { /* ignore */ }
+          await open({ area, record, token: auth.token, role: roleOf(area, record) });
+          return;
+        } catch (err) {
+          if (err?.status) offline = false;
+          if (err?.status === 429) { limited = true; break; }
+        }
+      }
+      setError(offline ? tx.offline : limited ? tx.tooMany : tx.wrong);
     } finally {
       setBusy(false);
     }
@@ -185,7 +200,7 @@ export default function StaffLoginPage() {
               </CardContent>
             )}
 
-            {!checking && saved.length > 1 && !choices && (
+            {!checking && saved.length > 1 && (
               <CardContent className="space-y-3">
                 <p className="font-bold text-primary">{tx.continueAs}</p>
                 {roleButtons(saved, open)}
@@ -193,14 +208,8 @@ export default function StaffLoginPage() {
               </CardContent>
             )}
 
-            {choices && (
-              <CardContent className="space-y-3">
-                <p className="font-bold text-primary">{tx.pick}</p>
-                {roleButtons(choices, open)}
-              </CardContent>
-            )}
 
-            {!checking && saved.length <= 1 && !choices && (
+            {!checking && saved.length <= 1 && (
               <form onSubmit={submit} noValidate>
                 <CardContent className="space-y-5">
                   <div className="space-y-2">

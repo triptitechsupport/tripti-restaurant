@@ -47,13 +47,20 @@ jobs:
         with:
           name: tripti-staff-apk
           path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
+      # Only the branches the websites run on publish the shared download link;
+      # other branches just build (the APK is in the run's Artifacts).
       - name: Publish at the fixed download link
+        if: github.event_name == 'push' && (github.ref_name == 'pickup-orders' || github.ref_name == 'main')
         working-directory: android-app
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk tripti-staff.apk
-          gh release delete staff-app-latest --yes --cleanup-tag || true
-          gh release create staff-app-latest tripti-staff.apk --prerelease --target "$GITHUB_SHA" \
-            --title "Tripti Staff app (latest)" \
-            --notes "Android app for Tripti staff. Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install tripti-staff.apk on the phone or tablet."
+          NOTES="Android app for Tripti staff. Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install tripti-staff.apk on the phone or tablet."
+          if gh release view staff-app-latest >/dev/null 2>&1; then
+            gh release upload staff-app-latest tripti-staff.apk --clobber
+            gh release edit staff-app-latest --notes "$NOTES"
+          else
+            gh release create staff-app-latest tripti-staff.apk --prerelease --target "$GITHUB_SHA" \
+              --title "Tripti Staff app (latest)" --notes "$NOTES"
+          fi

@@ -18,6 +18,7 @@ import {
   formatDuration,
 } from '@/utils/timesheetService.js';
 import { toast } from 'sonner';
+import { loginPath } from '@/lib/staffApp.js';
 
 export default function WaiterDashboard() {
   const { t } = useLanguage();
@@ -46,7 +47,7 @@ export default function WaiterDashboard() {
 
   useEffect(() => {
     if (!authed) {
-      navigate('/waiter-login', { replace: true });
+      navigate(loginPath('/waiter-login'), { replace: true });
       return;
     }
     // Sync active timesheet state on mount.
@@ -141,13 +142,13 @@ export default function WaiterDashboard() {
     pb.authStore.clear();
 
     // In-app redirect.
-    navigate('/waiter-login', { replace: true });
+    navigate(loginPath('/waiter-login'), { replace: true });
 
     // Safety net: if a still-mounted subscriber intercepts the navigate(),
     // force a hard redirect to the login page.
     setTimeout(() => {
-      if (window.location.pathname !== '/waiter-login') {
-        window.location.assign('/waiter-login');
+      if (window.location.pathname !== loginPath('/waiter-login')) {
+        window.location.assign(loginPath('/waiter-login'));
       }
     }, 120);
   };

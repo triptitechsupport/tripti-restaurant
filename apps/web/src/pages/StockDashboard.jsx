@@ -38,6 +38,7 @@ import {
   printLabels,
   renderBarcodeToCanvas,
 } from '@/lib/barcodeUtils.js';
+import { loginPath } from '@/lib/staffApp.js';
 
 const WASTE_REASONS = [
   'spoiled', 'expired', 'damaged', 'over-preparation', 'spill', 'burnt', 'customer-return', 'other',
@@ -190,7 +191,7 @@ export default function StockDashboard() {
 
   useEffect(() => {
     if (!authed) {
-      navigate('/stock-login', { replace: true });
+      navigate(loginPath('/stock-login'), { replace: true });
       return;
     }
     fetchItems();
@@ -797,9 +798,9 @@ export default function StockDashboard() {
     try { pb.collection('waste_records').unsubscribe('*'); } catch (_) { /* ignore */ }
     try { pb.collection('stock_adjustments').unsubscribe('*'); } catch (_) { /* ignore */ }
     pb.authStore.clear();
-    navigate('/stock-login', { replace: true });
+    navigate(loginPath('/stock-login'), { replace: true });
     setTimeout(() => {
-      if (window.location.pathname !== '/stock-login') window.location.assign('/stock-login');
+      if (window.location.pathname !== loginPath('/stock-login')) window.location.assign(loginPath('/stock-login'));
     }, 120);
   };
 
