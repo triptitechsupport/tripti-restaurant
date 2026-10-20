@@ -50,7 +50,7 @@ and keep a backup of it; the same key is needed for the Play Store later.
 
 ## Change the server
 
-Edit `server.url` in `capacitor.config.json` (now `https://www.triptistore.in/staff-login`).
+Edit `server.url` in `capacitor.config.json` (now `https://tripti-rksv-test.onrender.com/staff-login`).
 
 ## Build on your own PC
 

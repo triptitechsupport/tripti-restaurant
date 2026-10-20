@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate } from 'react-router-dom';
 import PocketBase, { BaseAuthStore } from 'pocketbase';
-import { AlertCircle, Loader2, LogIn, ShieldCheck, ConciergeBell, ChefHat, CookingPot, PackageCheck, Banknote, LayoutDashboard } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Loader2, LogIn, ShieldCheck, ConciergeBell, ChefHat, CookingPot, PackageCheck, Banknote, LayoutDashboard } from 'lucide-react';
 import pb from '@/lib/pocketbaseClient.js';
 import { kdsPb, waiterPb, stockPb, auditorPb } from '@/lib/staffClients.js';
 import { clockIn } from '@/utils/timesheetService.js';
@@ -27,7 +27,8 @@ const AREAS = [
 
 const T = {
   de: {
-    title: 'Mitarbeiter-Anmeldung', desc: 'Mit Benutzername und Passwort anmelden. Die App öffnet Ihren Arbeitsbereich.',
+    title: 'Mitarbeiter-Anmeldung', desc: 'Wählen Sie Ihre Rolle und melden Sie sich mit Benutzername und Passwort an.',
+    chooseRole: 'Ihre Rolle', changeRole: 'Andere Rolle', email: 'E-Mail', emailPh: 'admin@beispiel.at',
     user: 'Benutzername oder E-Mail', userPh: 'z. B. kellner1', pw: 'Passwort', signIn: 'Anmelden', busy: 'Wird geprüft …',
     required: 'Bitte Benutzername und Passwort eingeben.', wrong: 'Benutzername oder Passwort ist falsch.',
     offline: 'Keine Verbindung zum Server. Bitte Internet prüfen.', tooMany: 'Zu viele Anmeldeversuche. Bitte einige Minuten warten.',
@@ -35,7 +36,8 @@ const T = {
     roles: { admin: 'Admin', waiter: 'Service', cashier: 'Kasse', kitchen: 'Küche', kitchen_manager: 'Küchenleitung', stock: 'Lager', auditor: 'Prüfer' },
   },
   en: {
-    title: 'Staff sign-in', desc: 'Sign in with your username and password. The app opens your work area.',
+    title: 'Staff sign-in', desc: 'Choose your role, then sign in with your username and password.',
+    chooseRole: 'Your role', changeRole: 'Other role', email: 'Email', emailPh: 'admin@example.com',
     user: 'Username or email', userPh: 'e.g. waiter1', pw: 'Password', signIn: 'Sign in', busy: 'Checking …',
     required: 'Enter your username and password.', wrong: 'Wrong username or password.',
     offline: 'Cannot reach the server. Check the internet connection.', tooMany: 'Too many sign-in attempts. Please wait a few minutes.',
@@ -43,6 +45,13 @@ const T = {
     roles: { admin: 'Admin', waiter: 'Waiter', cashier: 'Cashier', kitchen: 'Kitchen', kitchen_manager: 'Kitchen manager', stock: 'Stock manager', auditor: 'Auditor' },
   },
 };
+
+// The seven work areas shown on the first screen, and the login list each one uses.
+const ROLE_LIST = [
+  ['admin', 'admin_users'], ['waiter', 'waiter_users'], ['cashier', 'waiter_users'], ['kitchen', 'kds_users'],
+  ['kitchen_manager', 'kds_users'], ['stock', 'stock_users'], ['auditor', 'auditor_users'],
+];
+const ROLE_COLLECTION = Object.fromEntries(ROLE_LIST);
 
 const ICONS = { admin: LayoutDashboard, waiter: ConciergeBell, cashier: Banknote, kitchen: ChefHat, kitchen_manager: CookingPot, stock: PackageCheck, auditor: ShieldCheck };
 
@@ -79,6 +88,7 @@ export default function StaffLoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState([]);
+  const [role, setRole] = useState(null);
   const [checking, setChecking] = useState(() => savedLogins().length > 0);
 
   // Logins saved on this device are checked with the server first (the test
@@ -135,9 +145,10 @@ export default function StaffLoginPage() {
       // for an email address.
       let last = '';
       try { last = JSON.parse(localStorage.getItem('tripti_staff_last_area') || '{}')[id.toLowerCase()] || ''; } catch { /* ignore */ }
+      const first = ROLE_COLLECTION[role] || last;
       const order = AREAS
-        .filter((a) => a.collection !== 'admin_users' || id.includes('@'))
-        .sort((a, b) => (b.collection === last) - (a.collection === last) || (id.includes('@') && (b.collection === 'admin_users') - (a.collection === 'admin_users')));
+        .filter((a) => a.collection !== 'admin_users' || id.includes('@') || role === 'admin')
+        .sort((a, b) => (b.collection === first) - (a.collection === first) || (id.includes('@') && (b.collection === 'admin_users') - (a.collection === 'admin_users')));
       let offline = true;
       let limited = false;
       for (const area of order) {
@@ -209,13 +220,39 @@ export default function StaffLoginPage() {
             )}
 
 
-            {!checking && saved.length <= 1 && (
+            {!checking && saved.length <= 1 && !role && (
+              <CardContent className="space-y-3 pb-8">
+                <p className="font-bold text-primary">{tx.chooseRole}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {ROLE_LIST.map(([key]) => {
+                    const Icon = ICONS[key];
+                    return (
+                      <button key={key} type="button" onClick={() => { setRole(key); setError(''); }}
+                        className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-border bg-card p-4 min-h-[96px] font-bold text-primary hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${key === 'auditor' ? 'col-span-2' : ''}`}>
+                        <Icon className="h-7 w-7" />
+                        <span className="text-sm text-center leading-tight">{tx.roles[key]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            )}
+
+            {!checking && saved.length <= 1 && role && (
               <form onSubmit={submit} noValidate>
                 <CardContent className="space-y-5">
+                  <div className="flex items-center justify-between gap-3 rounded-xl bg-primary/10 px-4 py-3">
+                    <span className="flex items-center gap-2 font-bold text-primary">
+                      {React.createElement(ICONS[role], { className: 'h-5 w-5' })}{tx.roles[role]}
+                    </span>
+                    <button type="button" onClick={() => { setRole(null); setError(''); }} className="flex items-center gap-1 text-sm font-semibold text-primary underline underline-offset-4">
+                      <ArrowLeft className="h-4 w-4" />{tx.changeRole}
+                    </button>
+                  </div>
                   <div className="space-y-2">
-                    <Label htmlFor="staff-id" className="font-bold text-primary">{tx.user}</Label>
+                    <Label htmlFor="staff-id" className="font-bold text-primary">{role === 'admin' ? tx.email : tx.user}</Label>
                     <Input id="staff-id" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })}
-                      placeholder={tx.userPh} autoCapitalize="none" autoCorrect="off" autoComplete="username"
+                      placeholder={role === 'admin' ? tx.emailPh : tx.userPh} type={role === 'admin' ? 'email' : 'text'} autoCapitalize="none" autoCorrect="off" autoComplete="username"
                       className="h-12 border-2" disabled={busy} autoFocus={!form.id} />
                   </div>
                   <div className="space-y-2">

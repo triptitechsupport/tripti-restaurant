@@ -41,7 +41,7 @@ public class StaffAppPlugin extends Plugin {
     public void printHtml(PluginCall call) {
         final String html = call.getString("html");
         if (html == null) { call.reject("html is missing"); return; }
-        final String baseUrl = call.getString("baseUrl", "https://www.triptistore.in/");
+        final String baseUrl = call.getString("baseUrl", "https://tripti-rksv-test.onrender.com/");
         final String title = call.getString("title", "Tripti");
         getActivity().runOnUiThread(() -> {
             WebView view = new WebView(getContext());

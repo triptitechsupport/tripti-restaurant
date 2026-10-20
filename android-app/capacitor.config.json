@@ -3,7 +3,7 @@
   "appName": "Tripti Staff",
   "webDir": "www",
   "server": {
-    "url": "https://www.triptistore.in/staff-login",
+    "url": "https://tripti-rksv-test.onrender.com/staff-login",
     "allowNavigation": [
       "www.triptistore.in",
       "triptistore.in",
