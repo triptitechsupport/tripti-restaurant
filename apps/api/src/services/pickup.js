@@ -470,7 +470,9 @@ const KOT_FOR = { ready: 'ready', picked_up: 'completed', no_show: 'completed', 
 
 export async function staffSetStatus(orderId, { status, reason }, staff) {
   if (!STAFF_MOVES[status]) throw new PickupError('Unknown status.', 'status');
-  if (status === 'cancelled' && staff.role === 'kds_users') throw new PickupError('Only service or admin can cancel.', 'forbidden', 403);
+  if (status === 'cancelled' && staff.role === 'kds_users' && staff.staffRole !== 'kitchen_manager') {
+    throw new PickupError('Only service, the kitchen manager or admin can cancel.', 'forbidden', 403);
+  }
   return withLock(orderId, () => staffSetStatusNow(orderId, status, reason, staff));
 }
 

@@ -130,8 +130,8 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
           Retry generation
         </Button>
       )}
-      {canRecover(t) && <Button size="sm" variant="outline" disabled={fiscal.busy === order.id || Boolean(fiscal.error)} onClick={() => fiscal.recover(t)}>Release rejected bill</Button>}
-      {issued && !cancellation && (
+      {!fiscal.limited && canRecover(t) && <Button size="sm" variant="outline" disabled={fiscal.busy === order.id || Boolean(fiscal.error)} onClick={() => fiscal.recover(t)}>Release rejected bill</Button>}
+      {!fiscal.limited && issued && !cancellation && (
         <Button
           size="sm"
           variant="outline"

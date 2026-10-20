@@ -28,6 +28,7 @@ const OrderConfirmationPage = lazy(() => import('@/pages/OrderConfirmationPage.j
 const AdminLoginPage = lazy(() => import('@/pages/AdminLoginPage.jsx'));
 const KdsLoginPage = lazy(() => import('@/pages/KdsLoginPage.jsx'));
 const WaiterLoginPage = lazy(() => import('@/pages/WaiterLoginPage.jsx'));
+const CashierLoginPage = lazy(() => import('@/pages/CashierLoginPage.jsx'));
 const KdsDashboard = lazy(() => import('@/pages/KdsDashboard.jsx'));
 const WaiterDashboard = lazy(() => import('@/pages/WaiterDashboard.jsx'));
 const AdminPlaceOrderPage = lazy(() => import('@/pages/AdminPlaceOrderPage.jsx'));
@@ -103,7 +104,7 @@ function Layout() {
   // Waiter Station pages get a minimal header (logo + language switcher
   // only) instead of the full public restaurant header. All other routes
   // keep the public Header with its full nav, phone, Order Now, and cart.
-  const isWaiterRoute = location.pathname.startsWith('/waiter-');
+  const isWaiterRoute = location.pathname.startsWith('/waiter-') || location.pathname === '/cashier-login';
   const isKdsRoute = location.pathname.startsWith('/kds-');
   const isStockRoute = location.pathname.startsWith('/stock-');
   const isAdminDashboardRoute = location.pathname === '/admin-dashboard'
@@ -146,6 +147,7 @@ function Layout() {
           <Route path="/kds-login" element={<KdsLoginPage />} />
           <Route path="/kds-dashboard" element={<KdsDashboard />} />
           <Route path="/waiter-login" element={<WaiterLoginPage />} />
+          <Route path="/cashier-login" element={<CashierLoginPage />} />
           <Route path="/waiter-dashboard" element={<WaiterDashboard />} />
           <Route path="/waiter-help" element={<WaiterHelpPage />} />
 

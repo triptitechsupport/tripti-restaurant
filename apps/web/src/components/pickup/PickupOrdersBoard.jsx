@@ -89,7 +89,8 @@ function matchTab(o, tab) {
   return true;
 }
 
-export default function PickupOrdersBoard({ client, role = 'admin', onActiveCount, onNewOrder, initialTab, silent = false }) {
+// manager: kitchen manager on the kitchen screen, who may also confirm and cancel.
+export default function PickupOrdersBoard({ client, role = 'admin', manager = false, onActiveCount, onNewOrder, initialTab, silent = false }) {
   const { language } = useLanguage();
   const lang = language === 'en' ? 'en' : 'de';
   const en = lang === 'en';
@@ -228,7 +229,8 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
   const actions = (o) => {
     const s = o.status;
     const out = [];
-    if (s === 'received' && role !== 'kds') out.push(<B key="c" o={o} kind="confirmed" icon={CheckCircle2} variant="default">{tr('Bestätigen', 'Confirm')}</B>);
+    const lead = role !== 'kds' || manager;
+    if (s === 'received' && lead) out.push(<B key="c" o={o} kind="confirmed" icon={CheckCircle2} variant="default">{tr('Bestätigen', 'Confirm')}</B>);
     if ((s === 'confirmed' || s === 'received') && !o.kitchenOrder) {
       out.push(<B key="r" o={o} kind="release" icon={Send}>{role === 'kds' ? tr('Jetzt starten', 'Start now') : tr('Jetzt an Küche', 'Send to kitchen now')}</B>);
     }
@@ -238,7 +240,7 @@ export default function PickupOrdersBoard({ client, role = 'admin', onActiveCoun
       out.push(<B key="p" o={o} kind="picked_up" icon={CheckCircle2} variant={s === 'ready' ? 'default' : 'outline'}>{tr('Abgeholt', 'Picked up')}</B>);
       if (o.pickupDate <= viennaToday(0)) out.push(<B key="n" o={o} kind="no_show" icon={UserX} className="text-amber-800">{tr('Nicht abgeholt', 'No-show')}</B>);
     }
-    if (role !== 'kds' && ACTIVE.includes(s)) {
+    if (lead && ACTIVE.includes(s)) {
       out.push(
         <Button key="x" size="sm" variant="ghost" className="h-9 text-destructive hover:text-destructive" disabled={!!busy}
           onClick={() => { setCancelFor(cancelFor === o.id ? '' : o.id); setReason(''); }}>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -8,6 +8,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import AdminPickupSection from '@/components/pickup/AdminPickupSection.jsx';
+import AdminStaffAccounts, { STAFF_ROLES } from '@/components/AdminStaffAccounts.jsx';
 import AdminTableReservations from '@/components/AdminTableReservations.jsx';
 import MenuItemsList from '@/components/MenuItemsList.jsx';
 import MenuItemForm from '@/components/MenuItemForm.jsx';
@@ -51,7 +52,8 @@ import { useIsMobile } from '@/hooks/use-mobile.jsx';
 
 export default function AdminBookingDashboard() {
   const { isAdminAuthenticated, initialLoading, currentAdmin } = useAuth();
-  const { t, isOrderingEnabled, setIsOrderingEnabled } = useLanguage();
+  const { t, language, isOrderingEnabled, setIsOrderingEnabled } = useLanguage();
+  const roleTitle = (r) => STAFF_ROLES[r][language === 'en' ? 'en' : 'de'].title;
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   
@@ -612,6 +614,8 @@ export default function AdminBookingDashboard() {
   const renderBillingSection = () => <SettlementBillingView />;
   const renderWaitersSection = () => <AdminWaiterManagement />;
   const renderStockManagersSection = () => <AdminStockManagement />;
+  const renderKitchenManagersSection = () => <AdminStaffAccounts role="kitchen_manager" icon={CookingPot} />;
+  const renderCashiersSection = () => <AdminStaffAccounts role="cashier" icon={Banknote} />;
   const renderKotPrintOrderSection = () => <AdminKotPrintOrder />;
   const renderAnalysisSection = () => <AdminAnalysisView />;
 
@@ -866,6 +870,20 @@ export default function AdminBookingDashboard() {
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderStockManagersSection()}</AccordionContent>
               </AccordionItem>
 
+              <AccordionItem value="kitchen-managers" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><CookingPot className="w-5 h-5 mr-4 text-primary"/> {roleTitle('kitchen_manager')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderKitchenManagersSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="cashiers" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Banknote className="w-5 h-5 mr-4 text-primary"/> {roleTitle('cashier')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderCashiersSection()}</AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value="analysis" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
                   <div className="flex items-center font-bold text-lg"><BarChart3 className="w-5 h-5 mr-4 text-primary"/> Analysis</div>
@@ -921,6 +939,12 @@ export default function AdminBookingDashboard() {
                 <button onClick={() => setActiveTab('stock-managers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'stock-managers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <PackageCheck className="h-4 w-4 mr-2" /> {t('tab_stockManagers')}
                 </button>
+                <button onClick={() => setActiveTab('kitchen-managers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'kitchen-managers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <CookingPot className="h-4 w-4 mr-2" /> {roleTitle('kitchen_manager')}
+                </button>
+                <button onClick={() => setActiveTab('cashiers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'cashiers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Banknote className="h-4 w-4 mr-2" /> {roleTitle('cashier')}
+                </button>
                 <button onClick={() => setActiveTab('analysis')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <BarChart3 className="h-4 w-4 mr-2" /> Analysis
                 </button>
@@ -942,6 +966,8 @@ export default function AdminBookingDashboard() {
                 {activeTab === 'timesheets' && renderTimesheetsSection()}
                 {activeTab === 'waiters' && renderWaitersSection()}
                 {activeTab === 'stock-managers' && renderStockManagersSection()}
+                {activeTab === 'kitchen-managers' && renderKitchenManagersSection()}
+                {activeTab === 'cashiers' && renderCashiersSection()}
                 {activeTab === 'analysis' && renderAnalysisSection()}
               </div>
             </>

@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { waiterPb } from '@/lib/staffClients.js';
 import StaffPickupButton from '@/components/pickup/StaffPickupButton.jsx';
+import CashierReceiptsButton from '@/components/staff/CashierReceiptsButton.jsx';
 import pbDefault from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
 import { ConciergeBell, LogOut, Zap, Clock, LogIn, ArrowLeft, HelpCircle } from 'lucide-react';
@@ -33,6 +34,7 @@ export default function WaiterDashboard() {
   const isAdmin = pbDefault.authStore.isValid && adminAuthModel?.collectionName === 'admin_users';
   const authed = isWaiter || isAdmin;
   const pb = isWaiter ? waiterPb : pbDefault;
+  const isCashier = isWaiter && waiterAuthModel?.role === 'cashier';
   const authModel = isWaiter ? waiterAuthModel : adminAuthModel;
   const displayName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Waiter';
   const waiterId = authModel?.id;
@@ -175,7 +177,7 @@ export default function WaiterDashboard() {
         <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
             <ConciergeBell className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
-            <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{t('waiter_station')}</h1>
+            <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{isCashier ? t('cashier_station') : t('waiter_station')}</h1>
             <span className="text-sm sm:text-base opacity-90 truncate min-w-0 font-medium" title={displayName} aria-label={`Signed in as ${displayName}`}>
               {displayName}
             </span>
@@ -231,6 +233,7 @@ export default function WaiterDashboard() {
               </Button>
             )}
             <StaffPickupButton client={pb} role="waiter" days={0} />
+            {isCashier && <CashierReceiptsButton client={pb} />}
             <ContactKitchenButton pbClient={pb} displayName={displayName} />
             <Button
               variant="secondary"

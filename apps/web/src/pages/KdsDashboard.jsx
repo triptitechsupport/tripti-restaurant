@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
 import StaffPickupButton from '@/components/pickup/StaffPickupButton.jsx';
+import SoldOutButton from '@/components/staff/SoldOutButton.jsx';
 import KdsQuickMessage from '@/components/KdsQuickMessage.jsx';
 import { resolveOrderId, resolveBaseOrderId, printKOT } from '@/lib/kotPrint.js';
 import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
@@ -505,6 +506,7 @@ export default function KdsDashboard() {
   const isAdmin = pbDefault.authStore.isValid && adminAuthModel?.collectionName === 'admin_users';
   const authed = isKds || isAdmin;
   const pb = isKds ? kdsPb : pbDefault;
+  const isManager = isKds && kdsAuthModel?.role === 'kitchen_manager';
   const authModel = isKds ? kdsAuthModel : adminAuthModel;
   const chatName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Kitchen';
   // Restaurant-wide printing master switch — same single print_settings
@@ -795,7 +797,7 @@ export default function KdsDashboard() {
         <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <ChefHat className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
-            <h1 className="text-base sm:text-xl font-serif font-bold whitespace-nowrap">{t('kds_title')}</h1>
+            <h1 className="text-base sm:text-xl font-serif font-bold whitespace-nowrap">{isManager ? t('kds_managerTitle') : t('kds_title')}</h1>
             <Badge className="bg-secondary text-secondary-foreground shrink-0">{orders.length} {t('kds_active')}</Badge>
             {delayedCount > 0 ? (
               <Badge className="bg-destructive text-destructive-foreground animate-pulse shrink-0">{delayedCount} {t('kds_delayed')}</Badge>
@@ -808,7 +810,8 @@ export default function KdsDashboard() {
                 <span className="hidden sm:inline ml-1">Admin</span>
               </Button>
             )}
-            <StaffPickupButton client={pb} role="kds" sound={settings.soundEnabled} />
+            <StaffPickupButton client={pb} role="kds" manager={isManager} sound={settings.soundEnabled} />
+            {isManager && <SoldOutButton client={pb} />}
             {settings.soundEnabled ? <Volume2 className="h-4 w-4 opacity-80 shrink-0" /> : <VolumeX className="h-4 w-4 opacity-60 shrink-0" />}
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={() => setSettingsOpen(true)} aria-label={t('kds_settings')}>
               <Settings className="h-4 w-4" />

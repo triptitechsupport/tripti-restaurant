@@ -16,8 +16,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-export default function SettlementBillingView() {
-  const fiscal = useFiscalBilling();
+// cashier: the cashier screen; hides admin-only settings and actions.
+export default function SettlementBillingView({ cashier = false }) {
+  const fiscal = {...useFiscalBilling(), limited: cashier};
   const [settlements, setSettlements] = useState([]);
   const [includeClosed, setIncludeClosed] = useState(false);
   const [error, setError] = useState("");
@@ -70,7 +71,7 @@ export default function SettlementBillingView() {
         <Button variant="outline" disabled={refreshing} className="h-10 w-full sm:w-auto" onClick={() => {setRefreshKey(value => value + 1); void fiscal.refresh();}}>{refreshing ? <Loader2 className="h-4 w-4 mr-2 animate-spin"/> : <RefreshCw className="h-4 w-4 mr-2"/>}Refresh</Button>
       </div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeClosed} onChange={event => setIncludeClosed(event.target.checked)}/>Include closed orders for billing and reprints</label>
-      <FiscalSettings config={fiscal.configuration} />
+      {!cashier && <FiscalSettings config={fiscal.configuration} />}
       {hiddenMissing > 0 && <p role="status" className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-amber-900">{hiddenMissing} paid settlement(s) on closed orders still await receipts. <button type="button" className="underline font-semibold" onClick={() => setIncludeClosed(true)}>Include closed orders</button></p>}
       {(error || fiscal.error) && (
         <p role="alert" className="text-red-700">

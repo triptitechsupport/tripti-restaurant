@@ -12,7 +12,8 @@ export default async function staffAuth(req, res, next) {
     client.authStore.save(token);
     try {
       const auth = await client.collection(name).authRefresh();
-      req.staff = { id: auth.record.id, role: name, name: auth.record.displayName || auth.record.username || auth.record.email || name };
+      // staffRole: 'kitchen_manager' or 'cashier' for those accounts, otherwise empty.
+      req.staff = { id: auth.record.id, role: name, staffRole: auth.record.role || '', name: auth.record.displayName || auth.record.username || auth.record.email || name };
       return next();
     } catch { /* try the next account type */ }
   }

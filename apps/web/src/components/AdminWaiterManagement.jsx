@@ -49,6 +49,8 @@ export default function AdminWaiterManagement() {
     setLoading(true);
     try {
       const records = await pb.collection(COLLECTION).getFullList({
+        // Cashiers share this login table but have their own admin section.
+        filter: 'role != "cashier"',
         sort: 'username',
         $autoCancel: false,
       });

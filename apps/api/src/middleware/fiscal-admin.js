@@ -1,4 +1,14 @@
 import PocketBase from 'pocketbase';
+
+// Receipts and payments a cashier may handle; everything else (cash register
+// setup, cancellations, recovery, DEP export) stays with the admin.
+const CASHIER_ROUTES = [
+  ['GET', /^\/(settlements|transactions|configuration)$/],
+  ['POST', /^\/(settlements|orders)\/[^/]+\/generate$/],
+  ['POST', /^\/transactions\/[^/]+\/retry$/],
+];
+const cashierMay = (req) => CASHIER_ROUTES.some(([method, path]) => req.method === method && path.test(req.path));
+
 // Validate with PocketBase; decoding a JWT alone does not authenticate a user.
 export default async function fiscalAdmin(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -8,6 +18,17 @@ export default async function fiscalAdmin(req, res, next) {
   try {
     const auth = await client.collection('admin_users').authRefresh();
     req.fiscalAdmin = auth.record.id;
-    next();
-  } catch { res.status(401).json({message: 'Admin session is invalid or expired.'}); }
+    return next();
+  } catch { /* maybe a cashier */ }
+  if (cashierMay(req)) {
+    try {
+      const auth = await client.collection('waiter_users').authRefresh();
+      if (auth.record.role === 'cashier') {
+        req.fiscalAdmin = auth.record.id;
+        req.fiscalCashier = true;
+        return next();
+      }
+    } catch { /* not signed in */ }
+  }
+  return res.status(401).json({message: 'Admin session is invalid or expired.'});
 }

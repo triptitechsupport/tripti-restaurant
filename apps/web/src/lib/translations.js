@@ -420,6 +420,9 @@ export const translations = {
 
     // ---- Waiter Dashboard ----
     waiter_station: 'Waiter Station',
+    cashier_station: 'Cashier',
+    cashier_loginTitle: 'Cashier Login',
+    cashier_loginDesc: 'Sign in with the username and password from your admin.',
     waiter_shift: 'Shift',
     waiter_notClockedIn: 'Not clocked in',
     waiter_clockIn: 'Clock In',
@@ -447,6 +450,7 @@ export const translations = {
 
     // ---- KDS Dashboard ----
     kds_title: 'Kitchen Display',
+    kds_managerTitle: 'Kitchen Manager',
     kds_active: 'active',
     kds_delayed: 'delayed',
     kds_settings: 'Settings',
@@ -1100,6 +1104,9 @@ export const translations = {
 
     // ---- Waiter Dashboard ----
     waiter_station: 'Kellner-Station',
+    cashier_station: 'Kasse',
+    cashier_loginTitle: 'Kassen-Anmeldung',
+    cashier_loginDesc: 'Mit Benutzername und Passwort vom Admin anmelden.',
     waiter_shift: 'Schicht',
     waiter_notClockedIn: 'Nicht eingestochen',
     waiter_clockIn: 'Einstechen',
@@ -1127,6 +1134,7 @@ export const translations = {
 
     // ---- KDS Dashboard ----
     kds_title: 'Küchenanzeige',
+    kds_managerTitle: 'Küchenleitung',
     kds_active: 'aktiv',
     kds_delayed: 'verspätet',
     kds_settings: 'Einstellungen',

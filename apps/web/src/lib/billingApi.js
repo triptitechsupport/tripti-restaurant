@@ -1,10 +1,14 @@
 import pb from "@/lib/pocketbaseClient.js";
 import api from "@/lib/apiServerClient.js";
+// The admin's login is used by default. The cashier screen switches to the
+// cashier's login while it is open (see setBillingClient).
+let billingClient = null;
+export function setBillingClient(client) { billingClient = client || null; }
 export async function billingApi(path, body) {
   const response = await api.fetch(`/billing${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      Authorization: `Bearer ${pb.authStore.token}`,
+      Authorization: `Bearer ${(billingClient || pb).authStore.token}`,
       "Content-Type": "application/json",
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

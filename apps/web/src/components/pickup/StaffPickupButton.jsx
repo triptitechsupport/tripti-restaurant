@@ -8,7 +8,7 @@ import usePickupWatch from './usePickupWatch.js';
 
 // Header button for the kitchen and service screens: shows how many online
 // pickup orders are coming up and opens the list.
-export default function StaffPickupButton({ client, role, sound = true, days = 2 }) {
+export default function StaffPickupButton({ client, role, manager = false, sound = true, days = 2 }) {
   const [open, setOpen] = useState(false);
   const { count, unseen, reload } = usePickupWatch(client, { days, sound });
   const { language } = useLanguage();
@@ -45,7 +45,7 @@ export default function StaffPickupButton({ client, role, sound = true, days = 2
                   : 'Online-Bestellungen zur Abholung. Bezahlt wird an der Kasse unter „Aktiv“ mit der Nummer AB-….')}
             </SheetDescription>
           </SheetHeader>
-          {open && <PickupOrdersBoard client={client} role={role} silent />}
+          {open && <PickupOrdersBoard client={client} role={role} manager={manager} silent />}
         </SheetContent>
       </Sheet>
     </>
