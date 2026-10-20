@@ -12,6 +12,8 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import { isStaffApp } from '@/lib/staffApp.js';
+import StaffAppDownload from '@/components/StaffAppDownload.jsx';
 
 // One sign-in for every staff member. The username and password are checked
 // against each staff login list; the person then lands on their own screen.
@@ -199,6 +201,7 @@ export default function StaffLoginPage() {
               </form>
             )}
           </Card>
+          {!isStaffApp && <div className="mt-6"><StaffAppDownload compact /></div>}
         </div>
       </main>
     </>
