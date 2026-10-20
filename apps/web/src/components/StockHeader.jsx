@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { LogOut } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { stockPb as pb } from '@/lib/staffClients.js';
 import pbDefault from '@/lib/pocketbaseClient.js';
@@ -9,7 +10,7 @@ import pbDefault from '@/lib/pocketbaseClient.js';
 // WaiterHeader / KdsHeader pattern: logo (left) + EN/DE language switcher
 // (right). Public-site nav is intentionally omitted.
 // home/subtitle let the staff sign-in and auditor pages reuse this header.
-export default function StockHeader({ home, subtitle = 'Stock & Waste' }) {
+export default function StockHeader({ home, subtitle = 'Stock & Waste', onLogout }) {
   const navigate = useNavigate();
   const { language, setLanguage } = useLanguage();
   const [logoUrl, setLogoUrl] = useState(null);
@@ -57,7 +58,7 @@ export default function StockHeader({ home, subtitle = 'Stock & Waste' }) {
             type="button"
             onClick={handleLogoClick}
             className="flex items-center gap-3 md:gap-4 group min-w-0"
-            aria-label="Tripti Genusswelt — go to Stock Dashboard"
+            aria-label={home ? "Tripti Genusswelt" : "Tripti Genusswelt — go to Stock Dashboard"}
           >
             {logoUrl ? (
               <motion.div
@@ -87,6 +88,13 @@ export default function StockHeader({ home, subtitle = 'Stock & Waste' }) {
             )}
           </button>
 
+          <div className="flex items-center gap-2 shrink-0">
+          {onLogout && (
+            <button type="button" onClick={onLogout} aria-label={language === 'en' ? 'Log out' : 'Abmelden'}
+              className="flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary-foreground/10 border border-primary-foreground/20 text-primary-foreground text-xs font-bold hover:text-secondary">
+              <LogOut className="h-4 w-4" /><span className="hidden sm:inline">{language === 'en' ? 'Log out' : 'Abmelden'}</span>
+            </button>
+          )}
           <div className="flex items-center bg-primary-foreground/10 rounded-lg p-1 border border-primary-foreground/20 shrink-0">
             <button
               type="button"
@@ -102,6 +110,7 @@ export default function StockHeader({ home, subtitle = 'Stock & Waste' }) {
             >
               DE
             </button>
+          </div>
           </div>
         </div>
       </nav>

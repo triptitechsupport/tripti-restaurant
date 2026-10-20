@@ -516,3 +516,31 @@
     animation: none;
   }
 }
+/* Tripti Staff Android app: keep content clear of the phone's status and
+   navigation bars (the app sets --safe-area-inset-*), and colour both bars
+   in Tripti burgundy. */
+html.staff-app {
+  --app-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+html.staff-app body {
+  padding-top: var(--app-top);
+  padding-bottom: var(--app-bottom);
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.staff-app body::before,
+html.staff-app body::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: hsl(var(--primary));
+  z-index: 2147483647;
+  pointer-events: none;
+}
+html.staff-app body::before { top: 0; height: var(--app-top); }
+html.staff-app body::after { bottom: 0; height: var(--app-bottom); }
+html.staff-app .sticky-header {
+  top: var(--app-top);
+}

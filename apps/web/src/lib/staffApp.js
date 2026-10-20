@@ -16,6 +16,7 @@ function detect() {
 }
 
 export const isStaffApp = detect();
+if (isStaffApp && typeof document !== 'undefined') document.documentElement.classList.add('staff-app');
 
 // The app's own printing and file saving (Android has no browser print
 // dialog or downloads inside the app).

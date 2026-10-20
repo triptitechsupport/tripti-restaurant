@@ -69,7 +69,12 @@ export default function StaffLoginPage() {
   const navigate = useNavigate();
   const { language } = useLanguage();
   const tx = T[language === 'en' ? 'en' : 'de'];
-  const [form, setForm] = useState({ id: '', pw: '' });
+  // The last username is remembered on this device (never the password).
+  const [form, setForm] = useState(() => {
+    let id = '';
+    try { id = localStorage.getItem('tripti_staff_last_id') || ''; } catch { /* ignore */ }
+    return { id, pw: '' };
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [choices, setChoices] = useState(null);
@@ -112,6 +117,7 @@ export default function StaffLoginPage() {
         return { area, record, token: auth.token, role: roleOf(area, record) };
       }));
       const matches = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+      if (matches.length) { try { localStorage.setItem('tripti_staff_last_id', id); } catch { /* ignore */ } }
       if (matches.length === 1) { await open(matches[0]); return; }
       if (matches.length > 1) { setChoices(matches); return; }
       const offline = results.every((r) => r.status === 'rejected' && !r.reason?.status);
@@ -172,12 +178,12 @@ export default function StaffLoginPage() {
                     <Label htmlFor="staff-id" className="font-bold text-primary">{tx.user}</Label>
                     <Input id="staff-id" value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })}
                       placeholder={tx.userPh} autoCapitalize="none" autoCorrect="off" autoComplete="username"
-                      className="h-12 border-2" disabled={busy} autoFocus />
+                      className="h-12 border-2" disabled={busy} autoFocus={!form.id} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="staff-pw" className="font-bold text-primary">{tx.pw}</Label>
                     <PasswordInput id="staff-pw" value={form.pw} onChange={(e) => setForm({ ...form, pw: e.target.value })}
-                      placeholder="••••••••" autoComplete="current-password" className="h-12 border-2" disabled={busy} />
+                      placeholder="••••••••" autoComplete="current-password" className="h-12 border-2" disabled={busy} autoFocus={Boolean(form.id)} />
                   </div>
                   {error && (
                     <div role="alert" className="flex items-center gap-3 p-4 text-sm text-destructive font-bold bg-destructive/10 rounded-xl border border-destructive/20">

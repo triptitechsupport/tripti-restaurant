@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from 'react';
 import NotFoundPage from '@/pages/NotFoundPage.jsx';
 import { Route, Routes, BrowserRouter as Router, Navigate, useLocation } from 'react-router-dom';
 import { LanguageProvider } from '@/contexts/LanguageContext.jsx';
-import { AdminAuthProvider } from '@/contexts/AdminAuthContext.jsx';
+import { AdminAuthProvider, useAuth } from '@/contexts/AdminAuthContext.jsx';
 import { SubscriptionAuthProvider } from '@/contexts/SubscriptionAuthContext.jsx';
 import { CartProvider } from '@/hooks/useCart.jsx';
 import ScrollToTop from '@/components/ScrollToTop.jsx';
@@ -107,6 +107,7 @@ function PageLoading() {
 function Layout() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const location = useLocation();
+  const { logout: adminLogout } = useAuth();
   // Waiter Station pages get a minimal header (logo + language switcher
   // only) instead of the full public restaurant header. All other routes
   // keep the public Header with its full nav, phone, Order Now, and cart.
@@ -123,9 +124,9 @@ function Layout() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : isStaffAppRoute ? <StockHeader home="/staff-login" subtitle="Staff" /> : <Header setIsCartOpen={setIsCartOpen} />}
-      <MarqueeBar />
-      <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />
+      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : isStaffAppRoute ? <StockHeader home="/staff-login" subtitle="Staff" /> : (isStaffApp && isAdminDashboardRoute) ? <StockHeader home="/admin-dashboard" subtitle="Admin" onLogout={adminLogout} /> : <Header setIsCartOpen={setIsCartOpen} />}
+      {!isStaffApp && <MarqueeBar />}
+      {!isStaffApp && <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />}
       <GlobalReservationNotifications />
       
       <div className="flex-1 flex flex-col">

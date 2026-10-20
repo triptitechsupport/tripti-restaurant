@@ -1,7 +1,11 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { fiscalStatusLabel, paymentOptions } from "@/hooks/useFiscalBilling.js";
+import { useLanguage } from "@/contexts/LanguageContext.jsx";
+import { billingText } from "@/lib/billingText.js";
 export default function FiscalBillingControls({ order, fiscal, part }) {
+  const { language } = useLanguage();
+  const b = billingText(language);
   const t = fiscal.transactionFor(order);
   const issued = ["signed", "outage"].includes(t?.status);
   const cancellation = fiscal.transactions.find(
@@ -17,9 +21,9 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
       className="border rounded-md bg-background p-2 text-xs max-w-48" value={selected}
       disabled={Boolean(t) || fiscal.readOnly || fiscal.busy === order.id}
       onChange={e => fiscal.setRegisterChoices(prev => ({...prev, [order.id]: e.target.value}))}>
-      <option value="">Select register</option>
-      {selected && !rows.some(r => r.id === selected) && <option value={selected}>Original register</option>}
-      {rows.map(r => <option key={r.id} value={r.id} disabled={!r.enabledForBilling}>{r.name}{r.enabledForBilling ? '' : ' — setup required'}</option>)}
+      <option value="">{b("Select register")}</option>
+      {selected && !rows.some(r => r.id === selected) && <option value={selected}>{b("Original register")}</option>}
+      {rows.map(r => <option key={r.id} value={r.id} disabled={!r.enabledForBilling}>{r.name}{r.enabledForBilling ? '' : ` — ${b('setup required')}`}</option>)}
     </select>;
   }
   if (part === "payment")
@@ -55,14 +59,14 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
                 : "text-amber-600"
           }
         >
-          {fiscalStatusLabel(t)}
+          {b(fiscalStatusLabel(t))}
         </span>
         {t?.errorMessage && (
           <p className="text-red-600 max-w-52 mt-1">{t.errorMessage}</p>
         )}
-        {t?.status === "failed" && !canRecover(t) && <p className="max-w-52 mt-1">Resolve the reported issue, then retry the saved receipt. It cannot be released while its outcome is uncertain or an outage copy exists.</p>}
-        {cancellation && <p>Cancellation: {fiscalStatusLabel(cancellation)}{cancellation.errorMessage && ` — ${cancellation.errorMessage}`}</p>}
-        {released.length > 0 && <details className="mt-2 max-w-56"><summary className="cursor-pointer">Released attempts ({released.length})</summary>{released.map(receipt => <p key={receipt.id} className="mt-1">{receipt.receiptType} · {new Date(receipt.recoveryDetails.recoveredAt).toLocaleString()} · {receipt.recoveryDetails.reason}</p>)}</details>}
+        {t?.status === "failed" && !canRecover(t) && <p className="max-w-52 mt-1">{b("Resolve the reported issue, then retry the saved receipt. It cannot be released while its outcome is uncertain or an outage copy exists.")}</p>}
+        {cancellation && <p>{b("Cancellation")}: {b(fiscalStatusLabel(cancellation))}{cancellation.errorMessage && ` — ${cancellation.errorMessage}`}</p>}
+        {released.length > 0 && <details className="mt-2 max-w-56"><summary className="cursor-pointer">{b("Released attempts")} ({released.length})</summary>{released.map(receipt => <p key={receipt.id} className="mt-1">{receipt.receiptType} · {new Date(receipt.recoveryDetails.recoveredAt).toLocaleString()} · {receipt.recoveryDetails.reason}</p>)}</details>}
       </div>
     );
   if (part === "print")
@@ -75,7 +79,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
             disabled={!issued}
             onClick={() => fiscal.setPreview(t)}
           >
-            Print
+            {b("Print")}
           </Button>
         )}
         {t?.fallbackReceipt && (
@@ -86,7 +90,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
               fiscal.setPreview({ ...t, printVariant: "fallback" })
             }
           >
-            {issued ? "Print outage copy" : "Print outage receipt"}
+            {b(issued ? "Print outage copy" : "Print outage receipt")}
           </Button>
         )}
         {cancellation && ["signed", "outage"].includes(cancellation.status) && (
@@ -95,7 +99,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
             variant="outline"
             onClick={() => fiscal.setPreview(cancellation)}
           >
-            Print cancellation
+            {b("Print cancellation")}
           </Button>
         )}
         {cancellation?.fallbackReceipt && (
@@ -106,7 +110,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
               fiscal.setPreview({ ...cancellation, printVariant: "fallback" })
             }
           >
-            Print cancellation outage copy
+            {b("Print cancellation outage copy")}
           </Button>
         )}
       </div>
@@ -119,7 +123,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
           disabled={fiscal.busy === order.id || Boolean(fiscal.error) || (order.settlementId && !fiscal.registerFor(order))}
           onClick={() => fiscal.generate(order)}
         >
-          {fiscal.busy === order.id ? "Generating…" : "Generate Bill"}
+          {b(fiscal.busy === order.id ? "Generating…" : "Generate Bill")}
         </Button>
       )}
       {t && ["failed", "queued"].includes(t.status) && (
@@ -128,10 +132,10 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
           disabled={fiscal.busy === order.id}
           onClick={() => fiscal.retry(t)}
         >
-          Retry generation
+          {b("Retry generation")}
         </Button>
       )}
-      {!fiscal.limited && canRecover(t) && <Button size="sm" variant="outline" disabled={fiscal.busy === order.id || Boolean(fiscal.error)} onClick={() => fiscal.recover(t)}>Release rejected bill</Button>}
+      {!fiscal.limited && canRecover(t) && <Button size="sm" variant="outline" disabled={fiscal.busy === order.id || Boolean(fiscal.error)} onClick={() => fiscal.recover(t)}>{b("Release rejected bill")}</Button>}
       {!fiscal.limited && issued && !cancellation && (
         <Button
           size="sm"
@@ -139,7 +143,7 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
           disabled={fiscal.busy === order.id}
           onClick={() => fiscal.cancel(t)}
         >
-          Cancel receipt
+          {b("Cancel receipt")}
         </Button>
       )}
       {cancellation && ["failed", "queued"].includes(cancellation.status) && (
@@ -149,10 +153,10 @@ export default function FiscalBillingControls({ order, fiscal, part }) {
           disabled={fiscal.busy === order.id}
           onClick={() => fiscal.retry(cancellation)}
         >
-          Retry cancellation
+          {b("Retry cancellation")}
         </Button>
       )}
-      {canRecover(cancellation) && <Button size="sm" variant="outline" disabled={fiscal.busy === order.id || Boolean(fiscal.error)} onClick={() => fiscal.recover(cancellation)}>Release rejected cancellation</Button>}
+      {canRecover(cancellation) && <Button size="sm" variant="outline" disabled={fiscal.busy === order.id || Boolean(fiscal.error)} onClick={() => fiscal.recover(cancellation)}>{b("Release rejected cancellation")}</Button>}
     </div>
   );
 }
