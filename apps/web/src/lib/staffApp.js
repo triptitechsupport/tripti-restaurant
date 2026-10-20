@@ -27,7 +27,11 @@ const native = () => (typeof window !== 'undefined' ? window.Capacitor?.Plugins?
 export function nativePrint(win = window, title = 'Tripti') {
   const plugin = native();
   if (!plugin) return false;
-  const html = `<!doctype html>${win.document.documentElement.outerHTML}`;
+  // Print a copy without scripts: the page is already drawn (barcodes too),
+  // and scripts would start the whole website again inside the print view.
+  const copy = win.document.documentElement.cloneNode(true);
+  copy.querySelectorAll('script, link[rel="modulepreload"]').forEach((el) => el.remove());
+  const html = `<!doctype html>${copy.outerHTML}`;
   plugin.printHtml({ html, title, baseUrl: window.location.origin + '/' }).catch((err) => {
     console.error('[StaffApp] print failed', err);
   });

@@ -65,6 +65,14 @@
       })();
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
+          // The Tripti Staff Android app always loads pages from the server
+          // (it shows its own offline page), so no service worker there.
+          if (/TriptiStaffApp/i.test(navigator.userAgent || '')) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (r) { r.unregister(); });
+            }).catch(function () {});
+            return;
+          }
           navigator.serviceWorker.register('/service-worker.js').catch(function () {});
         });
       }

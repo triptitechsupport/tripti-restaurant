@@ -42,7 +42,7 @@ public class StaffAppPlugin extends Plugin {
         final String title = call.getString("title", "Tripti");
         getActivity().runOnUiThread(() -> {
             WebView view = new WebView(getContext());
-            view.getSettings().setJavaScriptEnabled(true); // barcode labels draw with a script
+            view.getSettings().setJavaScriptEnabled(false); // the page arrives fully drawn
             printView = view;
             view.setWebViewClient(new WebViewClient() {
                 private boolean started = false;

@@ -42,4 +42,5 @@ if (typeof window !== 'undefined') {
   dropStaleLogin(kdsPb, 'kds_users');
   dropStaleLogin(waiterPb, 'waiter_users');
   dropStaleLogin(auditorPb, 'auditor_users');
+  dropStaleLogin(stockPb, 'stock_users');
 }

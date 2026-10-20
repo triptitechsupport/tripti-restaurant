@@ -80,12 +80,33 @@ export default function StaffLoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [choices, setChoices] = useState(null);
-  const [saved, setSaved] = useState(() => savedLogins());
+  const [saved, setSaved] = useState([]);
+  const [checking, setChecking] = useState(() => savedLogins().length > 0);
 
-  // Exactly one saved login: open that work area straight away.
+  // Logins saved on this device are checked with the server first (the test
+  // server starts with a fresh database after each deploy). Exactly one
+  // valid login: open that work area straight away.
   useEffect(() => {
-    if (saved.length === 1) navigate(saved[0].area.to, { replace: true });
-  }, [saved, navigate]);
+    let alive = true;
+    const list = savedLogins();
+    if (!list.length) return undefined;
+    Promise.all(list.map(async (m) => {
+      try {
+        await m.area.client.collection(m.area.collection).authRefresh({ $autoCancel: false });
+        return true;
+      } catch (err) {
+        if ([401, 403, 404].includes(err?.status)) { m.area.client.authStore.clear(); return false; }
+        return true; // offline: keep the login
+      }
+    })).then(() => {
+      if (!alive) return;
+      const valid = savedLogins();
+      if (valid.length === 1) { navigate(valid[0].area.to, { replace: true }); return; }
+      setSaved(valid);
+      setChecking(false);
+    });
+    return () => { alive = false; };
+  }, [navigate]);
 
   // Keep only the chosen login on this device, so the next person who signs
   // in never inherits someone else's session.
@@ -158,7 +179,13 @@ export default function StaffLoginPage() {
               <CardDescription className="text-base text-foreground">{tx.desc}</CardDescription>
             </CardHeader>
 
-            {saved.length > 1 && !choices && (
+            {checking && (
+              <CardContent className="flex justify-center py-10" role="status" aria-live="polite">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </CardContent>
+            )}
+
+            {!checking && saved.length > 1 && !choices && (
               <CardContent className="space-y-3">
                 <p className="font-bold text-primary">{tx.continueAs}</p>
                 {roleButtons(saved, open)}
@@ -173,7 +200,7 @@ export default function StaffLoginPage() {
               </CardContent>
             )}
 
-            {saved.length <= 1 && !choices && (
+            {!checking && saved.length <= 1 && !choices && (
               <form onSubmit={submit} noValidate>
                 <CardContent className="space-y-5">
                   <div className="space-y-2">
