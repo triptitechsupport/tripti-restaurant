@@ -44,6 +44,19 @@ export const STAFF_ROLES = {
       desc: 'Sign in at /cashier-login. They get the service screen (tables, payments, pickups) and issue signed receipts.',
     },
   },
+  auditor: {
+    collection: 'auditor_users',
+    domain: 'triptiaudit.local',
+    login: '/staff-login',
+    de: {
+      title: 'Prüfer', one: 'Prüfer/in', add: 'Prüfer/in anlegen',
+      desc: 'Nur Ansicht: Zahlungen, signierte Belege und DEP7-Export. Sie können nichts ändern.',
+    },
+    en: {
+      title: 'Auditors', one: 'auditor', add: 'Add auditor',
+      desc: 'View only: payments, signed receipts and the DEP7 export. They cannot change anything.',
+    },
+  },
 };
 
 const T = {

@@ -2,6 +2,7 @@
 // Used by Waiter & Admin order placement / order views. NOT by KDS.
 
 import pb from '@/lib/pocketbaseClient.js';
+import { nativePrint } from '@/lib/staffApp.js';
 
 function escapeHtml(str) {
   return String(str == null ? '' : str)
@@ -404,7 +405,7 @@ export async function printKOT(order, options = {}) {
     const done = () => {
       try {
         iframe.contentWindow.focus();
-        iframe.contentWindow.print();
+        if (!nativePrint(iframe.contentWindow)) iframe.contentWindow.print();
       } catch (_) { /* ignore */ }
       setTimeout(() => {
         try { document.body.removeChild(iframe); } catch (_) { /* ignore */ }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -616,6 +616,7 @@ export default function AdminBookingDashboard() {
   const renderStockManagersSection = () => <AdminStockManagement />;
   const renderKitchenManagersSection = () => <AdminStaffAccounts role="kitchen_manager" icon={CookingPot} />;
   const renderCashiersSection = () => <AdminStaffAccounts role="cashier" icon={Banknote} />;
+  const renderAuditorsSection = () => <AdminStaffAccounts role="auditor" icon={ShieldCheck} />;
   const renderKotPrintOrderSection = () => <AdminKotPrintOrder />;
   const renderAnalysisSection = () => <AdminAnalysisView />;
 
@@ -884,6 +885,13 @@ export default function AdminBookingDashboard() {
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderCashiersSection()}</AccordionContent>
               </AccordionItem>
 
+              <AccordionItem value="auditors" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><ShieldCheck className="w-5 h-5 mr-4 text-primary"/> {roleTitle('auditor')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderAuditorsSection()}</AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value="analysis" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
                   <div className="flex items-center font-bold text-lg"><BarChart3 className="w-5 h-5 mr-4 text-primary"/> Analysis</div>
@@ -945,6 +953,9 @@ export default function AdminBookingDashboard() {
                 <button onClick={() => setActiveTab('cashiers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'cashiers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <Banknote className="h-4 w-4 mr-2" /> {roleTitle('cashier')}
                 </button>
+                <button onClick={() => setActiveTab('auditors')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'auditors' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <ShieldCheck className="h-4 w-4 mr-2" /> {roleTitle('auditor')}
+                </button>
                 <button onClick={() => setActiveTab('analysis')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <BarChart3 className="h-4 w-4 mr-2" /> Analysis
                 </button>
@@ -968,6 +979,7 @@ export default function AdminBookingDashboard() {
                 {activeTab === 'stock-managers' && renderStockManagersSection()}
                 {activeTab === 'kitchen-managers' && renderKitchenManagersSection()}
                 {activeTab === 'cashiers' && renderCashiersSection()}
+                {activeTab === 'auditors' && renderAuditorsSection()}
                 {activeTab === 'analysis' && renderAnalysisSection()}
               </div>
             </>

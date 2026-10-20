@@ -29,6 +29,8 @@ const AdminLoginPage = lazy(() => import('@/pages/AdminLoginPage.jsx'));
 const KdsLoginPage = lazy(() => import('@/pages/KdsLoginPage.jsx'));
 const WaiterLoginPage = lazy(() => import('@/pages/WaiterLoginPage.jsx'));
 const CashierLoginPage = lazy(() => import('@/pages/CashierLoginPage.jsx'));
+const StaffLoginPage = lazy(() => import('@/pages/StaffLoginPage.jsx'));
+const AuditorDashboard = lazy(() => import('@/pages/AuditorDashboard.jsx'));
 const KdsDashboard = lazy(() => import('@/pages/KdsDashboard.jsx'));
 const WaiterDashboard = lazy(() => import('@/pages/WaiterDashboard.jsx'));
 const AdminPlaceOrderPage = lazy(() => import('@/pages/AdminPlaceOrderPage.jsx'));
@@ -52,6 +54,10 @@ const SubscriptionsPage = lazy(() => import('@/pages/SubscriptionsPage.jsx'));
 import WhatsAppButton from '@/components/WhatsAppButton.jsx';
 import GlobalReservationNotifications from '@/components/GlobalReservationNotifications.jsx';
 import { LOGIN_PATH, MANAGE_PATH } from '@/config/subscriptionRoutes.js';
+import { isStaffApp } from '@/lib/staffApp.js';
+
+// In the staff Android app every sign-in goes through the one staff login.
+const inApp = (page) => (isStaffApp ? <Navigate to="/staff-login" replace /> : page);
 
 // Global Connection Monitor Component
 function ConnectionMonitor() {
@@ -107,16 +113,17 @@ function Layout() {
   const isWaiterRoute = location.pathname.startsWith('/waiter-') || location.pathname === '/cashier-login';
   const isKdsRoute = location.pathname.startsWith('/kds-');
   const isStockRoute = location.pathname.startsWith('/stock-');
+  const isStaffAppRoute = location.pathname === '/staff-login' || location.pathname.startsWith('/auditor-');
   const isAdminDashboardRoute = location.pathname === '/admin-dashboard'
     || location.pathname === '/admin-booking-dashboard'
     || location.pathname === '/admin'
     || location.pathname === '/admin-help'
     || location.pathname.startsWith('/admin/');
-  const showFooter = !isWaiterRoute && !isKdsRoute && !isStockRoute && !isAdminDashboardRoute;
+  const showFooter = !isWaiterRoute && !isKdsRoute && !isStockRoute && !isAdminDashboardRoute && !isStaffAppRoute && !isStaffApp;
 
   return (
     <div className="flex flex-col min-h-screen">
-      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
+      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : isStaffAppRoute ? <StockHeader home="/staff-login" subtitle="Staff" /> : <Header setIsCartOpen={setIsCartOpen} />}
       <MarqueeBar />
       <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />
       <GlobalReservationNotifications />
@@ -125,7 +132,7 @@ function Layout() {
         <Suspense fallback={<PageLoading />}>
         <Routes>
           {/* Public Routes */}
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={inApp(<HomePage />)} />
           <Route path="/menu" element={<MenuPage />} />
           
           <Route path="/table-reservation" element={<TableReservationPage />} />
@@ -141,18 +148,20 @@ function Layout() {
           <Route path="/order-confirmation/:id" element={<OrderConfirmationPage />} />
           
           {/* Admin Login (Publicly accessible) */}
-          <Route path="/admin-login" element={<AdminLoginPage />} />
+          <Route path="/admin-login" element={inApp(<AdminLoginPage />)} />
 
           {/* KDS & Waiter Login + Dashboards */}
-          <Route path="/kds-login" element={<KdsLoginPage />} />
+          <Route path="/kds-login" element={inApp(<KdsLoginPage />)} />
           <Route path="/kds-dashboard" element={<KdsDashboard />} />
-          <Route path="/waiter-login" element={<WaiterLoginPage />} />
-          <Route path="/cashier-login" element={<CashierLoginPage />} />
+          <Route path="/waiter-login" element={inApp(<WaiterLoginPage />)} />
+          <Route path="/cashier-login" element={inApp(<CashierLoginPage />)} />
+          <Route path="/staff-login" element={<StaffLoginPage />} />
+          <Route path="/auditor-dashboard" element={<AuditorDashboard />} />
           <Route path="/waiter-dashboard" element={<WaiterDashboard />} />
           <Route path="/waiter-help" element={<WaiterHelpPage />} />
 
           {/* Stock & Waste Management Login + Dashboard */}
-          <Route path="/stock-login" element={<StockLoginPage />} />
+          <Route path="/stock-login" element={inApp(<StockLoginPage />)} />
           <Route path="/stock-dashboard" element={<StockDashboard />} />
           <Route path="/stock-help" element={<StockHelpPage />} />
           
@@ -246,7 +255,7 @@ function App() {
                     <>
                       <ConnectionMonitor />
                       <Layout />
-                      <WhatsAppButton />
+                      {!isStaffApp && <WhatsAppButton />}
                     </>
                   }
                 />

@@ -21,6 +21,12 @@ export const stockPb = new PocketBase(
   new LocalAuthStore('pb_stock_auth')
 );
 
+// Auditors (view only) — their own store as well.
+export const auditorPb = new PocketBase(
+  POCKETBASE_API_URL,
+  new LocalAuthStore('pb_auditor_auth')
+);
+
 // Sign out a saved kitchen or waiter login the server no longer knows (for
 // example after the test server was redeployed with a fresh database).
 function dropStaleLogin(client, collection) {
@@ -35,4 +41,5 @@ function dropStaleLogin(client, collection) {
 if (typeof window !== 'undefined') {
   dropStaleLogin(kdsPb, 'kds_users');
   dropStaleLogin(waiterPb, 'waiter_users');
+  dropStaleLogin(auditorPb, 'auditor_users');
 }

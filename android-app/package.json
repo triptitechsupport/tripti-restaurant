@@ -1,0 +1,17 @@
+{
+  "name": "tripti-staff-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tripti staff Android app: one sign-in for admin, waiter, cashier, kitchen, stock and auditor.",
+  "scripts": {
+    "sync": "cap sync android",
+    "apk": "cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
+}

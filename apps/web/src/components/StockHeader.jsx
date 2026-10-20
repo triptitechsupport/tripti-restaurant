@@ -8,7 +8,8 @@ import pbDefault from '@/lib/pocketbaseClient.js';
 // Minimal header for stock-authenticated pages only — mirrors the
 // WaiterHeader / KdsHeader pattern: logo (left) + EN/DE language switcher
 // (right). Public-site nav is intentionally omitted.
-export default function StockHeader() {
+// home/subtitle let the staff sign-in and auditor pages reuse this header.
+export default function StockHeader({ home, subtitle = 'Stock & Waste' }) {
   const navigate = useNavigate();
   const { language, setLanguage } = useLanguage();
   const [logoUrl, setLogoUrl] = useState(null);
@@ -30,6 +31,7 @@ export default function StockHeader() {
   }, []);
 
   const handleLogoClick = () => {
+    if (home) { navigate(home); return; }
     const sModel = pb.authStore.model || pb.authStore.record;
     const aModel = pbDefault.authStore.model || pbDefault.authStore.record;
     const isStock = pb.authStore.isValid && sModel?.collectionName === 'stock_users';
@@ -79,7 +81,7 @@ export default function StockHeader() {
                   Tripti Genusswelt
                 </span>
                 <span className="text-[10px] md:text-xs font-semibold uppercase tracking-[0.2em] text-primary-foreground/90">
-                  Stock & Waste
+                  {subtitle}
                 </span>
               </motion.div>
             )}

@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/dialog";
 
 // cashier: the cashier screen; hides admin-only settings and actions.
-export default function SettlementBillingView({ cashier = false }) {
-  const fiscal = {...useFiscalBilling(), limited: cashier};
+// auditor: view only; no actions at all, but the DEP7 export stays.
+export default function SettlementBillingView({ cashier = false, auditor = false }) {
+  const fiscal = {...useFiscalBilling(), limited: cashier || auditor, readOnly: auditor};
   const [settlements, setSettlements] = useState([]);
   const [includeClosed, setIncludeClosed] = useState(false);
   const [error, setError] = useState("");
@@ -66,7 +67,7 @@ export default function SettlementBillingView({ cashier = false }) {
     <section className="p-4 md:p-6 space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3"><div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><Receipt className="h-5 w-5 text-primary"/></div>
-          <div><h2 className="text-xl sm:text-2xl font-serif font-bold text-primary">Billing</h2><p className="text-sm text-muted-foreground">Generate and print a separate receipt for each confirmed payment.</p></div>
+          <div><h2 className="text-xl sm:text-2xl font-serif font-bold text-primary">Billing</h2><p className="text-sm text-muted-foreground">{auditor ? "Payments and signed receipts (view only)." : "Generate and print a separate receipt for each confirmed payment."}</p></div>
         </div>
         <Button variant="outline" disabled={refreshing} className="h-10 w-full sm:w-auto" onClick={() => {setRefreshKey(value => value + 1); void fiscal.refresh();}}>{refreshing ? <Loader2 className="h-4 w-4 mr-2 animate-spin"/> : <RefreshCw className="h-4 w-4 mr-2"/>}Refresh</Button>
       </div>

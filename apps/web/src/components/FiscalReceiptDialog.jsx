@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { fiscalPrintModel } from "@/lib/fiscalPrintModel.js";
 import "@/styles/fiscal-receipt.css";
+import { nativePrint } from "@/lib/staffApp.js";
 
 const money = (value) =>
   new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" }).format(
@@ -47,6 +48,10 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
     document.body.classList.add("printing-fiscal-receipt");
     const cleanup = () =>
       document.body.classList.remove("printing-fiscal-receipt");
+    if (nativePrint(window, "Beleg")) {
+      cleanup();
+      return;
+    }
     window.addEventListener("afterprint", cleanup, { once: true });
     try {
       window.print();

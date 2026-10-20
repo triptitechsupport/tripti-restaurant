@@ -1,0 +1,13 @@
+{
+  "appId": "at.tripti.staff",
+  "appName": "Tripti Staff",
+  "webDir": "www",
+  "server": {
+    "url": "https://www.triptistore.in/staff-login",
+    "allowNavigation": ["www.triptistore.in", "triptistore.in", "tripti-rksv-test.onrender.com"]
+  },
+  "android": {
+    "appendUserAgent": "TriptiStaffApp",
+    "allowMixedContent": false
+  }
+}
