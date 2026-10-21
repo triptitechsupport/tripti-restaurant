@@ -1,23 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Search, ShoppingBag, RefreshCw, AlertCircle, MapPin, Trash2 } from 'lucide-react';
+import { Search, ShoppingBag, RefreshCw, AlertCircle, MapPin } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import pb from '@/lib/pocketbaseClient.js';
@@ -32,7 +21,7 @@ export default function OrderManagementTable() {
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
+
   const isMobile = useIsMobile();
 
   const fetchOrders = async () => {
@@ -81,19 +70,6 @@ export default function OrderManagementTable() {
     }
   };
 
-  const handleDeleteOrder = async (orderId) => {
-    setDeletingId(orderId);
-    try {
-      await pb.collection('orders').delete(orderId, { $autoCancel: false });
-      toast.success('Order deleted successfully');
-      setOrders(orders.filter(order => order.id !== orderId));
-    } catch (err) {
-      console.error('Failed to delete order:', err);
-      toast.error('Failed to delete order');
-    } finally {
-      setDeletingId(null);
-    }
-  };
 
   const filteredOrders = orders.filter(order => 
     order.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -222,7 +198,7 @@ export default function OrderManagementTable() {
                   <Select 
                     value={order.paymentStatus || 'pending'} 
                     onValueChange={(val) => handleStatusChange(order.id, val)}
-                    disabled={updatingId === order.id || deletingId === order.id}
+                    disabled={updatingId === order.id}
                   >
                     <SelectTrigger className="w-full h-12 bg-background">
                       <SelectValue placeholder="Status" />
@@ -233,25 +209,6 @@ export default function OrderManagementTable() {
                       <SelectItem value="failed" className="text-orange-600 font-medium">Failed</SelectItem>
                     </SelectContent>
                   </Select>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" className="w-full h-12 text-destructive border-destructive/20 hover:bg-destructive/10" disabled={deletingId === order.id}>
-                        <Trash2 className="h-4 w-4 mr-2" /> Delete Order
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent className="modal-mobile-safe">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Order</AlertDialogTitle>
-                        <AlertDialogDescription>Are you sure you want to delete this order? This action cannot be undone.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 mt-4">
-                        <AlertDialogCancel className="h-12 sm:h-10 mt-0">Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDeleteOrder(order.id)} className="h-12 sm:h-10 bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
                 </div>
               }
             />
@@ -307,7 +264,7 @@ export default function OrderManagementTable() {
                           <Select 
                             value={order.paymentStatus || 'pending'} 
                             onValueChange={(val) => handleStatusChange(order.id, val)}
-                            disabled={updatingId === order.id || deletingId === order.id}
+                            disabled={updatingId === order.id}
                           >
                             <SelectTrigger className={`h-9 w-[130px] text-xs font-semibold border ${getStatusColorClass(order.paymentStatus || 'pending')}`}>
                               <SelectValue placeholder="Status" />
@@ -319,36 +276,6 @@ export default function OrderManagementTable() {
                             </SelectContent>
                           </Select>
                           
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-9 w-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 transition-colors"
-                                disabled={deletingId === order.id}
-                                title="Delete Order"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent className="modal-mobile-safe">
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Order</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to delete this order? This action cannot be undone.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction 
-                                  onClick={() => handleDeleteOrder(order.id)}
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
                         </div>
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground whitespace-nowrap">
