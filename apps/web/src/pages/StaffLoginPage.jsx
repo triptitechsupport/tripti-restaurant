@@ -34,7 +34,7 @@ const T = {
     required: 'Bitte Benutzername und Passwort eingeben.', wrong: 'Benutzername oder Passwort ist falsch.',
     offline: 'Keine Verbindung zum Server. Bitte Internet prüfen.', tooMany: 'Zu viele Anmeldeversuche. Bitte einige Minuten warten.',
     continueAs: 'Angemeldet bleiben als', other: 'Andere Person anmelden',
-    roles: { admin: 'Admin', waiter: 'Service', cashier: 'Kasse', kitchen: 'Küche', kitchen_manager: 'Küchenleitung', stock: 'Lager', auditor: 'Prüfer' },
+    roles: { admin: 'Admin', waiter: 'Kellner', cashier: 'Kassierer', kitchen: 'Küche', kitchen_manager: 'Küchenleitung', stock: 'Lager', auditor: 'Prüfer' },
   },
   en: {
     title: 'Staff sign-in', desc: 'Choose your role, then sign in with your username and password.',
@@ -220,6 +220,9 @@ export default function StaffLoginPage() {
                         className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-border bg-card p-4 min-h-[96px] font-bold text-primary hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${key === 'auditor' ? 'col-span-2' : ''}`}>
                         <Icon className="h-7 w-7" />
                         <span className="text-sm text-center leading-tight">{tx.roles[key]}</span>
+                        {T[language === 'en' ? 'de' : 'en'].roles[key] !== tx.roles[key] && (
+                          <span className="-mt-1.5 text-[11px] font-medium text-muted-foreground text-center leading-tight">{T[language === 'en' ? 'de' : 'en'].roles[key]}</span>
+                        )}
                       </button>
                     );
                   })}

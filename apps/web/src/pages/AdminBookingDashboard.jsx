@@ -51,6 +51,7 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import pb from '@/lib/pocketbaseClient.js';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/use-mobile.jsx';
+import { isStaffApp } from '@/lib/staffApp.js';
 
 export default function AdminBookingDashboard() {
   const { isAdminAuthenticated, initialLoading, currentAdmin } = useAuth();
@@ -714,11 +715,11 @@ export default function AdminBookingDashboard() {
             className="mb-6 md:mb-8"
           />
 
-          <div className="mb-8 md:mb-12 flex items-start justify-between gap-4">
+          <div className={`${isStaffApp ? 'mb-4 items-center' : 'mb-8 md:mb-12 items-start'} flex justify-between gap-4`}>
             <div className="min-w-0">
-              <h1 className="text-3xl md:text-5xl font-serif font-bold text-primary tracking-tight mb-2">{t('adminDashboard')}</h1>
-              <div className="w-16 h-1 bg-secondary rounded-full mb-4"></div>
-              <p className="text-foreground font-medium max-w-2xl text-base md:text-lg">
+              <h1 className={`${isStaffApp ? 'text-2xl' : 'text-3xl md:text-5xl mb-2'} font-serif font-bold text-primary tracking-tight`}>{t('adminDashboard')}</h1>
+              <div className="app-hide w-16 h-1 bg-secondary rounded-full mb-4"></div>
+              <p className="app-hide text-foreground font-medium max-w-2xl text-base md:text-lg">
                 {t('adminDashboardDesc')}
               </p>
             </div>
@@ -732,6 +733,20 @@ export default function AdminBookingDashboard() {
           {/* Admin Quick Access — navigate to the operational dashboards using
               the same authenticated admin session. No separate login, no
               duplicate account; route guards recognize admin_users. */}
+          {isStaffApp ? (
+            <div className="mb-5 grid grid-cols-3 gap-2.5">
+              {[
+                ['/waiter-dashboard', ConciergeBell, language === 'de' ? 'Kellner' : 'Waiter'],
+                ['/kds-dashboard', ChefHat, language === 'de' ? 'Küche' : 'Kitchen'],
+                ['/stock-dashboard', PackageCheck, language === 'de' ? 'Lager' : 'Stock'],
+              ].map(([to, Icon, label]) => (
+                <Link key={to} to={to} className="flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-secondary text-secondary-foreground py-3.5 shadow-sm active:scale-95">
+                  <Icon className="h-6 w-6" />
+                  <span className="text-xs font-bold">{label}</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
           <div className="mb-8 md:mb-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl">
             <Button asChild variant="secondary" className="h-auto justify-start py-4 px-5 shadow-md">
               <Link to="/waiter-dashboard">
@@ -761,6 +776,7 @@ export default function AdminBookingDashboard() {
               </Link>
             </Button>
           </div>
+          )}
 
           {isMobile ? (
             <Accordion

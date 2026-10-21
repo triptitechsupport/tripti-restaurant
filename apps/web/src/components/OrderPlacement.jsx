@@ -4041,7 +4041,45 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 <Label className="text-xs font-semibold uppercase tracking-wide text-primary">
                   Table Number <span className="text-destructive">*</span>
                 </Label>
-                {activeTables.length > 0 ? (
+                {isStaffApp ? (
+                  // Phone app: tap a table. Colours show which tables are free.
+                  <div ref={tableSelectRef} tabIndex={-1} className="grid grid-cols-4 gap-2 outline-none" role="radiogroup" aria-label="Table">
+                    {(activeTables.length > 0
+                      ? activeTables
+                      : Array.from({ length: maxTableNumber }, (_, i) => ({ id: `n${i + 1}`, name: String(i + 1) }))
+                    ).map((t) => {
+                      const hasOpenOrder = openOrderTableNumbers.has(t.name);
+                      const occupied = occupiedTableNumbers.has(t.name);
+                      const combined = activeCombinationTableNumbers.has(t.name);
+                      const blocked = !hasOpenOrder && (occupied || combined);
+                      const chosen = tableNumber === t.name;
+                      const state = hasOpenOrder ? 'Open' : occupied ? 'Ended' : combined ? 'Combined' : 'Free';
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={chosen}
+                          aria-label={`Table ${t.name} ${state}`}
+                          disabled={blocked}
+                          onClick={() => { setTableNumber(t.name); setRoom(t.room || ''); }}
+                          className={`relative flex flex-col items-center justify-center rounded-2xl border-2 h-16 font-bold transition-colors disabled:opacity-40 ${
+                            chosen
+                              ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                              : hasOpenOrder
+                                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                                : 'bg-background border-border text-foreground'
+                          }`}
+                        >
+                          <span className="text-xl leading-none">{String(t.name).replace(/^table\s*/i, '')}</span>
+                          <span className={`text-[9px] uppercase tracking-wide mt-1 ${chosen ? 'opacity-80' : hasOpenOrder ? 'text-amber-700' : blocked ? 'text-destructive' : 'text-muted-foreground'}`}>
+                            {hasOpenOrder ? 'Open' : occupied ? 'Ended' : combined ? 'Combined' : t.room || 'Free'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : activeTables.length > 0 ? (
                   <Select
                     value={tableNumber}
                     onValueChange={(v) => {
@@ -4600,7 +4638,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
         {/* Filter controls (Kitchen Status + Table) + refresh */}
         <div className="space-y-2 mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
+          <div className={isStaffApp ? 'grid grid-cols-[1fr_1fr_auto] items-end gap-2' : 'flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3'}>
             <div className="flex-1 min-w-0">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Kitchen Status</Label>
               <Select value={filterKitchenStatus} onValueChange={setFilterKitchenStatus}>
@@ -4631,11 +4669,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             </div>
             <div className="flex gap-2 sm:items-end">
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="touch-target">
-                {refreshing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Refresh
+                {refreshing ? <Loader2 className="h-4 w-4 sm:mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 sm:mr-1" />}<span className={isStaffApp ? 'sr-only' : ''}>Refresh</span>
               </Button>
               {activeFilterCount > 0 && (
-                <Button variant="ghost" size="sm" onClick={resetFilters} className="touch-target text-destructive hover:text-destructive hover:bg-destructive/10">
-                  <XCircle className="h-4 w-4 mr-1" /> Reset
+                <Button variant="ghost" size="sm" onClick={resetFilters} className="touch-target text-destructive hover:text-destructive hover:bg-destructive/10" aria-label="Reset filters">
+                  <XCircle className="h-4 w-4 sm:mr-1" /><span className={isStaffApp ? 'sr-only' : ''}>Reset</span>
                 </Button>
               )}
             </div>

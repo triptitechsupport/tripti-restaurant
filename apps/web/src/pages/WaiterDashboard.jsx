@@ -19,7 +19,7 @@ import {
 } from '@/utils/timesheetService.js';
 import { toast } from 'sonner';
 import { loginPath, isStaffApp } from '@/lib/staffApp.js';
-import AppLangToggle from '@/components/AppLangToggle.jsx';
+import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 
 export default function WaiterDashboard() {
   const { t, language } = useLanguage();
@@ -181,7 +181,7 @@ export default function WaiterDashboard() {
             <ConciergeBell className="app-hide h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
             {isStaffApp ? (
               <div className="min-w-0 leading-tight">
-                <h1 className="text-base font-bold truncate">{isCashier ? (language === 'en' ? 'Cashier' : 'Kasse') : (language === 'en' ? 'Waiter' : 'Service')}</h1>
+                <h1 className="text-base font-bold truncate">{isCashier ? (language === 'en' ? 'Cashier' : 'Kassierer') : (language === 'en' ? 'Waiter' : 'Kellner')}</h1>
                 <p className="text-xs opacity-80 truncate" aria-label={`Signed in as ${displayName}`}>
                   {displayName}{activeTimesheet ? ` · ${t('waiter_shift')} ${formatDuration(elapsedMin)}` : ''}
                 </p>
@@ -193,6 +193,25 @@ export default function WaiterDashboard() {
             </span>
             </>)}
           </div>
+          {isStaffApp ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <StaffPickupButton client={pb} role="waiter" days={0} />
+              {isCashier && <CashierReceiptsButton client={pb} />}
+              <ContactKitchenButton pbClient={pb} displayName={displayName} />
+              <AppMoreMenu
+                title={displayName}
+                subtitle={activeTimesheet ? `${t('waiter_shift')} ${formatDuration(elapsedMin)}` : t('waiter_notClockedIn')}
+                items={[
+                  isAdmin && { icon: ArrowLeft, label: 'Admin dashboard', onClick: () => navigate('/admin-dashboard') },
+                  activeTimesheet
+                    ? { icon: Clock, label: t('waiter_clockOut'), sub: `${t('waiter_shift')} ${formatDuration(elapsedMin)}`, onClick: handleManualClockOut, disabled: timesheetLoading }
+                    : { icon: LogIn, label: t('waiter_clockIn'), sub: t('waiter_notClockedIn'), onClick: handleManualClockIn, disabled: timesheetLoading },
+                  { icon: HelpCircle, label: language === 'en' ? 'Help' : 'Hilfe', onClick: () => navigate('/waiter-help') },
+                  { icon: LogOut, label: t('logout'), onClick: logout, danger: true },
+                ]}
+              />
+            </div>
+          ) : (
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
               <Button
@@ -246,7 +265,6 @@ export default function WaiterDashboard() {
             <StaffPickupButton client={pb} role="waiter" days={0} />
             {isCashier && <CashierReceiptsButton client={pb} />}
             <ContactKitchenButton pbClient={pb} displayName={displayName} />
-            <AppLangToggle />
             <Button
               variant="secondary"
               size="sm"
@@ -280,6 +298,7 @@ export default function WaiterDashboard() {
               <span className="hidden sm:inline">{t('logout')}</span>
             </Button>
           </div>
+          )}
         </header>
 
         <main className="p-4 max-w-6xl mx-auto">

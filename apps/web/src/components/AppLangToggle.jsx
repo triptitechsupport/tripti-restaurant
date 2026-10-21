@@ -13,7 +13,7 @@ export default function AppLangToggle({ className = '' }) {
     <button
       type="button"
       onClick={() => setLanguage(next)}
-      className={`app-icon-btn ${className}`}
+      className={`app-icon-btn app-lang ${className}`}
       aria-label={language === 'en' ? 'Deutsch' : 'English'}
     >
       <Languages className="h-4 w-4" />

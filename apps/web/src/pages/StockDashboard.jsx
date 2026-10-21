@@ -39,7 +39,7 @@ import {
   renderBarcodeToCanvas,
 } from '@/lib/barcodeUtils.js';
 import { loginPath, isStaffApp } from '@/lib/staffApp.js';
-import AppLangToggle from '@/components/AppLangToggle.jsx';
+import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 
 const WASTE_REASONS = [
   'spoiled', 'expired', 'damaged', 'over-preparation', 'spill', 'burnt', 'customer-return', 'other',
@@ -817,7 +817,7 @@ export default function StockDashboard() {
       <div className="min-h-screen bg-background">
         <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
-            <PackageCheck className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            <PackageCheck className="app-hide h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
             {isStaffApp ? (
               <div className="min-w-0 leading-tight">
                 <h1 className="text-base font-bold truncate">{t('stock_station')}</h1>
@@ -830,7 +830,7 @@ export default function StockDashboard() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
-              <Button variant="secondary" size="sm" onClick={() => navigate('/admin-dashboard')} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_backToAdmin')} title={t('stock_backToAdmin')}>
+              <Button variant="secondary" size="sm" onClick={() => navigate('/admin-dashboard')} className="app-hide h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_backToAdmin')} title={t('stock_backToAdmin')}>
                 <ArrowLeft className="h-4 w-4 sm:mr-1" />
                 <span className="hidden lg:inline">{t('stock_backToAdmin')}</span>
               </Button>
@@ -838,12 +838,21 @@ export default function StockDashboard() {
             <Button variant="secondary" size="sm" onClick={handleRefreshAll} disabled={refreshing} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label="Refresh" title="Refresh">
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
-            <AppLangToggle />
-            <Button variant="secondary" size="sm" onClick={() => navigate('/stock-help')} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_help')} title={t('stock_help')}>
+            {isStaffApp && (
+              <AppMoreMenu
+                title={displayName}
+                items={[
+                  isAdmin && { icon: ArrowLeft, label: t('stock_backToAdmin'), onClick: () => navigate('/admin-dashboard') },
+                  { icon: HelpCircle, label: t('stock_help'), onClick: () => navigate('/stock-help') },
+                  { icon: LogOut, label: t('logout'), onClick: logout, danger: true },
+                ]}
+              />
+            )}
+            <Button variant="secondary" size="sm" onClick={() => navigate('/stock-help')} className="app-hide h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_help')} title={t('stock_help')}>
               <HelpCircle className="h-4 w-4 sm:mr-1" />
               <span className="hidden lg:inline">{t('stock_help')}</span>
             </Button>
-            <Button variant="secondary" size="sm" onClick={logout} className="shrink-0 h-10 min-h-[44px] px-3 sm:px-4" aria-label={t('logout')}>
+            <Button variant="secondary" size="sm" onClick={logout} className="app-hide shrink-0 h-10 min-h-[44px] px-3 sm:px-4" aria-label={t('logout')}>
               <LogOut className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">{t('logout')}</span>
             </Button>
@@ -862,7 +871,7 @@ export default function StockDashboard() {
           />
 
           {/* Tabs */}
-          <div className="flex flex-wrap gap-2 mb-6 p-2 bg-card border-2 border-border rounded-2xl shadow-sm w-fit">
+          <div className={isStaffApp ? 'app-chip-row' : 'flex flex-wrap gap-2 mb-6 p-2 bg-card border-2 border-border rounded-2xl shadow-sm w-fit'}>
             <button onClick={() => setActiveTab('inventory')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Boxes className="h-4 w-4 mr-2" /> {t('stock_tabInventory')}
             </button>

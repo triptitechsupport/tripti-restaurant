@@ -591,7 +591,7 @@ html.staff-app .app-bar button:not([class*="bg-destructive"]) {
   color: hsl(var(--primary-foreground)) !important;
   border: 1px solid hsl(var(--primary-foreground) / 0.18) !important;
 }
-html.staff-app .app-bar .app-icon-btn svg { display: none; }
+html.staff-app .app-bar .app-lang svg { display: none; }
 html.staff-app .sticky-header { --nav-height-mobile: 56px; }
 html.staff-app .sticky-header.indian-decorative-border::after { display: none; }
 .app-icon-btn {
@@ -688,3 +688,68 @@ html.staff-app [data-sonner-toaster][data-y-position="top"] { --offset: calc(var
 
 /* Sign-in screen */
 html.staff-app .app-login { min-height: calc(100vh - var(--app-top) - var(--app-bottom)); }
+
+/* Bottom action sheet ("more" menu) clears the phone's navigation bar. */
+.app-action-sheet { padding-bottom: var(--app-bottom, 0px); max-height: 85vh; overflow-y: auto; }
+html.staff-app .app-bar .app-icon-btn { height: 40px; min-width: 40px; justify-content: center; }
+/* The chat button floats over the page: leave room under the last card. */
+html.staff-app .app-raise { right: 16px !important; height: 52px !important; width: 52px !important; }
+html.staff-app body:has(.app-raise) main { padding-bottom: 84px; }
+/* Section switchers become one row of swipeable chips. */
+.app-chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0 -16px 16px;
+  padding: 2px 16px 4px;
+  scrollbar-width: none;
+}
+.app-chip-row > button:not([class*="bg-primary"]) {
+  background: hsl(var(--card));
+}
+.app-chip-row > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-radius: 9999px !important;
+  padding: 8px 14px !important;
+  border: 2px solid hsl(var(--border));
+}
+.app-chip-row > button[class*="bg-primary"] { border-color: hsl(var(--primary)); }
+/* The chat button hides while a sheet or dialog is open. */
+html.staff-app body:has([role="dialog"], [role="alertdialog"]) .app-raise { display: none; }
+/* On phones, dialogs open as bottom sheets, like a native app. */
+@media (max-width: 640px) {
+  html.staff-app .app-dialog {
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100vh - var(--app-top) - 24px) !important;
+    overflow-y: auto;
+    border-radius: 24px 24px 0 0 !important;
+    border-width: 0 !important;
+    padding-top: 28px !important;
+    padding-bottom: calc(var(--app-bottom) + 20px) !important;
+    --tw-translate-x: 0 !important;
+    --tw-translate-y: 0 !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 40% !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 40% !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+  }
+  html.staff-app .app-dialog::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 40px;
+    height: 5px;
+    margin-left: -20px;
+    border-radius: 9999px;
+    background: hsl(var(--muted-foreground) / 0.25);
+  }
+}

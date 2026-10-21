@@ -5,6 +5,7 @@ import { Send, AlertTriangle, MessageSquare, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import { isStaffApp } from '@/lib/staffApp.js';
 
 /**
  * Compact inline communication composer for the Kitchen Display.
@@ -99,21 +100,22 @@ export default function KdsQuickMessage({ pbClient, displayName }) {
         </div>
 
         {/* Input row — alert toggle + message + send */}
-        <div className="flex items-center gap-2 flex-col sm:flex-row">
+        <div className={cn('flex items-center gap-2', isStaffApp ? 'flex-row' : 'flex-col sm:flex-row')}>
           <button
             type="button"
             onClick={() => setIsAlert((v) => !v)}
             aria-pressed={isAlert}
             title={t('kdsqm_urgent')}
             className={cn(
-              'shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide border transition-colors touch-target min-h-[40px] w-full sm:w-auto',
+              'shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wide border transition-colors touch-target min-h-[40px]',
+              isStaffApp ? 'w-11 px-0' : 'w-full sm:w-auto',
               isAlert
                 ? 'bg-destructive/10 text-destructive border-destructive/50'
                 : 'bg-background text-muted-foreground border-border hover:text-foreground hover:border-destructive/40',
             )}
           >
             <AlertTriangle className="h-3.5 w-3.5" />
-            <span>{t('kdsqm_urgent')}</span>
+            <span className={isStaffApp ? 'sr-only' : ''}>{t('kdsqm_urgent')}</span>
           </button>
           <Input
             value={text}
@@ -132,11 +134,11 @@ export default function KdsQuickMessage({ pbClient, displayName }) {
             type="button"
             onClick={send}
             disabled={sending || !text.trim()}
-            className="shrink-0 w-full sm:w-auto min-h-[40px]"
+            className={cn('shrink-0 min-h-[40px]', isStaffApp ? 'w-11 px-0' : 'w-full sm:w-auto')}
+            aria-label={t('kdsqm_send')}
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            <span className="sm:hidden">{t('kdsqm_send')}</span>
-            <span className="hidden sm:inline">{t('kdsqm_send')}</span>
+            {!isStaffApp && <span>{t('kdsqm_send')}</span>}
           </Button>
         </div>
       </div>

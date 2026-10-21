@@ -32,8 +32,9 @@ import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
-import { loginPath } from '@/lib/staffApp.js';
+import { loginPath, isStaffApp } from '@/lib/staffApp.js';
 import AppLangToggle from '@/components/AppLangToggle.jsx';
+import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -454,8 +455,8 @@ function OrderQueue({ groups, now, selectedKey, onSelect, groupMap }) {
             `}
             aria-pressed={isSelected}
           >
-            <div className="flex items-center justify-between gap-2 min-w-0">
-              <span className="text-base font-mono font-bold text-primary break-all notranslate" translate="no">{baseOrderId}</span>
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 min-w-0">
+              <span className="text-base font-mono font-bold text-primary whitespace-nowrap notranslate" translate="no">{baseOrderId}</span>
               <span className={`flex items-center gap-1 font-mono text-sm font-bold shrink-0 ${timerColor}`}>
                 <Clock className="h-3.5 w-3.5" />
                 <span className="notranslate" translate="no">{elapsedLabel(elapsedMs)}</span>
@@ -481,7 +482,7 @@ function OrderQueue({ groups, now, selectedKey, onSelect, groupMap }) {
 }
 
 export default function KdsDashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [now, setNow] = useState(Date.now());
@@ -796,6 +797,30 @@ export default function KdsDashboard() {
         <title>{t('kds_title')} - Tripti Genusswelt</title>
       </Helmet>
       <div className="min-h-screen bg-background overflow-x-clip">
+        {isStaffApp ? (
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 py-2.5 flex items-center justify-between gap-2 shadow-md">
+          <div className="min-w-0 leading-tight">
+            <h1 className="text-base font-bold truncate">{isManager ? t('kds_managerTitle') : t('kds_title')}</h1>
+            <p className="text-xs truncate">
+              <span className="opacity-80">{orders.length} {t('kds_active')}</span>
+              {delayedCount > 0 && <span className="ml-1.5 rounded-full bg-destructive px-1.5 py-px font-bold animate-pulse">{delayedCount} {t('kds_delayed')}</span>}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <StaffPickupButton client={pb} role="kds" manager={isManager} sound={settings.soundEnabled} />
+            {isManager && <SoldOutButton client={pb} />}
+            <AppMoreMenu
+              title={isManager ? t('kds_managerTitle') : t('kds_title')}
+              items={[
+                isAdmin && { icon: ArrowLeft, label: 'Admin dashboard', onClick: () => navigate('/admin-dashboard') },
+                { icon: settings.soundEnabled ? Volume2 : VolumeX, label: t('kds_soundAlerts'), sub: settings.soundEnabled ? (language === 'en' ? 'On' : 'Ein') : (language === 'en' ? 'Off' : 'Aus'), onClick: () => setSettings((s) => ({ ...s, soundEnabled: !s.soundEnabled })), keepOpen: true },
+                { icon: RefreshCw, label: t('kds_refresh'), onClick: fetchOrders },
+                { icon: LogOut, label: t('logout'), onClick: logout, danger: true },
+              ]}
+            />
+          </div>
+        </header>
+        ) : (
         <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <ChefHat className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
@@ -828,6 +853,7 @@ export default function KdsDashboard() {
             </Button>
           </div>
         </header>
+        )}
 
         <main className="p-3 sm:p-4">
           {!printAllowed && (

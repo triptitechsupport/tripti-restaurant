@@ -91,8 +91,8 @@ export default function SettlementBillingView({ cashier = false, auditor = false
           {b("Paid settlement awaiting receipt")}: {missing}
         </p>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {[{label:b("Settlements"),value:rows.length,style:"border-border text-primary"},{label:b("Awaiting receipt"),value:missing,style:"border-amber-300 text-amber-600"},{label:b("Receipts issued"),value:rows.length-missing,style:"border-emerald-300 text-emerald-600"}].map(card => <Card key={card.label} className={`border-2 rounded-2xl ${card.style}`}><CardContent className="p-4"><p className="text-xs uppercase text-muted-foreground">{card.label}</p><p className="text-2xl font-bold mt-2">{loaded && fiscal.transactionsLoaded ? card.value : "—"}</p></CardContent></Card>)}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        {[{label:b("Settlements"),value:rows.length,style:"border-border text-primary"},{label:b("Awaiting receipt"),value:missing,style:"border-amber-300 text-amber-600"},{label:b("Receipts issued"),value:rows.length-missing,style:"border-emerald-300 text-emerald-600"}].map(card => <Card key={card.label} className={`border-2 rounded-2xl ${card.style}`}><CardContent className="p-3 sm:p-4"><p className="text-[10px] sm:text-xs uppercase text-muted-foreground leading-tight">{card.label}</p><p className="text-xl sm:text-2xl font-bold mt-1 sm:mt-2">{loaded && fiscal.transactionsLoaded ? card.value : "—"}</p></CardContent></Card>)}
       </div>
       <Card className="border-2 border-border rounded-2xl overflow-hidden">
         <CardHeader className="pb-3"><CardTitle className="text-base font-bold">{b(includeClosed ? "All Payment Settlements" : "Open / Active Order Settlements")}</CardTitle><CardDescription className="text-sm">{loaded ? `${rows.length} ${b(includeClosed ? "settlement(s), including closed orders" : "settlement(s) for open orders")}.` : b("Loading…")}</CardDescription></CardHeader>
