@@ -3,8 +3,9 @@
 // Daily retention purge for restaurant order/KOT data.
 //
 // Requirements implemented:
-//   - Order and KOT rows are kept for `retentionDays` (default 40 = 1 month
-//     10 days). Rows older than that are permanently deleted.
+//   - Order and KOT rows are kept for `retentionDays`, never less than 8
+//     years (Austrian 7-year retention, counted from the end of the year).
+//     Staff screens only show today; the admin keeps the full history.
 //   - The purge runs at most once per calendar day (throttled by
 //     retention_settings.lastPurgeAt), so today's data is never touched and
 //     the cutoff (40 days ago) is always well outside the current day.
@@ -208,7 +209,11 @@ onRecordsListRequest((e) => {
     const last = settings.getString("lastPurgeAt") || "";
     if (dateKeyOf(last) === todayKey()) return; // already purged today
 
-    const retentionDays = settings.getInt("retentionDays") || 40;
+    // Austrian BAO: business records are kept 7 years from the end of the
+    // calendar year, so nothing younger than 8 years is ever deleted,
+    // whatever the setting says.
+    const MIN_DAYS = 2922;
+    const retentionDays = Math.max(settings.getInt("retentionDays") || MIN_DAYS, MIN_DAYS);
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
     const cutoffStr = fmtDateTime(cutoff);
 

@@ -20,10 +20,11 @@ import {
   Plus, Minus, Trash2, Send, Loader2, Search, UtensilsCrossed, Printer,
   CheckCircle2, Flame, ListOrdered, RefreshCw, DoorOpen, ShoppingCart, ArrowLeft,
   CircleStop, Layers, XCircle, Ban, CreditCard, Check, Banknote, AlertTriangle, Bell,
-  Receipt, Leaf, Beef, HandCoins, Clock,
+  Receipt, Leaf, Beef, HandCoins, Clock, Activity,
 } from 'lucide-react';
 import { billingApi, setBillingClient } from '@/lib/billingApi.js';
 import FiscalReceiptDialog from '@/components/FiscalReceiptDialog.jsx';
+import LiveOverview from '@/components/LiveOverview.jsx';
 import { toast } from 'sonner';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -2815,7 +2816,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         const aU = new Date((a.parent && a.parent.updated) || (a.parent && a.parent.created) || 0).getTime();
         const bU = new Date((b.parent && b.parent.updated) || (b.parent && b.parent.created) || 0).getTime();
         return bU - aU;
-      });
+      })
+      // Staff screens show only the last 5 finished orders of the day; the
+      // admin keeps every record (Admin dashboard).
+      .slice(0, 5);
     return { groupArr, unparented: [] };
   }, [filteredGroupedOrders]);
 
@@ -3648,7 +3652,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                           </div>
                           {fig.outstandingAmount > 0 && canTakePayment ? (
                             <>
-                              {parent.billRequestedAt && (
+                              {parent.billRequestedAt && !parent.billReadyAt && (
                                 <p className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5 flex items-center gap-1.5">
                                   <HandCoins className="h-3.5 w-3.5 shrink-0" /> Bill requested{parent.billRequestedBy ? ` by ${parent.billRequestedBy}` : ''}
                                 </p>
@@ -3662,7 +3666,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               </Button>
                             </>
                           ) : fig.outstandingAmount > 0 ? (
-                            parent.billRequestedAt ? (
+                            parent.billRequestedAt && !parent.billReadyAt ? (
                               <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 flex items-center gap-1.5">
                                 <Clock className="h-4 w-4 shrink-0" /> Bill requested. The cashier is preparing it.
                               </p>
@@ -3747,7 +3751,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     <Tabs value={tab} onValueChange={setTab} className="w-full">
       {/* Sticky tab bar — positioned below header + marquee */}
       <div ref={tabBarRef} className="app-bottom-tabs sticky z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-4 px-4 py-2 border-b border-border" style={{ top: stickyTop + readyBannerHeight }}>
-        <TabsList className={`w-full grid ${showActiveTab ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <TabsList className={`w-full grid ${showActiveTab ? (canTakePayment ? 'grid-cols-4' : 'grid-cols-3') : 'grid-cols-2'}`}>
           <TabsTrigger value="place">
             <Plus className="h-4 w-4 mr-1" /> New Order
           </TabsTrigger>
@@ -3762,6 +3766,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           {showActiveTab && (
             <TabsTrigger value="active">
               <ListOrdered className="h-4 w-4 mr-1" /> Active ({activeGroupCount})
+            </TabsTrigger>
+          )}
+          {showActiveTab && canTakePayment && (
+            <TabsTrigger value="overview">
+              <Activity className="h-4 w-4 mr-1" /> Live
             </TabsTrigger>
           )}
         </TabsList>
@@ -4538,6 +4547,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         )}
       </TabsContent>
 
+      {showActiveTab && canTakePayment && (
+        <TabsContent value="overview" className="mt-4 pb-8">
+          {tab === 'overview' && <LiveOverview client={pb} />}
+        </TabsContent>
+      )}
+
       {/* ===== Active tab ===== */}
       {showActiveTab && (
       <TabsContent value="active" className="mt-4 pb-8">
@@ -4572,10 +4587,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   : 'text-muted-foreground hover:bg-background'
               }`}
             >
-              <Receipt className="h-3.5 w-3.5 shrink-0" /> Order History
+              <Receipt className="h-3.5 w-3.5 shrink-0" /> Last 5 finished
             </button>
           </div>
         </div>
+        {activeSubTab === 'history' && (
+          <p className="-mt-2 mb-3 text-[11px] text-muted-foreground">
+            Last 5 finished orders today. This list starts fresh every day; all records stay with the admin.
+          </p>
+        )}
 
         {/* Filter controls (Kitchen Status + Table) + refresh */}
         <div className="space-y-2 mb-4">
@@ -4634,7 +4654,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           <p className="text-center text-muted-foreground py-16">No orders yet.</p>
         ) : !currentHasOrders ? (
           <p className="text-center text-muted-foreground py-16">
-            {activeSubTab === 'history' ? 'No order history' : 'No active orders'}
+            {activeSubTab === 'history' ? 'No finished orders today' : 'No active orders'}
           </p>
         ) : (
           <div className="space-y-4">
