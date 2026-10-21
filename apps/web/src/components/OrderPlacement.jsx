@@ -144,6 +144,10 @@ function startOfTodayFilter() {
   return pbDateFilter(d);
 }
 
+// A waiter's bill request is open until the server marks the order fully
+// paid (billReadyAt) after it was requested. PocketBase dates compare as text.
+const billPending = (p) => Boolean(p && p.billRequestedAt && (!p.billReadyAt || p.billReadyAt < p.billRequestedAt));
+
 const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, placedByRole, onPlaced, pbClient, showActiveTab = true, initialTab = 'place', cashier = false }, ref) {
   const pb = pbClient || defaultPb;
   // Only the cashier (or an admin) takes payments. Every payment is issued
@@ -2734,7 +2738,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
   // Bills waiters asked for that the cashier has not issued yet.
   const billRequests = useMemo(() => groupedOrders.groupArr.filter(({ parent }) =>
-    parent && parent.billRequestedAt && !parent.billReadyAt && parent.paymentStatus !== 'paid'
+    billPending(parent) && parent.paymentStatus !== 'paid' && parent.orderStatus !== 'closed'
   ).sort((x, y) => new Date(x.parent.billRequestedAt) - new Date(y.parent.billRequestedAt)), [groupedOrders]);
 
   // Tell the cashier about new bill requests, and the waiter when a bill is ready.
@@ -2746,7 +2750,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     if (!before) return;
     waiterOrders.forEach((w) => {
       if (before.get(w.id) === now.get(w.id)) return;
-      if (canTakePayment && w.billRequestedAt && !w.billReadyAt) {
+      if (canTakePayment && billPending(w) && w.paymentStatus !== 'paid') {
         toast.warning(`Table ${w.tableNumber}: bill requested${w.billRequestedBy ? ` by ${w.billRequestedBy}` : ''}`, { duration: 8000 });
         try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
       } else if (!canTakePayment && w.billReadyAt && w.billRequestedBy && w.billRequestedBy === placedBy) {
@@ -3146,15 +3150,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     if (t.fallbackReceipt) return { ...t, printVariant: 'fallback' };
     return null;
   };
-  const issueReceipt = async (settlement, parent, paymentType) => {
+  const issueReceipt = async (settlement, paymentType) => {
     setBillingClient(pb);
     try {
       const { transaction } = await billingApi(`/settlements/${settlement.id}/generate`, { paymentType });
       let current = transaction;
       for (let i = 0; i < 20 && !printableReceipt(current) && current.status !== 'failed'; i += 1) {
         await new Promise((r) => setTimeout(r, 1000));
-        const data = await billingApi('/transactions');
-        current = data.transactions.find((x) => x.id === transaction.id) || current;
+        const data = await billingApi(`/transactions/${transaction.id}`);
+        current = data.transaction || current;
       }
       const ready = printableReceipt(current);
       if (!ready) {
@@ -3162,9 +3166,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         return;
       }
       setReceiptPreview(ready);
-      try {
-        await pb.collection('waiter_orders').update(parent.id, { billReadyAt: new Date().toISOString() }, { $autoCancel: false });
-      } catch (_) { /* the receipt still prints */ }
     } catch (err) {
       toast.error(`Payment saved, but the RKSV receipt failed: ${String(err.message).replace(/\.+$/, "")}. Open Receipts to retry.`, { duration: 10000 });
     }
@@ -3356,7 +3357,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         const signature = JSON.stringify({order: parent.id, selections});
         if (settlementAttempt.current?.signature !== signature) settlementAttempt.current = {signature, key: crypto.randomUUID()};
         const settlement = await pb.send('/api/payment-settlements/confirm', {method: 'POST', body: {order: parent.id, selections, requestKey: settlementAttempt.current.key}});
-        if (canTakePayment && settlement?.id) issueReceipt(settlement, parent, payType);
+        if (canTakePayment && settlement?.id) issueReceipt(settlement, payType);
       }
       toast.success(
         `Payment settled: €${selectedSettleAmount.toFixed(2)} cleared`,
@@ -3652,7 +3653,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                           </div>
                           {fig.outstandingAmount > 0 && canTakePayment ? (
                             <>
-                              {parent.billRequestedAt && !parent.billReadyAt && (
+                              {billPending(parent) && (
                                 <p className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5 flex items-center gap-1.5">
                                   <HandCoins className="h-3.5 w-3.5 shrink-0" /> Bill requested{parent.billRequestedBy ? ` by ${parent.billRequestedBy}` : ''}
                                 </p>
@@ -3666,7 +3667,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               </Button>
                             </>
                           ) : fig.outstandingAmount > 0 ? (
-                            parent.billRequestedAt && !parent.billReadyAt ? (
+                            billPending(parent) ? (
                               <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 flex items-center gap-1.5">
                                 <Clock className="h-4 w-4 shrink-0" /> Bill requested. The cashier is preparing it.
                               </p>

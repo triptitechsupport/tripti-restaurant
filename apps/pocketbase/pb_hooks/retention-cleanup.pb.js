@@ -8,7 +8,7 @@
 //     Staff screens only show today; the admin keeps the full history.
 //   - The purge runs at most once per calendar day (throttled by
 //     retention_settings.lastPurgeAt), so today's data is never touched and
-//     the cutoff (40 days ago) is always well outside the current day.
+//     the cutoff (8 years ago) is always well outside the current day.
 //   - It is triggered lazily on kitchen_orders list requests — PocketBase's
 //     JSVM has no long-running scheduler, so the purge runs whenever the
 //     restaurant uses the system (the KDS polls continuously during service).

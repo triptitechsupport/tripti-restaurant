@@ -16,6 +16,7 @@ const handle = fn => async (req, res) => {
   }
 };
 router.get('/transactions', handle(async (_req,res) => res.json({transactions: await billing.listTransactions()})));
+router.get('/transactions/:id', handle(async (req,res) => res.json({transaction: await pb.collection('fiskaly_transactions').getOne(req.params.id)})));
 router.get('/settlements', handle(async (_req,res) => res.json({settlements: await pb.collection('payment_settlements').getFullList({sort: '-created', expand: 'order'})})));
 router.post('/settlements/:id/generate', handle(async (req,res) => {
   const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.cashRegisterId);

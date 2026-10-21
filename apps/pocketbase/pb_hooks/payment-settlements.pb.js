@@ -79,8 +79,9 @@ routerAdd('POST', '/api/payment-settlements/confirm', e => {
     order.set('totalAmount', total / 100); order.set('paidAmount', paid / 100);
     order.set('outstandingAmount', Math.max(0, total - paid) / 100);
     order.set('paymentStatus', paid >= total && total > 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid');
-    // The waiter's bill request is answered by this payment.
-    if (order.collection().fields.getByName('billRequestedAt')) order.set('billRequestedAt', '');
+    // Fully paid: the waiter can collect the bill from the cashier.
+    if (paid >= total && total > 0 && order.getString('billRequestedAt') && order.collection().fields.getByName('billReadyAt'))
+      order.set('billReadyAt', new Date().toISOString());
     app.save(order); result = settlement;
   });
   return e.json(200, result);

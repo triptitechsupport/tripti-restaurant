@@ -15,8 +15,9 @@ migrate((app) => {
     const col = app.findCollectionByNameOrId(name);
     for (const rule of ['listRule', 'viewRule']) {
       const current = col[rule];
-      if (current == null || current.includes(CASHIER)) continue;
-      col[rule] = current ? `(${current}) || ${CASHIER}` : CASHIER;
+      // null = admins only, '' = everyone: leave those alone.
+      if (!current || current.includes(CASHIER)) continue;
+      col[rule] = `(${current}) || ${CASHIER}`;
     }
     app.save(col);
   }

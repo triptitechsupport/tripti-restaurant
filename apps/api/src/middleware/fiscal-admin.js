@@ -4,6 +4,7 @@ import PocketBase from 'pocketbase';
 // setup, cancellations, recovery, DEP export) stays with the admin.
 const CASHIER_ROUTES = [
   ['GET', /^\/(settlements|transactions|configuration)$/],
+  ['GET', /^\/transactions\/[^/]+$/],
   ['POST', /^\/(settlements|orders)\/[^/]+\/generate$/],
   ['POST', /^\/transactions\/[^/]+\/retry$/],
 ];

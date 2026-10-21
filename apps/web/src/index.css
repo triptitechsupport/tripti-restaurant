@@ -651,6 +651,8 @@ html.staff-app .app-bottom-tabs [role="tab"][data-state="active"] {
   background: hsl(var(--primary) / 0.1) !important;
 }
 html.staff-app body:has(.app-bottom-tabs) { padding-bottom: calc(var(--app-bottom) + 72px); }
+/* Dialogs and sheets use the whole screen: hide the tabs while one is open. */
+html.staff-app body:has([role="dialog"], [role="alertdialog"]) .app-bottom-tabs { display: none; }
 
 /* Floating buttons clear the phone's navigation bar and the bottom tabs. */
 html.staff-app .app-raise { bottom: calc(var(--app-bottom) + 16px) !important; }

@@ -13,7 +13,10 @@ export async function billingApi(path, body) {
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const data = await response.json();
+  let data = {};
+  try { data = await response.json(); }
+  catch { if (response.ok) throw new Error('The billing server sent an unreadable answer.'); }
+  if (response.status >= 502 && !data.message) throw new Error('The billing server is not reachable. Try again in a moment.');
   if (!response.ok) throw new Error(data.message || data.error || `Billing request failed (${response.status}).`);
   return data;
 }
