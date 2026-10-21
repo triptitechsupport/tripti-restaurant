@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { isStaffApp } from '@/lib/staffApp.js';
 import StaffAppDownload from '@/components/StaffAppDownload.jsx';
+import AppLangToggle from '@/components/AppLangToggle.jsx';
 
 // One sign-in for every staff member. The username and password are checked
 // against each staff login list; the person then lands on their own screen.
@@ -191,20 +192,8 @@ export default function StaffLoginPage() {
     </div>
   );
 
-  return (
+  const body = (
     <>
-      <Helmet><title>{tx.title} - Tripti Genusswelt</title></Helmet>
-      <main className="flex-1 flex items-center justify-center py-10 px-4 bg-background">
-        <div className="w-full max-w-md">
-          <Card className="shadow-2xl border-2 border-primary rounded-3xl overflow-hidden">
-            <CardHeader className="space-y-3 text-center pt-8">
-              <div className="mx-auto h-16 w-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center">
-                <LogIn className="h-8 w-8" />
-              </div>
-              <CardTitle className="text-3xl font-serif font-bold text-primary">{tx.title}</CardTitle>
-              <CardDescription className="text-base text-foreground">{tx.desc}</CardDescription>
-            </CardHeader>
-
             {checking && (
               <CardContent className="flex justify-center py-10" role="status" aria-live="polite">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -273,6 +262,43 @@ export default function StaffLoginPage() {
                 </CardFooter>
               </form>
             )}
+    </>
+  );
+
+  if (isStaffApp) {
+    return (
+      <>
+        <Helmet><title>Tripti Staff</title></Helmet>
+        <main className="app-login flex-1 flex flex-col bg-primary">
+          <div className="relative px-6 pt-8 pb-10 text-primary-foreground text-center">
+            <div className="absolute right-4 top-4"><AppLangToggle /></div>
+            <img src="/app-icon.png" alt="" className="mx-auto h-20 w-20 rounded-3xl shadow-xl ring-4 ring-white/15" />
+            <h1 className="mt-4 text-3xl font-serif font-bold tracking-tight">Tripti Staff</h1>
+            <p className="mt-1 text-sm opacity-80">{tx.title}</p>
+          </div>
+          <div className="app-sheet flex-1 bg-background rounded-t-[28px] pt-3 pb-6 shadow-[0_-8px_30px_rgba(0,0,0,0.18)]">
+            <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-muted-foreground/25" />
+            <div className="mx-auto w-full max-w-md">{body}</div>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Helmet><title>{tx.title} - Tripti Genusswelt</title></Helmet>
+      <main className="flex-1 flex items-center justify-center py-10 px-4 bg-background">
+        <div className="w-full max-w-md">
+          <Card className="shadow-2xl border-2 border-primary rounded-3xl overflow-hidden">
+            <CardHeader className="space-y-3 text-center pt-8">
+              <div className="mx-auto h-16 w-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center">
+                <LogIn className="h-8 w-8" />
+              </div>
+              <CardTitle className="text-3xl font-serif font-bold text-primary">{tx.title}</CardTitle>
+              <CardDescription className="text-base text-foreground">{tx.desc}</CardDescription>
+            </CardHeader>
+            {body}
           </Card>
           {!isStaffApp && <div className="mt-6"><StaffAppDownload compact /></div>}
         </div>

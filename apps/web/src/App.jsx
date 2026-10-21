@@ -55,6 +55,7 @@ import WhatsAppButton from '@/components/WhatsAppButton.jsx';
 import GlobalReservationNotifications from '@/components/GlobalReservationNotifications.jsx';
 import { LOGIN_PATH, MANAGE_PATH } from '@/config/subscriptionRoutes.js';
 import { isStaffApp } from '@/lib/staffApp.js';
+import { Toaster } from 'sonner';
 
 // In the staff Android app every sign-in goes through the one staff login.
 const inApp = (page) => (isStaffApp ? <Navigate to="/staff-login" replace /> : page);
@@ -120,16 +121,20 @@ function Layout() {
     || location.pathname === '/admin'
     || location.pathname === '/admin-help'
     || location.pathname.startsWith('/admin/');
+  // In the staff app these screens draw their own app-style top bar.
+  const ownAppBar = isStaffApp && ['/staff-login', '/waiter-dashboard', '/kds-dashboard', '/stock-dashboard', '/auditor-dashboard'].includes(location.pathname);
   const showFooter = !isWaiterRoute && !isKdsRoute && !isStockRoute && !isAdminDashboardRoute && !isStaffAppRoute && !isStaffApp;
 
   return (
     <div className="flex flex-col min-h-screen">
-      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : isStaffAppRoute ? <StockHeader home="/staff-login" subtitle="Staff" /> : (isStaffApp && isAdminDashboardRoute) ? <StockHeader home="/admin-dashboard" subtitle="Admin" onLogout={adminLogout} /> : <Header setIsCartOpen={setIsCartOpen} />}
+      {ownAppBar ? null : isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : isStaffAppRoute ? <StockHeader home="/staff-login" subtitle="Staff" /> : (isStaffApp && isAdminDashboardRoute) ? <StockHeader home="/admin-dashboard" subtitle="Admin" onLogout={adminLogout} /> : <Header setIsCartOpen={setIsCartOpen} />}
       {!isStaffApp && <MarqueeBar />}
       {!isStaffApp && <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />}
       <GlobalReservationNotifications />
+      {/* Short messages such as "Clocked in" or "Order sent" (toast() is used across the app). */}
+      <Toaster position="top-center" richColors closeButton duration={3500} />
       
-      <div className="flex-1 flex flex-col">
+      <div key={isStaffApp ? location.pathname : undefined} className={`flex-1 flex flex-col${isStaffApp ? ' app-page' : ''}`}>
         <Suspense fallback={<PageLoading />}>
         <Routes>
           {/* Public Routes */}

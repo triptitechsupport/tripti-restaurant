@@ -18,10 +18,11 @@ import {
   formatDuration,
 } from '@/utils/timesheetService.js';
 import { toast } from 'sonner';
-import { loginPath } from '@/lib/staffApp.js';
+import { loginPath, isStaffApp } from '@/lib/staffApp.js';
+import AppLangToggle from '@/components/AppLangToggle.jsx';
 
 export default function WaiterDashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   // Authorization: a real waiter (waiter_users on the waiter auth store) OR
   // an authenticated admin (admin_users on the default auth store). Admins
@@ -175,13 +176,22 @@ export default function WaiterDashboard() {
         <title>Waiter Dashboard - Tripti Genusswelt</title>
       </Helmet>
       <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
-            <ConciergeBell className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            <ConciergeBell className="app-hide h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            {isStaffApp ? (
+              <div className="min-w-0 leading-tight">
+                <h1 className="text-base font-bold truncate">{isCashier ? (language === 'en' ? 'Cashier' : 'Kasse') : (language === 'en' ? 'Waiter' : 'Service')}</h1>
+                <p className="text-xs opacity-80 truncate" aria-label={`Signed in as ${displayName}`}>
+                  {displayName}{activeTimesheet ? ` · ${t('waiter_shift')} ${formatDuration(elapsedMin)}` : ''}
+                </p>
+              </div>
+            ) : (<>
             <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{isCashier ? t('cashier_station') : t('waiter_station')}</h1>
             <span className="text-sm sm:text-base opacity-90 truncate min-w-0 font-medium" title={displayName} aria-label={`Signed in as ${displayName}`}>
               {displayName}
             </span>
+            </>)}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
@@ -236,6 +246,7 @@ export default function WaiterDashboard() {
             <StaffPickupButton client={pb} role="waiter" days={0} />
             {isCashier && <CashierReceiptsButton client={pb} />}
             <ContactKitchenButton pbClient={pb} displayName={displayName} />
+            <AppLangToggle />
             <Button
               variant="secondary"
               size="sm"
@@ -251,7 +262,7 @@ export default function WaiterDashboard() {
               variant="secondary"
               size="sm"
               onClick={handleWaiterMode}
-              className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90"
+              className="app-hide h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90"
               aria-label={t('waiter_mode')}
               title={t('waiter_mode')}
             >

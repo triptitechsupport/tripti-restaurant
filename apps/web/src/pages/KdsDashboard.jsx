@@ -33,6 +33,7 @@ import { usePrintSettings, canPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
 import { loginPath } from '@/lib/staffApp.js';
+import AppLangToggle from '@/components/AppLangToggle.jsx';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -794,8 +795,8 @@ export default function KdsDashboard() {
       <Helmet>
         <title>{t('kds_title')} - Tripti Genusswelt</title>
       </Helmet>
-      <div className="min-h-screen bg-background overflow-x-hidden">
-        <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shadow-md">
+      <div className="min-h-screen bg-background overflow-x-clip">
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <ChefHat className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
             <h1 className="text-base sm:text-xl font-serif font-bold whitespace-nowrap">{isManager ? t('kds_managerTitle') : t('kds_title')}</h1>
@@ -814,13 +815,14 @@ export default function KdsDashboard() {
             <StaffPickupButton client={pb} role="kds" manager={isManager} sound={settings.soundEnabled} />
             {isManager && <SoldOutButton client={pb} />}
             {settings.soundEnabled ? <Volume2 className="h-4 w-4 opacity-80 shrink-0" /> : <VolumeX className="h-4 w-4 opacity-60 shrink-0" />}
+            <AppLangToggle />
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={() => setSettingsOpen(true)} aria-label={t('kds_settings')}>
               <Settings className="h-4 w-4" />
             </Button>
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={fetchOrders} aria-label={t('kds_refresh')}>
               <RefreshCw className="h-4 w-4" />
             </Button>
-            <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={logout}>
+            <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={logout} aria-label={t('logout')}>
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline ml-1">{t('logout')}</span>
             </Button>

@@ -40,6 +40,7 @@ import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint, shouldAutoPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
+import { isStaffApp } from '@/lib/staffApp.js';
 
 // Each ordered unit is its own line, even when the dish and options match,
 // so billing, kitchen prep, and pickup can address that unit alone.
@@ -275,12 +276,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
   useEffect(() => {
     const measure = () => {
-      const header = document.querySelector('.sticky-header');
+      // In the staff app the screen's own top bar (.app-bar) sticks below
+      // the phone's status bar, so its sticky top is counted too.
+      const header = document.querySelector('.sticky-header') || (isStaffApp ? document.querySelector('.app-bar') : null);
       const marquee = document.querySelector('.marquee-bar-sticky');
-      const h = header ? header.offsetHeight : 0;
+      const h = header ? header.offsetHeight + (parseFloat(getComputedStyle(header).top) || 0) : 0;
       const m = marquee ? marquee.offsetHeight : 0;
       setStickyTop(h + m);
-      if (tabBarRef.current) setTabBarHeight(tabBarRef.current.offsetHeight);
+      // In the app the tabs sit at the bottom of the screen, not under the top bar.
+      if (tabBarRef.current) setTabBarHeight(isStaffApp ? 0 : tabBarRef.current.offsetHeight);
     };
     measure();
     // Marquee text loads asynchronously; re-measure shortly after mount.
@@ -3660,7 +3664,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       )}
     <Tabs value={tab} onValueChange={setTab} className="w-full">
       {/* Sticky tab bar — positioned below header + marquee */}
-      <div ref={tabBarRef} className="sticky z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-4 px-4 py-2 border-b border-border" style={{ top: stickyTop + readyBannerHeight }}>
+      <div ref={tabBarRef} className="app-bottom-tabs sticky z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-4 px-4 py-2 border-b border-border" style={{ top: stickyTop + readyBannerHeight }}>
         <TabsList className={`w-full grid ${showActiveTab ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <TabsTrigger value="place">
             <Plus className="h-4 w-4 mr-1" /> New Order
@@ -4181,7 +4185,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           <button
             type="button"
             onClick={() => setTab('order')}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-5 py-3 shadow-lg hover:scale-[1.02] active:scale-95 transition-transform"
+            className="app-raise fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 whitespace-nowrap rounded-full bg-primary text-primary-foreground px-5 py-3 shadow-lg hover:scale-[1.02] active:scale-95 transition-transform"
           >
             <ShoppingCart className="h-5 w-5" />
             <span className="font-bold text-sm">View Order</span>

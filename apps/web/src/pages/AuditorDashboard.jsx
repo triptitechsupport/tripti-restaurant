@@ -7,6 +7,8 @@ import { auditorPb } from '@/lib/staffClients.js';
 import { setBillingClient } from '@/lib/billingApi.js';
 import SettlementBillingView from '@/components/SettlementBillingView.jsx';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import { isStaffApp } from '@/lib/staffApp.js';
+import AppLangToggle from '@/components/AppLangToggle.jsx';
 
 // Auditor: view payments and signed receipts, download the DEP7 export.
 // Nothing here can change data; the billing API only allows them to read.
@@ -32,8 +34,23 @@ export default function AuditorDashboard() {
     <>
       <Helmet><title>{en ? 'Auditor' : 'Prüfer'} - Tripti Genusswelt</title></Helmet>
       <main className="flex-1 bg-background">
+        {isStaffApp && (
+          <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 py-3 flex items-center justify-between gap-2 shadow-md">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="h-5 w-5 shrink-0" />
+              <div className="min-w-0 leading-tight">
+                <h1 className="text-base font-bold truncate">{en ? 'Auditor' : 'Prüfer'}</h1>
+                <p className="text-xs opacity-80 truncate">{record.displayName || record.username} · {en ? 'view only' : 'nur Ansicht'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <AppLangToggle />
+              <Button variant="secondary" size="sm" onClick={logout} className="h-10" aria-label={en ? 'Log out' : 'Abmelden'}><LogOut className="h-4 w-4" /></Button>
+            </div>
+          </header>
+        )}
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between gap-3 px-4 md:px-6 pt-5">
+          {!isStaffApp && <div className="flex items-center justify-between gap-3 px-4 md:px-6 pt-5">
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><ShieldCheck className="h-5 w-5 text-primary" /></div>
               <div className="min-w-0">
@@ -44,7 +61,7 @@ export default function AuditorDashboard() {
             <Button variant="secondary" size="sm" onClick={logout} className="h-10 shrink-0" aria-label={en ? 'Log out' : 'Abmelden'}>
               <LogOut className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">{en ? 'Log out' : 'Abmelden'}</span>
             </Button>
-          </div>
+          </div>}
           <SettlementBillingView auditor />
         </div>
       </main>

@@ -38,7 +38,8 @@ import {
   printLabels,
   renderBarcodeToCanvas,
 } from '@/lib/barcodeUtils.js';
-import { loginPath } from '@/lib/staffApp.js';
+import { loginPath, isStaffApp } from '@/lib/staffApp.js';
+import AppLangToggle from '@/components/AppLangToggle.jsx';
 
 const WASTE_REASONS = [
   'spoiled', 'expired', 'damaged', 'over-preparation', 'spill', 'burnt', 'customer-return', 'other',
@@ -814,11 +815,18 @@ export default function StockDashboard() {
         <title>{t('stock_station')} - Tripti Genusswelt</title>
       </Helmet>
       <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
             <PackageCheck className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            {isStaffApp ? (
+              <div className="min-w-0 leading-tight">
+                <h1 className="text-base font-bold truncate">{t('stock_station')}</h1>
+                <p className="text-xs opacity-80 truncate">{displayName}</p>
+              </div>
+            ) : (<>
             <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{t('stock_station')}</h1>
             <span className="text-sm sm:text-base opacity-90 truncate min-w-0 font-medium" title={displayName}>{displayName}</span>
+            </>)}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
@@ -830,6 +838,7 @@ export default function StockDashboard() {
             <Button variant="secondary" size="sm" onClick={handleRefreshAll} disabled={refreshing} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label="Refresh" title="Refresh">
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
+            <AppLangToggle />
             <Button variant="secondary" size="sm" onClick={() => navigate('/stock-help')} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_help')} title={t('stock_help')}>
               <HelpCircle className="h-4 w-4 sm:mr-1" />
               <span className="hidden lg:inline">{t('stock_help')}</span>
