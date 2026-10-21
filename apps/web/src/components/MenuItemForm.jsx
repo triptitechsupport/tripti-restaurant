@@ -137,7 +137,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
         allergens: initialData.allergens || [],
         price: initialData.price?.toString() || '',
         category: resolveCategoryValue(stored, categories),
-        vat_Rate: initialData.vat_Rate || (/beverages|getränke|getraenke/i.test(initialData.category || '') ? 'STANDARD' : 'REDUCED_1'),
+        vat_Rate: initialData.vat_Rate || (/beverage|drink|getränk|getraenk/i.test(initialData.category || '') ? 'STANDARD' : 'REDUCED_1'),
         availability: initialData.availability ?? true,
         isVegetarian: initialData.isVegetarian ?? false,
         prepMinutes: initialData.prepMinutes ? String(initialData.prepMinutes) : '',
@@ -292,7 +292,7 @@ export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
               onChange={(e) => {
                 const next = e.target.value;
                 savedCategoryRef.current = next;
-                setFormData((prev) => ({ ...prev, category: next, vat_Rate: /beverages|getränke|getraenke/i.test(next) ? 'STANDARD' : 'REDUCED_1' }));
+                setFormData((prev) => ({ ...prev, category: next, vat_Rate: /beverage|drink|getränk|getraenk/i.test(next) ? 'STANDARD' : 'REDUCED_1' }));
               }}
               className={`flex h-9 w-full items-center rounded-md border bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${errors.category ? 'border-destructive focus:ring-destructive' : 'border-input'} ${formData.category ? 'text-foreground' : 'text-muted-foreground'}`}
             >

@@ -186,7 +186,7 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
           ))}
           <hr />
           {!t.isFallback && (
-            <ReceiptRow label="Cash register">
+            <ReceiptRow label="Kassen-ID">
               {response.cash_register_serial_number}
             </ReceiptRow>
           )}
