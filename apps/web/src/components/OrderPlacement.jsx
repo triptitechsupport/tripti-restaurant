@@ -20,8 +20,10 @@ import {
   Plus, Minus, Trash2, Send, Loader2, Search, UtensilsCrossed, Printer,
   CheckCircle2, Flame, ListOrdered, RefreshCw, DoorOpen, ShoppingCart, ArrowLeft,
   CircleStop, Layers, XCircle, Ban, CreditCard, Check, Banknote, AlertTriangle, Bell,
-  Receipt, Leaf, Beef,
+  Receipt, Leaf, Beef, HandCoins, Clock,
 } from 'lucide-react';
+import { billingApi, setBillingClient } from '@/lib/billingApi.js';
+import FiscalReceiptDialog from '@/components/FiscalReceiptDialog.jsx';
 import { toast } from 'sonner';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -141,8 +143,11 @@ function startOfTodayFilter() {
   return pbDateFilter(d);
 }
 
-const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, placedByRole, onPlaced, pbClient, showActiveTab = true, initialTab = 'place' }, ref) {
+const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, placedByRole, onPlaced, pbClient, showActiveTab = true, initialTab = 'place', cashier = false }, ref) {
   const pb = pbClient || defaultPb;
+  // Only the cashier (or an admin) takes payments. Every payment is issued
+  // straight away as an RKSV receipt; waiters ask the cashier for the bill.
+  const canTakePayment = cashier || placedByRole === 'admin';
   const [menuItems, setMenuItems] = useState([]);
   const [tables, setTables] = useState([]);
   const [maxTableNumber, setMaxTableNumber] = useState(9);
@@ -487,6 +492,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // entries the waiter has ticked for settlement in the payment modal.
   const [paymentSelections, setPaymentSelections] = useState({});
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [payType, setPayType] = useState('CASH');
+  const [receiptPreview, setReceiptPreview] = useState(null);
+  const [billBusy, setBillBusy] = useState(null);
   // Parent waiter_orders records (for open/closed status + endedAt).
   const [waiterOrders, setWaiterOrders] = useState([]);
   // Per-item spice level selections on the New Order cards (used before an
@@ -2723,6 +2731,30 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     return { groupArr, unparented };
   }, [orders, parentMap]);
 
+  // Bills waiters asked for that the cashier has not issued yet.
+  const billRequests = useMemo(() => groupedOrders.groupArr.filter(({ parent }) =>
+    parent && parent.billRequestedAt && !parent.billReadyAt && parent.paymentStatus !== 'paid'
+  ).sort((x, y) => new Date(x.parent.billRequestedAt) - new Date(y.parent.billRequestedAt)), [groupedOrders]);
+
+  // Tell the cashier about new bill requests, and the waiter when a bill is ready.
+  const billSeen = useRef(null);
+  useEffect(() => {
+    const now = new Map(waiterOrders.map((w) => [w.id, `${w.billRequestedAt || ''}|${w.billReadyAt || ''}`]));
+    const before = billSeen.current;
+    billSeen.current = now;
+    if (!before) return;
+    waiterOrders.forEach((w) => {
+      if (before.get(w.id) === now.get(w.id)) return;
+      if (canTakePayment && w.billRequestedAt && !w.billReadyAt) {
+        toast.warning(`Table ${w.tableNumber}: bill requested${w.billRequestedBy ? ` by ${w.billRequestedBy}` : ''}`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      } else if (!canTakePayment && w.billReadyAt && w.billRequestedBy && w.billRequestedBy === placedBy) {
+        toast.success(`Table ${w.tableNumber}: the bill is ready. Collect it from the cashier.`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      }
+    });
+  }, [waiterOrders, canTakePayment, placedBy]);
+
   const activeGroupCount = useMemo(() => {
     let n = groupedOrders.groupArr.filter((g) => (g.parent && g.parent.orderStatus) !== 'closed').length;
     n += groupedOrders.unparented.filter((o) => o.status !== 'completed').length;
@@ -2966,22 +2998,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     }
   };
 
-  // Generate Bill — Phase 1: gated ONLY on the successful completion of the
-  // existing End Order workflow (parent.endedAt set). It does NOT call
-  // Fiskaly, does NOT generate a fiscal receipt, does NOT change payment
-  // processing, and does NOT free the table. The handler is a placeholder
-  // that confirms the gating; fiscal receipt generation is a later phase.
-  // Existing Pay / Free Table / pre-End-Order behavior is untouched.
-  const handleGenerateBill = (parent, kots) => {
-    // Defensive re-check: bill generation is allowed only after End Order.
-    if (!parent || !parent.endedAt) {
-      toast.error('Generate Bill is available only after End Order is completed.');
-      return;
-    }
-    const baseOrderId = resolveBaseOrderId({ expand: { parentOrder: parent } });
-    toast.info(`Bill generation for order ${baseOrderId} will be available in a later phase.`);
-  };
-
   // ---- Linked Orders group-level actions ----
   // These iterate every member Order of a linked group and run the EXISTING
   // per-Order validation for each. They NEVER force-close or force-free an
@@ -3118,11 +3134,73 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Begin settling a specific parent order. Loads its KOTs fresh and seeds
   // the selection map empty (nothing pre-selected — settlement is an
   // explicit payment event, not a toggle).
+  // RKSV: every payment becomes a signed receipt at once. The receipt opens
+  // for printing; the waiter then collects it from the cashier.
+  const printableReceipt = (t) => {
+    if (!t) return null;
+    if (['signed', 'outage'].includes(t.status) && t.qrCodeData) return t;
+    if (t.fallbackReceipt) return { ...t, printVariant: 'fallback' };
+    return null;
+  };
+  const issueReceipt = async (settlement, parent, paymentType) => {
+    setBillingClient(pb);
+    try {
+      const { transaction } = await billingApi(`/settlements/${settlement.id}/generate`, { paymentType });
+      let current = transaction;
+      for (let i = 0; i < 20 && !printableReceipt(current) && current.status !== 'failed'; i += 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const data = await billingApi('/transactions');
+        current = data.transactions.find((x) => x.id === transaction.id) || current;
+      }
+      const ready = printableReceipt(current);
+      if (!ready) {
+        toast.error(`Payment saved, but the RKSV receipt is not signed yet (${current.errorMessage || current.status}). Open Receipts to retry.`, { duration: 10000 });
+        return;
+      }
+      setReceiptPreview(ready);
+      try {
+        await pb.collection('waiter_orders').update(parent.id, { billReadyAt: new Date().toISOString() }, { $autoCancel: false });
+      } catch (_) { /* the receipt still prints */ }
+    } catch (err) {
+      toast.error(`Payment saved, but the RKSV receipt failed: ${String(err.message).replace(/\.+$/, "")}. Open Receipts to retry.`, { duration: 10000 });
+    }
+  };
+
+  // Waiter: ask the cashier for the bill of this order.
+  const requestBill = async (parent) => {
+    setBillBusy(parent.id);
+    try {
+      await pb.collection('waiter_orders').update(parent.id, {
+        billRequestedAt: new Date().toISOString(), billRequestedBy: placedBy || '', billReadyAt: '',
+      }, { $autoCancel: false });
+      toast.success(`Bill requested for table ${parent.tableNumber}. The cashier has been told.`);
+      fetchWaiterOrders();
+    } catch (err) {
+      toast.error(err?.response?.message || 'Could not request the bill');
+    } finally {
+      setBillBusy(null);
+    }
+  };
+
   const startPaymentSettlement = async (group) => {
     settlementAttempt.current = null;
     setPaymentTarget(group);
-    setPaymentSelections({});
-    setPaymentFullOrderMode(false);
+    // The cashier usually takes the whole bill: start with every unpaid item
+    // ticked (untick items to split the bill).
+    const all = {};
+    if (canTakePayment) {
+      group.kots.forEach((k) => {
+        if (k.status === 'cancelled') return;
+        const sel = {};
+        (k.items || []).forEach((it, idx) => {
+          if (isCleared(it)) return;
+          for (let u = 0; u < itemUnitCount(it); u += 1) sel[unitSelKey(idx, u)] = true;
+        });
+        if (Object.keys(sel).length) all[k.id] = sel;
+      });
+    }
+    setPaymentSelections(all);
+    setPaymentFullOrderMode(Object.keys(all).length > 0);
   };
 
   // Toggle a single unpaid unit in the payment selection. Already-cleared
@@ -3273,7 +3351,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         });
         const signature = JSON.stringify({order: parent.id, selections});
         if (settlementAttempt.current?.signature !== signature) settlementAttempt.current = {signature, key: crypto.randomUUID()};
-        await pb.send('/api/payment-settlements/confirm', {method: 'POST', body: {order: parent.id, selections, requestKey: settlementAttempt.current.key}});
+        const settlement = await pb.send('/api/payment-settlements/confirm', {method: 'POST', body: {order: parent.id, selections, requestKey: settlementAttempt.current.key}});
+        if (canTakePayment && settlement?.id) issueReceipt(settlement, parent, payType);
       }
       toast.success(
         `Payment settled: €${selectedSettleAmount.toFixed(2)} cleared`,
@@ -3518,29 +3597,6 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               </Button>
                             )}
                           </div>
-                          {/* Generate Bill — Phase 1: DISABLED until the existing
-                              End Order workflow has successfully completed
-                              (parent.orderStatus === 'closed'). Before End Order
-                              the button is visibly disabled; after End Order it
-                              becomes enabled. It does NOT call Fiskaly, does NOT
-                              generate a fiscal receipt, and does NOT free the
-                              table in this phase. */}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full"
-                            disabled={!isEnded}
-                            onClick={() => handleGenerateBill(parent, kots)}
-                            title={!isEnded ? 'Generate Bill is available only after End Order is completed.' : 'Generate Bill'}
-                          >
-                            <Receipt className="h-4 w-4 mr-1" /> Generate Bill
-                          </Button>
-                          {!isEnded && (
-                            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-                              <Receipt className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span>Generate Bill locked — complete End Order first.</span>
-                            </p>
-                          )}
                           {!isEnded && !allResolved && (
                             <p className="text-[11px] text-amber-700 flex items-start gap-1.5">
                               <CircleStop className="h-3.5 w-3.5 shrink-0 mt-0.5" />
@@ -3590,17 +3646,43 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               {fig.paymentStatus}
                             </Badge>
                           </div>
-                          {fig.outstandingAmount > 0 ? (
-                            <Button
-                              size="sm"
-                              className="w-full touch-target"
-                              onClick={() => startPaymentSettlement({ parent, kots })}
-                            >
-                              <CreditCard className="h-4 w-4 mr-1" /> Pay — €{fig.outstandingAmount.toFixed(2)} due
-                            </Button>
+                          {fig.outstandingAmount > 0 && canTakePayment ? (
+                            <>
+                              {parent.billRequestedAt && (
+                                <p className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5 flex items-center gap-1.5">
+                                  <HandCoins className="h-3.5 w-3.5 shrink-0" /> Bill requested{parent.billRequestedBy ? ` by ${parent.billRequestedBy}` : ''}
+                                </p>
+                              )}
+                              <Button
+                                size="sm"
+                                className="w-full touch-target"
+                                onClick={() => startPaymentSettlement({ parent, kots })}
+                              >
+                                <CreditCard className="h-4 w-4 mr-1" /> Take payment & print bill — €{fig.outstandingAmount.toFixed(2)}
+                              </Button>
+                            </>
+                          ) : fig.outstandingAmount > 0 ? (
+                            parent.billRequestedAt ? (
+                              <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 flex items-center gap-1.5">
+                                <Clock className="h-4 w-4 shrink-0" /> Bill requested. The cashier is preparing it.
+                              </p>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="w-full touch-target"
+                                disabled={billBusy === parent.id}
+                                onClick={() => requestBill(parent)}
+                              >
+                                {billBusy === parent.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <HandCoins className="h-4 w-4 mr-1" />}
+                                Request bill from cashier — €{fig.outstandingAmount.toFixed(2)}
+                              </Button>
+                            )
                           ) : (
                             <p className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1.5">
-                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Fully settled
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                              {!canTakePayment && parent.billReadyAt
+                                ? 'Paid. Collect the printed bill from the cashier and give it to the guest.'
+                                : 'Fully settled'}
                             </p>
                           )}
                         </div>
@@ -3684,6 +3766,31 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           )}
         </TabsList>
       </div>
+
+      {/* Cashier: bills the waiters asked for */}
+      {canTakePayment && showActiveTab && billRequests.length > 0 && (
+        <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 space-y-2" role="status" aria-live="polite">
+          <p className="flex items-center gap-2 text-sm font-bold text-amber-900">
+            <HandCoins className="h-4 w-4" /> Bill requests ({billRequests.length})
+          </p>
+          {billRequests.map(({ parent, kots }) => {
+            const due = computePayment(kots).outstandingAmount;
+            return (
+              <div key={parent.id} className="flex items-center justify-between gap-2 rounded-lg bg-card border border-amber-200 px-3 py-2">
+                <div className="min-w-0 text-sm">
+                  <p className="font-bold truncate">Table {parent.tableNumber} · €{due.toFixed(2)}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {parent.billRequestedBy || 'Waiter'} · {new Date(parent.billRequestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <Button size="sm" className="shrink-0" onClick={() => startPaymentSettlement({ parent, kots })}>
+                  <CreditCard className="h-4 w-4 mr-1" /> Take payment
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ===== New Order tab ===== */}
       <TabsContent value="place" className="mt-4 space-y-4 pb-24">
@@ -5136,6 +5243,16 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             >
               Close
             </Button>
+            {canTakePayment && !paymentTarget?.parent?.fiscalLocked && (
+              <div className="flex rounded-lg border-2 border-border p-1 gap-1 w-full sm:w-auto" role="radiogroup" aria-label="Payment type">
+                {[['CASH', 'Cash', Banknote], ['CARD', 'Card', CreditCard]].map(([value, label, Icon]) => (
+                  <button key={value} type="button" role="radio" aria-checked={payType === value} onClick={() => setPayType(value)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-bold ${payType === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
+                    <Icon className="h-4 w-4" />{label}
+                  </button>
+                ))}
+              </div>
+            )}
             <Button
               onClick={handleConfirmPayment}
               disabled={paymentSubmitting || selectedSettleAmount <= 0}
@@ -5144,7 +5261,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
               {paymentSubmitting ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Settling...</>
               ) : (
-                <><Banknote className="h-4 w-4 mr-2" /> Confirm €{selectedSettleAmount.toFixed(2)}</>
+                <><Receipt className="h-4 w-4 mr-2" /> Paid €{selectedSettleAmount.toFixed(2)} · print bill</>
               )}
             </Button>
           </DialogFooter>
@@ -5181,6 +5298,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <FiscalReceiptDialog transaction={receiptPreview} onClose={() => setReceiptPreview(null)} />
     </Tabs>
     </>
   );

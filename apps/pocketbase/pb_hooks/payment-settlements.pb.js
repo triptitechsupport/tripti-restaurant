@@ -1,5 +1,9 @@
 routerAdd('POST', '/api/payment-settlements/confirm', e => {
-  if (!e.auth || !['waiter_users', 'admin_users'].includes(e.auth.collection().name)) throw new ForbiddenError('Staff sign-in required.');
+  // Only the cashier (or an admin) takes payments; each one is then issued as an
+  // RKSV receipt. Waiters ask the cashier for the bill instead.
+  const name = e.auth ? e.auth.collection().name : '';
+  if (name !== 'admin_users' && !(name === 'waiter_users' && e.auth.getString('role') === 'cashier'))
+    throw new ForbiddenError('Only the cashier can take payments. Request the bill from the cashier.');
   const body = e.requestInfo().body;
   if (!/^[0-9a-f-]{36}$/i.test(body.requestKey || '') || !Array.isArray(body.selections) || !body.selections.length)
     throw new BadRequestError('A payment reference and selected items are required.');
@@ -107,6 +111,11 @@ onRecordUpdateRequest(e => {
     if ((item.settlementId || '') !== (before[index]?.settlementId || '') ||
       (!legacy && item.cleared === true && before[index]?.cleared !== true))
       throw new BadRequestError('Confirm payment through the settlement endpoint.');
+    if (legacy && item.cleared === true && before[index]?.cleared !== true) {
+      const name = e.auth ? e.auth.collection().name : '';
+      if (name !== 'admin_users' && !(name === 'waiter_users' && e.auth.getString('role') === 'cashier'))
+        throw new ForbiddenError('Only the cashier can take payments.');
+    }
   });
   e.next();
 }, 'kitchen_orders');

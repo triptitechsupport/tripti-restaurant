@@ -288,6 +288,7 @@ export default function WaiterDashboard() {
             pbClient={pb}
             placedBy={displayName}
             placedByRole="waiter"
+            cashier={isCashier || isAdmin}
           />
         </main>
       </div>
