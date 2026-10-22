@@ -32,6 +32,7 @@ const T = {
     chooseRole: 'Ihre Rolle', changeRole: 'Andere Rolle', email: 'E-Mail', emailPh: 'admin@beispiel.at',
     user: 'Benutzername oder E-Mail', userPh: 'z. B. kellner1', pw: 'Passwort', signIn: 'Anmelden', busy: 'Wird geprüft …',
     required: 'Bitte Benutzername und Passwort eingeben.', wrong: 'Benutzername oder Passwort ist falsch.',
+    otherRole: (a, b) => `Das ist ein Zugang für ${a}, nicht für ${b}. „${a}“ wählen oder den Benutzernamen für ${b} verwenden.`,
     offline: 'Keine Verbindung zum Server. Bitte Internet prüfen.', tooMany: 'Zu viele Anmeldeversuche. Bitte einige Minuten warten.',
     continueAs: 'Angemeldet bleiben als', other: 'Andere Person anmelden',
     roles: { admin: 'Admin', waiter: 'Kellner', cashier: 'Kassierer', kitchen: 'Küche', kitchen_manager: 'Küchenleitung', stock: 'Lager', auditor: 'Prüfer' },
@@ -41,6 +42,7 @@ const T = {
     chooseRole: 'Your role', changeRole: 'Other role', email: 'Email', emailPh: 'admin@example.com',
     user: 'Username or email', userPh: 'e.g. waiter1', pw: 'Password', signIn: 'Sign in', busy: 'Checking …',
     required: 'Enter your username and password.', wrong: 'Wrong username or password.',
+    otherRole: (a, b) => `This is a ${a} login, not ${b}. Choose "${a}" or use the ${b} username.`,
     offline: 'Cannot reach the server. Check the internet connection.', tooMany: 'Too many sign-in attempts. Please wait a few minutes.',
     continueAs: 'Continue as', other: 'Sign in as someone else',
     roles: { admin: 'Admin', waiter: 'Waiter', cashier: 'Cashier', kitchen: 'Kitchen', kitchen_manager: 'Kitchen manager', stock: 'Stock manager', auditor: 'Auditor' },
@@ -158,6 +160,13 @@ export default function StaffLoginPage() {
         try {
           const auth = await probe.collection(area.collection).authWithPassword(id, form.pw, { $autoCancel: false });
           const record = { ...auth.record, collectionName: auth.record.collectionName || area.collection };
+          // Kitchen and Kitchen manager (and Waiter and Cashier) share a login
+          // list but are different accounts: refuse the wrong tile.
+          const actual = roleOf(area, record);
+          if (role && actual !== role && ROLE_COLLECTION[role] === area.collection) {
+            setError(tx.otherRole(tx.roles[actual], tx.roles[role]));
+            return;
+          }
           try {
             localStorage.setItem('tripti_staff_last_id', id);
             const map = JSON.parse(localStorage.getItem('tripti_staff_last_area') || '{}');
