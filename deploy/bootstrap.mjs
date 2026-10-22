@@ -1,6 +1,9 @@
 import PocketBase from 'pocketbase';
 import {randomBytes} from 'node:crypto';
-import {access, writeFile} from 'node:fs/promises';
+import {access, readdir, readFile, writeFile} from 'node:fs/promises';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {parseBackupCsv, restoreBackup} from '../apps/web/src/lib/kitchenBackup.js';
 import {pathToFileURL} from 'node:url';
 
 // Render demo only: run against its fresh, private database before opening nginx.
@@ -55,6 +58,9 @@ if (!configured) {
       console.error(`Demo login ${username} could not be set up:`, err?.message || err);
     }
   }
+  // Restore the backup files kept in deploy/seed (CSV from the staff apps'
+  // Backup screen), so menu, recipes and stock come back after every deploy.
+  await restoreSeedBackups(pb);
   // The demo database is new after every deploy and its seed data has online
   // ordering switched off. Switch it on so the test site can take orders
   // straight away (set DEMO_ORDERING=off to keep it off).
@@ -68,4 +74,28 @@ if (!configured) {
   console.log('Demo login configuration completed.');
 }
 }
+// deploy/seed/*.csv, oldest first, each restored in "mirror" mode.
+export async function restoreSeedBackups(pb, dir = join(dirname(fileURLToPath(import.meta.url)), 'seed')) {
+  let files = [];
+  try { files = (await readdir(dir)).filter((f) => f.toLowerCase().endsWith('.csv')); } catch { return; }
+  const backups = [];
+  for (const f of files) {
+    try { backups.push({f, parsed: parseBackupCsv(await readFile(join(dir, f), 'utf8'))}); }
+    catch (err) { console.error(`Seed backup ${f} skipped:`, err?.message || err); }
+  }
+  backups.sort((a, b) => String(a.parsed.meta?.savedAt || '').localeCompare(String(b.parsed.meta?.savedAt || '')));
+  let newest = '';
+  for (const {f, parsed} of backups) {
+    const summary = await restoreBackup(pb, parsed, {mode: 'mirror'});
+    console.log(`Seed backup ${f} restored:`, Object.entries(summary).map(([t, s]) => `${t} +${s.created} ~${s.updated} -${s.deleted}${s.failed ? ` !${s.failed}` : ''}`).join(', '));
+    if (parsed.meta?.savedAt > newest) newest = parsed.meta.savedAt;
+  }
+  if (newest) {
+    try {
+      const info = (await pb.collection('instance_info').getList(1, 1)).items[0];
+      if (info) await pb.collection('instance_info').update(info.id, {seedBackupAt: newest});
+    } catch (err) { console.error('instance_info not updated:', err?.message || err); }
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await bootstrap();

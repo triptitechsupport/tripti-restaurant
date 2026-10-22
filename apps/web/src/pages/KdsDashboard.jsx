@@ -13,6 +13,7 @@ import {
 import {
   ChefHat, LogOut, Clock, CheckCircle2, Flame, RefreshCw, Settings, Volume2, VolumeX, Bell, Calendar, User, Layers, Printer, ArrowLeft,
   ClipboardList, UtensilsCrossed, BookOpen, PackageSearch,
+  DatabaseBackup,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
@@ -39,6 +40,7 @@ import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 import MenuManager from '@/components/MenuManager.jsx';
 import RecipeManager from '@/components/kitchen/RecipeManager.jsx';
 import StockRequests, { useWeeklyRequestDue } from '@/components/kitchen/StockRequests.jsx';
+import DataBackup, { useAutoBackup } from '@/components/kitchen/DataBackup.jsx';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -522,11 +524,14 @@ export default function KdsDashboard() {
   const authModel = isKds ? kdsAuthModel : adminAuthModel;
   const canManage = isManager || (isAdmin && !isKds);
   const requestDue = useWeeklyRequestDue(pb, authed && canManage);
+  const backupRole = isAdmin && !isKds ? 'admin' : 'kitchen_manager';
+  const autoBackup = useAutoBackup(pb, backupRole, authed && canManage);
   const sections = [
     { key: 'tickets', icon: ClipboardList, label: language === 'en' ? 'Tickets' : 'Bons', count: orders.length },
     canManage && { key: 'menu', icon: UtensilsCrossed, label: language === 'en' ? 'Menu' : 'Speisekarte' },
     { key: 'recipes', icon: BookOpen, label: language === 'en' ? 'Recipes' : 'Rezepte' },
     canManage && { key: 'requests', icon: PackageSearch, label: language === 'en' ? 'Stock requests' : 'Lageranforderung', dot: requestDue },
+    canManage && { key: 'backup', icon: DatabaseBackup, label: language === 'en' ? 'Backup' : 'Sicherung' },
   ].filter(Boolean);
   const currentView = sections.some((x) => x.key === view) ? view : 'tickets';
   const viewRef = useRef(currentView);
@@ -907,6 +912,7 @@ export default function KdsDashboard() {
           )}
           {currentView === 'menu' && canManage && <MenuManager client={pb} />}
           {currentView === 'recipes' && <RecipeManager client={pb} canEdit={canManage} userName={chatName} />}
+          {currentView === 'backup' && canManage && <DataBackup client={pb} role={backupRole} auto={autoBackup} />}
           {currentView === 'requests' && canManage && <StockRequests client={pb} mode="kitchen" user={{ id: authModel?.id, name: chatName, role: isAdmin && !isKds ? 'admin' : 'kitchen_manager' }} />}
           {currentView === 'tickets' && (<>
           {!printAllowed && (

@@ -29,6 +29,8 @@ import CsvImportExport from '@/components/CsvImportExport.jsx';
 import { stockItemsExportColumns, stockItemsImportConfig } from '@/lib/csvConfigs.js';
 import { Truck, Package, Layers, Barcode, ClipboardList } from 'lucide-react';
 import StockRequests, { useOpenStockRequests } from '@/components/kitchen/StockRequests.jsx';
+import DataBackup, { useAutoBackup } from '@/components/kitchen/DataBackup.jsx';
+import { DatabaseBackup } from 'lucide-react';
 import {
   validateNumericBarcode,
   generateUniqueNumericBarcode,
@@ -95,6 +97,7 @@ export default function StockDashboard() {
 
   const [activeTab, setActiveTab] = useState('inventory');
   const openRequests = useOpenStockRequests(pb, authed);
+  const autoBackup = useAutoBackup(pb, 'stock', authed);
   // Open the kitchen requests first when some are waiting (once per visit).
   const autoTabbed = useRef(false);
   useEffect(() => {
@@ -905,6 +908,9 @@ export default function StockDashboard() {
             <button onClick={() => setActiveTab('barcodes')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'barcodes' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Barcode className="h-4 w-4 mr-2" /> Barcodes
             </button>
+            <button onClick={() => setActiveTab('backup')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'backup' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
+              <DatabaseBackup className="h-4 w-4 mr-2" /> {language === 'en' ? 'Backup' : 'Sicherung'}
+            </button>
             <button onClick={() => setActiveTab('waste')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'waste' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Trash2 className="h-4 w-4 mr-2" /> {t('stock_tabWaste')}
             </button>
@@ -921,6 +927,7 @@ export default function StockDashboard() {
             <StatCard icon={Trash2} label={t('stock_totalWaste')} value={stats.waste} tone="bg-secondary/20 text-secondary-foreground" />
           </div>
 
+          {activeTab === 'backup' && <DataBackup client={pb} role="stock" auto={autoBackup} />}
           {activeTab === 'requests' && <StockRequests client={pb} mode="stock" user={{ id: userId, name: displayName, role: userRole }} />}
           {activeTab === 'goodsin' && <StockGoodsIn pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
           {activeTab === 'issue' && <StockIssue pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
