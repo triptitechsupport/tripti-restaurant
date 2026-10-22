@@ -24,6 +24,9 @@ import EmailTemplateSettings from '@/components/EmailTemplateSettings.jsx';
 import AdminFeedbackManagement from '@/components/AdminFeedbackManagement.jsx';
 import AdminPrintSettings from '@/components/AdminPrintSettings.jsx';
 import AdminTimesheetView from '@/components/AdminTimesheetView.jsx';
+
+// Timesheets section hidden on request (2026-10-22). Clock in/out is still recorded.
+const SHOW_TIMESHEETS = false;
 import AdminKotsView from '@/components/AdminKotsView.jsx';
 import AdminWaiterManagement from '@/components/AdminWaiterManagement.jsx';
 import AdminStockManagement from '@/components/AdminStockManagement.jsx';
@@ -669,12 +672,12 @@ export default function AdminBookingDashboard() {
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderLogsSection()}</AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="timesheets" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+              {SHOW_TIMESHEETS && <AccordionItem value="timesheets" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
                   <div className="flex items-center font-bold text-lg"><Clock className="w-5 h-5 mr-4 text-primary"/> {t('tab_timesheets')}</div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderTimesheetsSection()}</AccordionContent>
-              </AccordionItem>
+              </AccordionItem>}
 
               <AccordionItem value="waiters" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
@@ -771,9 +774,9 @@ export default function AdminBookingDashboard() {
                 <button onClick={() => setActiveTab('logs')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'logs' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <FileText className="h-4 w-4 mr-2" /> {t('tab_logs')}
                 </button>
-                <button onClick={() => setActiveTab('timesheets')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'timesheets' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                {SHOW_TIMESHEETS && <button onClick={() => setActiveTab('timesheets')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'timesheets' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <Clock className="h-4 w-4 mr-2" /> {t('tab_timesheets')}
-                </button>
+                </button>}
                 <button onClick={() => setActiveTab('waiters')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'waiters' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <ConciergeBell className="h-4 w-4 mr-2" /> {t('tab_waiters')}
                 </button>
@@ -813,7 +816,7 @@ export default function AdminBookingDashboard() {
                 {activeTab === 'translations' && renderTranslationsSection()}
                 {activeTab === 'settings' && renderSettingsSection()}
                 {activeTab === 'logs' && renderLogsSection()}
-                {activeTab === 'timesheets' && renderTimesheetsSection()}
+                {SHOW_TIMESHEETS && activeTab === 'timesheets' && renderTimesheetsSection()}
                 {activeTab === 'waiters' && renderWaitersSection()}
                 {activeTab === 'stock-managers' && renderStockManagersSection()}
                 {activeTab === 'kitchen-managers' && renderKitchenManagersSection()}
