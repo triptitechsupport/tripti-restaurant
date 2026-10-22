@@ -106,3 +106,29 @@ test('settlement register is pinned through duplicate requests, signing, and can
   assert.equal(cancellation.cashRegister,'a');
   assert.equal(a.receiptSnapshot.cashRegisterName,'Main');
 });
+
+test('billing restores the configured register after the local list was emptied', async () => {
+  const f = fixture();
+  const a = await f.service.add({name: 'Main', registerId: firstId});
+  await f.service.setup(a.id);
+  f.rows.length = 0; // database reset
+  const puts = f.calls.filter(c => c.request?.method === 'PUT').length;
+  await assert.rejects(f.service.resolve(), /Add and set up/);
+  const row = await f.service.forBilling();
+  assert.equal(row.fiskalyCashRegisterId, firstId);
+  assert.equal(row.enabledForBilling, true);
+  assert.equal(f.rows[0].isDefault, true);
+  assert.equal(f.calls.filter(c => c.request?.method === 'PUT').length, puts, 'existing fiskaly resources are not created again');
+});
+test('billing sets up the configured register in TEST when it does not exist yet', async () => {
+  const f = fixture();
+  const row = await f.service.forBilling();
+  assert.equal(row.enabledForBilling, true);
+  assert.equal(f.rows.length, 1);
+});
+test('LIVE never creates a missing register automatically', async () => {
+  const f = fixture();
+  f.cfg.environment = 'LIVE';
+  await assert.rejects(f.service.forBilling());
+  assert.equal(f.calls.filter(c => c.request?.method === 'PUT').length, 0);
+});
