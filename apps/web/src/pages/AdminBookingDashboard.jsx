@@ -734,7 +734,7 @@ export default function AdminBookingDashboard() {
               the same authenticated admin session. No separate login, no
               duplicate account; route guards recognize admin_users. */}
           {isStaffApp ? (
-            <div className="mb-5 grid grid-cols-3 gap-2.5">
+            <div className="mb-5 grid grid-cols-4 gap-2">
               {[
                 ['/waiter-dashboard', ConciergeBell, language === 'de' ? 'Kellner' : 'Waiter'],
                 ['/kds-dashboard', ChefHat, language === 'de' ? 'Küche' : 'Kitchen'],
@@ -745,6 +745,14 @@ export default function AdminBookingDashboard() {
                   <span className="text-xs font-bold">{label}</span>
                 </Link>
               ))}
+              <button
+                type="button"
+                onClick={() => { setActiveTab('analysis'); setTimeout(() => document.getElementById('admin-analysis')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350); }}
+                className="flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-primary text-primary-foreground py-3.5 shadow-sm active:scale-95"
+              >
+                <BarChart3 className="h-6 w-6" />
+                <span className="text-xs font-bold">{language === 'de' ? 'Analyse' : 'Analysis'}</span>
+              </button>
             </div>
           ) : (
           <div className="mb-8 md:mb-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl">
@@ -926,9 +934,9 @@ export default function AdminBookingDashboard() {
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderStaffAppSection()}</AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="analysis" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+              <AccordionItem id="admin-analysis" value="analysis" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
-                  <div className="flex items-center font-bold text-lg"><BarChart3 className="w-5 h-5 mr-4 text-primary"/> Analysis</div>
+                  <div className="flex items-center font-bold text-lg"><BarChart3 className="w-5 h-5 mr-4 text-primary"/> {language === 'en' ? 'Analysis' : 'Analyse'}</div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderAnalysisSection()}</AccordionContent>
               </AccordionItem>
@@ -997,7 +1005,7 @@ export default function AdminBookingDashboard() {
                   <Smartphone className="h-4 w-4 mr-2" /> {language === 'en' ? 'Staff app' : 'Mitarbeiter-App'}
                 </button>
                 <button onClick={() => setActiveTab('analysis')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
-                  <BarChart3 className="h-4 w-4 mr-2" /> Analysis
+                  <BarChart3 className="h-4 w-4 mr-2" /> {language === 'en' ? 'Analysis' : 'Analyse'}
                 </button>
               </div>
 
