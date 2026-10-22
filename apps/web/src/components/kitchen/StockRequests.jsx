@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ClipboardList, Plus, ArrowLeft, Loader2, Send, Save, Trash2, XCircle, Calculator, PackageCheck,
-  Play, Printer, AlertTriangle, CheckCircle2, ChefHat,
+  Play, Printer, AlertTriangle, CheckCircle2, ChefHat, Copy, Bell, PackagePlus, BarChart3, ShoppingCart,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
@@ -10,7 +10,7 @@ import { printHtmlPage } from '@/lib/staffApp.js';
 import { issueFromStock } from '@/lib/stockIssue.js';
 import {
   weekStartOf, nextWeekStart, isoDay, weekNumber, parseJson, portionsSold, ingredientNeeds,
-  niceQty, convertQty, round, OPEN_FOR_STOCK, RECIPE_UNITS,
+  niceQty, convertQty, round, OPEN_FOR_STOCK, RECIPE_UNITS, stockFor,
 } from '@/lib/kitchenPlanning.js';
 
 // Weekly ingredient requests. mode "kitchen": the kitchen manager plans the
@@ -37,6 +37,17 @@ const T = {
     partialHint: 'Items still short stay open. You can give the rest later.', notLinked: 'not in stock list', allDone: 'Everything was given.',
     newOpen: (w) => `New stock request for week ${w}`, statusChanged: (w, s) => `Stock request week ${w}: ${s}`,
     confirmCancel: 'Cancel this request?', confirmDelete: 'Delete this draft?', requestedBy: 'Requested by', givenBy: 'Given by',
+    copyLast: (w) => `Copy items from week ${w}`, copied: (n) => `${n} items copied. Check the amounts.`,
+    remind: (w) => `The list for next week (week ${w}) has not been sent yet.`, remindDraft: (w) => `The draft for week ${w} has not been sent yet.`,
+    startNow: 'Start it now', openDraft: 'Open draft',
+    confirmTitle: 'Did everything arrive?', confirmHint: 'Confirm when the goods are in the kitchen. Write down anything missing or damaged.',
+    receivedNote: 'Missing or damaged (optional)', confirmBtn: 'Confirm received', receivedOk: 'Receipt confirmed',
+    receivedBy: (n, d) => `Received by ${n} on ${d}`, toConfirm: 'Confirm receipt',
+    usage: 'Check use against sales', usageSub: (d) => `Expected use from ${d} of sales × recipes.`, used: 'Used', left: 'Left',
+    usageNone: 'No sales with recipes in this week yet.',
+    addStock: 'Add to stock list', linked: (n) => `${n} is now in the stock list`,
+    allShopping: 'Shopping list (all open)', belowMin: 'Below minimum', topUp: 'top up to minimum', forKitchen: 'For the kitchen',
+    nothingToBuy: 'Nothing to buy right now.',
   },
   de: {
     title: 'Wöchentliche Lageranforderung', subKitchen: 'Zutaten für nächste Woche planen und die Liste an das Lager schicken.',
@@ -57,6 +68,17 @@ const T = {
     partialHint: 'Fehlende Artikel bleiben offen und können später ausgegeben werden.', notLinked: 'nicht in der Lagerliste', allDone: 'Alles wurde ausgegeben.',
     newOpen: (w) => `Neue Lageranforderung für KW ${w}`, statusChanged: (w, s) => `Lageranforderung KW ${w}: ${s}`,
     confirmCancel: 'Diese Anforderung stornieren?', confirmDelete: 'Diesen Entwurf löschen?', requestedBy: 'Angefordert von', givenBy: 'Ausgegeben von',
+    copyLast: (w) => `Artikel aus KW ${w} übernehmen`, copied: (n) => `${n} Artikel übernommen. Mengen bitte prüfen.`,
+    remind: (w) => `Die Liste für nächste Woche (KW ${w}) ist noch nicht gesendet.`, remindDraft: (w) => `Der Entwurf für KW ${w} ist noch nicht gesendet.`,
+    startNow: 'Jetzt anlegen', openDraft: 'Entwurf öffnen',
+    confirmTitle: 'Ist alles angekommen?', confirmHint: 'Bestätigen, sobald die Ware in der Küche ist. Fehlendes oder Beschädigtes notieren.',
+    receivedNote: 'Fehlt oder beschädigt (optional)', confirmBtn: 'Erhalt bestätigen', receivedOk: 'Erhalt bestätigt',
+    receivedBy: (n, d) => `Erhalten von ${n} am ${d}`, toConfirm: 'Erhalt bestätigen',
+    usage: 'Verbrauch mit Verkäufen vergleichen', usageSub: (d) => `Erwarteter Verbrauch aus den Verkäufen von ${d} × Rezepten.`, used: 'Verbraucht', left: 'Übrig',
+    usageNone: 'In dieser Woche noch keine Verkäufe mit Rezept.',
+    addStock: 'In Lagerliste aufnehmen', linked: (n) => `${n} ist jetzt in der Lagerliste`,
+    allShopping: 'Einkaufsliste (alle offenen)', belowMin: 'Unter Mindestbestand', topUp: 'auf Mindestbestand auffüllen', forKitchen: 'Für die Küche',
+    nothingToBuy: 'Derzeit nichts einzukaufen.',
   },
 };
 
@@ -82,6 +104,7 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState(null); // { rows, recipes, menu, missing }
   const [growth, setGrowth] = useState(0);
+  const [usage, setUsage] = useState(null); // { byKey, days } expected use from sales
 
   const dateFmt = useCallback((d) => d.toLocaleDateString(de ? 'de-AT' : 'en-GB', { day: 'numeric', month: 'short' }), [de]);
   const weekLabel = useCallback((ws) => {
@@ -128,17 +151,36 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
 
   const stockById = useMemo(() => Object.fromEntries(stock.map((s) => [s.id, s])), [stock]);
   const stockByName = useMemo(() => Object.fromEntries(stock.map((s) => [String(s.name).trim().toLowerCase(), s])), [stock]);
+  // The stock item for a line: linked, or found by name.
+  const itemFor = useCallback((line) => stockFor(line, stockById), [stockById]);
   const inStore = useCallback((line) => {
-    const item = line.stockItem ? stockById[line.stockItem] : null;
+    const item = itemFor(line);
     if (!item) return null;
     return convertQty(Number(item.quantity) || 0, item.unit, line.unit || item.unit);
-  }, [stockById]);
+  }, [itemFor]);
 
   const weekOptions = useMemo(() => {
     const out = []; const first = weekStartOf(new Date());
     for (let i = 0; i < 5; i += 1) { const d = new Date(first); d.setDate(d.getDate() + i * 7); out.push(isoDay(d)); }
     return out;
   }, []);
+
+  // Most recent request with items, to copy from.
+  const lastRequest = useMemo(() => requests
+    .filter((r) => r.status !== 'cancelled' && r.id !== current?.id && parseJson(r.items, []).length)
+    .sort((a, b) => String(b.weekStart).localeCompare(String(a.weekStart)) || String(b.created).localeCompare(String(a.created)))[0] || null,
+  [requests, current]);
+
+  // From Thursday on, remind the kitchen manager to send next week's list.
+  const reminder = useMemo(() => {
+    if (isStock) return null;
+    const now = new Date();
+    if ((now.getDay() + 6) % 7 < 3) return null;
+    const ws = isoDay(nextWeekStart(now));
+    const forWeek = requests.filter((r) => isoDay(toDate(r.weekStart)) === ws && r.status !== 'cancelled');
+    if (forWeek.some((r) => r.status !== 'draft')) return null;
+    return { week: weekNumber(new Date(`${ws}T00:00:00`)), draft: forWeek[0] || null };
+  }, [isStock, requests]);
 
   const startNew = () => {
     const ws = isoDay(nextWeekStart());
@@ -155,11 +197,23 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
       items: parseJson(r.items, []).map((l) => ({ ...l, give: '' })),
       notes: r.notes || '',
       stockNote: r.stockNote || '',
+      receivedNote: r.receivedNote || '',
     });
     setPlan(null);
+    setUsage(null);
   };
 
-  const close = () => { setCurrent(null); setForm(null); setPlan(null); };
+  const close = () => { setCurrent(null); setForm(null); setPlan(null); setUsage(null); };
+
+  const copyLast = () => {
+    if (!lastRequest) return;
+    const items = parseJson(lastRequest.items, []).map((l) => {
+      const { fulfilledQty, give, ...rest } = l; void fulfilledQty; void give;
+      return { ...rest, note: rest.note || '' };
+    });
+    setForm((f) => ({ ...f, items }));
+    toast.success(tx.copied(items.length));
+  };
 
   const editable = !isStock && current && ['draft', 'submitted'].includes(current.status || 'draft');
   const setLine = (i, patch) => setForm((f) => ({ ...f, items: f.items.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
@@ -290,7 +344,7 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
         const giveRaw = l.give === '' ? defaultGive(l) : Number(l.give);
         let given = 0;
         if (giveRaw > 0) {
-          const item = l.stockItem ? stockById[l.stockItem] : null;
+          const item = itemFor(l);
           if (item) {
             const inItemUnit = convertQty(giveRaw, l.unit || item.unit, item.unit) ?? giveRaw;
             const done = await issueFromStock(client, {
@@ -304,7 +358,8 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
           if (given > 0) count += 1;
         }
         const { give, ...rest } = l; void give;
-        items.push({ ...rest, fulfilledQty: round((Number(l.fulfilledQty) || 0) + given, 3) });
+        const linked = !rest.stockItem ? itemFor(rest) : null;
+        items.push({ ...rest, ...(linked ? { stockItem: linked.id } : {}), fulfilledQty: round((Number(l.fulfilledQty) || 0) + given, 3) });
       }
       const complete = items.every((l) => (Number(l.fulfilledQty) || 0) + 1e-9 >= (Number(l.qty) || 0));
       const rec = await client.collection('stock_requests').update(current.id, {
@@ -319,6 +374,104 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  // ---- kitchen: confirm the goods arrived ----
+  const confirmReceived = async () => {
+    setBusy(true);
+    try {
+      const rec = await client.collection('stock_requests').update(current.id, { receivedNote: form.receivedNote || '' }, { $autoCancel: false });
+      toast.success(tx.receivedOk); await load(); openRequest(rec);
+    } catch (err) { toast.error(err?.message || tx.failed); } finally { setBusy(false); }
+  };
+
+  // ---- kitchen: expected use in that week from sales × recipes ----
+  const checkUsage = async () => {
+    setBusy(true);
+    try {
+      const opts = { $autoCancel: false, requestKey: null };
+      const start = toDate(current.weekStart);
+      const end = new Date(start); end.setDate(end.getDate() + 7);
+      const until = end < new Date() ? end : new Date();
+      const [recipes, kots] = await Promise.all([
+        client.collection('recipes').getFullList(opts),
+        client.collection('kitchen_orders').getFullList({ ...opts, filter: `created >= "${pbDateFilter(start)}" && created < "${pbDateFilter(until)}"`, fields: 'id,status,items' }),
+      ]);
+      const byKey = {};
+      for (const n of ingredientNeeds(recipes, portionsSold(kots), stockById)) {
+        byKey[n.stockItem ? `s:${n.stockItem}` : `n:${n.name.toLowerCase()}`] = n;
+      }
+      setUsage({ byKey, days: Math.max(1, Math.round((until - start) / 86400000)), any: Object.keys(byKey).length > 0 });
+    } catch (err) { toast.error(err?.message || tx.failed); } finally { setBusy(false); }
+  };
+  const usedFor = (l) => {
+    if (!usage) return null;
+    const item = itemFor(l);
+    const n = (item && usage.byKey[`s:${item.id}`]) || usage.byKey[`n:${String(l.name || '').trim().toLowerCase()}`];
+    if (!n) return 0;
+    return convertQty(n.qty, n.unit, l.unit || n.unit) ?? n.qty;
+  };
+
+  // ---- stock: put a line that is not in the stock list on it ----
+  const addToStock = async (i) => {
+    const l = form.items[i];
+    setBusy(true);
+    try {
+      const opts = { $autoCancel: false };
+      let item = itemFor(l);
+      if (!item) {
+        const u = String(l.unit || '').toLowerCase();
+        item = await client.collection('stock_items').create({
+          name: String(l.name).trim(), unit: u === 'g' ? 'kg' : u === 'ml' ? 'l' : (l.unit || 'pcs'), quantity: 0, category: 'Kitchen',
+        }, opts);
+      }
+      const saved = parseJson(current.items, []).map((x, j) => (j === i ? { ...x, stockItem: item.id } : x));
+      const rec = await client.collection('stock_requests').update(current.id, { items: saved }, opts);
+      toast.success(tx.linked(item.name));
+      await load();
+      setCurrent(rec);
+      setForm((f) => ({ ...f, items: f.items.map((x, j) => (j === i ? { ...x, stockItem: item.id } : x)) }));
+    } catch (err) { toast.error(err?.message || tx.failed); } finally { setBusy(false); }
+  };
+
+  // ---- stock: one shopping list for every open request plus low stock ----
+  const printAllShopping = () => {
+    const esc = (v) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const map = new Map();
+    for (const r of requests.filter((x) => OPEN_FOR_STOCK.includes(x.status))) {
+      for (const l of parseJson(r.items, [])) {
+        const rem = remainingOf(l);
+        if (rem <= 0) continue;
+        const item = itemFor(l);
+        const unit = item ? item.unit || l.unit : l.unit;
+        const qty = item ? (convertQty(rem, l.unit || item.unit, unit) ?? rem) : rem;
+        const key = item ? `s:${item.id}` : `n:${String(l.name).toLowerCase()}:${l.unit}`;
+        const row = map.get(key) || { name: item ? item.name : l.name, unit, need: 0, have: item ? Number(item.quantity) || 0 : null, min: item ? Number(item.minStock) || 0 : 0, cost: item ? Number(item.unitCost) || 0 : 0, weeks: new Set() };
+        row.need += qty; row.weeks.add(weekNumber(toDate(r.weekStart)));
+        map.set(key, row);
+      }
+    }
+    for (const it of stock) {
+      const min = Number(it.minStock) || 0;
+      if (!map.has(`s:${it.id}`) && min > 0 && (Number(it.quantity) || 0) < min) {
+        map.set(`s:${it.id}`, { name: it.name, unit: it.unit, need: 0, have: Number(it.quantity) || 0, min, cost: Number(it.unitCost) || 0, weeks: new Set() });
+      }
+    }
+    const rows = [...map.values()].map((r) => {
+      const have = r.have ?? 0;
+      const forKitchen = Math.max(0, r.need - have);
+      const topUp = r.min > 0 ? Math.max(0, r.min - Math.max(0, have - r.need)) : 0;
+      return { ...r, buy: round(forKitchen + topUp, 2), topUp };
+    }).filter((r) => r.buy > 0).sort((a, b) => a.name.localeCompare(b.name));
+    if (!rows.length) { toast(tx.nothingToBuy); return; }
+    const total = rows.reduce((a, r) => a + r.buy * r.cost, 0);
+    const title = `${tx.allShopping} · ${dateFmt(new Date())}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>body{font-family:system-ui,sans-serif;margin:18px;font-size:13px}h1{font-size:18px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ccc;padding:4px;text-align:left}.r{text-align:right}.m{color:#666;font-size:11px}</style></head><body>
+<h1>${esc(title)}</h1><table><tr><th>${tx.item}</th><th class="r">${tx.forKitchen}</th><th class="r">${tx.inStore}</th><th class="r">${tx.short}</th><th class="r">€</th></tr>
+${rows.map((r) => `<tr><td>${esc(r.name)}${r.weeks.size ? `<div class="m">${tx.week} ${[...r.weeks].sort().join(', ')}</div>` : ''}${r.topUp > 0 ? `<div class="m">${tx.topUp} (${fmtQty(r.min)} ${esc(r.unit)})</div>` : ''}</td><td class="r">${r.need > 0 ? `${fmtQty(r.need)} ${esc(r.unit)}` : '—'}</td><td class="r">${r.have == null ? '—' : `${fmtQty(r.have)} ${esc(r.unit)}`}</td><td class="r"><b>${fmtQty(r.buy)} ${esc(r.unit)}</b></td><td class="r">${r.cost > 0 ? (r.buy * r.cost).toFixed(2) : ''}</td></tr>`).join('')}
+</table>${total > 0 ? `<p class="r"><b>≈ €${total.toFixed(2)}</b></p>` : ''}</body></html>`;
+    printHtmlPage(html, title);
   };
 
   const printList = (onlyShort) => {
@@ -374,8 +527,14 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
           <p className="text-sm">{tx.neededBy}: <b>{form.neededBy ? dateFmt(new Date(`${form.neededBy}T00:00:00`)) : '—'}</b></p>
         )}
 
-        {!isStock && !editable && status !== 'cancelled' && status !== 'fulfilled' && (
+        {!isStock && !editable && status === 'in_progress' && (
           <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-900">{tx.locked}</p>
+        )}
+
+        {editable && lastRequest && (
+          <button type="button" onClick={copyLast} className="h-10 rounded-lg border-2 border-border px-3 text-sm font-semibold inline-flex items-center gap-1.5">
+            <Copy className="h-4 w-4" />{tx.copyLast(weekNumber(toDate(lastRequest.weekStart)))}
+          </button>
         )}
 
         {editable && (
@@ -453,7 +612,7 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
                           className="h-10 min-w-0 flex-1 rounded-lg border-2 border-border bg-background px-2 text-sm" />
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
-                        {l.stockItem ? <>{tx.inStore}: <b className={shortBy > 0 ? 'text-destructive' : 'text-foreground'}>{fmtQty(have)} {l.unit}</b></> : (l.name ? tx.notLinked : '')}
+                        {have != null ? <>{tx.inStore}: <b className={shortBy > 0 ? 'text-destructive' : 'text-foreground'}>{fmtQty(have)} {l.unit}</b></> : (l.name ? tx.notLinked : '')}
                       </div>
                     </>
                   ) : (
@@ -466,8 +625,21 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
                           {have != null && <> · {tx.inStore}: {fmtQty(have)} {l.unit}</>}
                           {l.note && <> · {l.note}</>}
                         </div>
+                        {usage && (() => {
+                          const used = usedFor(l); const got = Number(l.fulfilledQty) || 0;
+                          return <div className="text-xs">{tx.used} ≈ <b>{fmtQty(used)} {l.unit}</b>{got > 0 && <> · {tx.left} ≈ <b className={got - used < 0 ? 'text-destructive' : 'text-foreground'}>{fmtQty(got - used)} {l.unit}</b></>}</div>;
+                        })()}
                         {isStock && (shortBy ?? rem) > 0 && <div className="text-xs font-semibold text-destructive">{tx.short}: {fmtQty(shortBy ?? rem)} {l.unit}</div>}
-                        {isStock && !l.stockItem && <div className="text-[11px] text-muted-foreground">{tx.notLinked}</div>}
+                        {isStock && have == null && (
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                            {tx.notLinked}
+                            {OPEN_FOR_STOCK.includes(status) && (
+                              <button type="button" disabled={busy} onClick={() => addToStock(i)} className="h-8 rounded-md border border-border px-2 text-xs font-semibold text-foreground inline-flex items-center gap-1">
+                                <PackagePlus className="h-3.5 w-3.5" />{tx.addStock}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {isStock && ['in_progress', 'partial', 'submitted'].includes(status) && rem > 0 && (
                         <label className="flex items-center gap-1.5 text-xs font-semibold">{tx.give}
@@ -505,6 +677,34 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
               className="mt-1 block w-full rounded-lg border-2 border-border bg-background p-2 text-sm" />
           </label>
         ) : current.stockNote ? <p className="rounded-lg bg-blue-600/5 p-3 text-sm whitespace-pre-wrap"><b>{tx.stockNote}:</b> {current.stockNote}</p> : null}
+
+        {!isStock && ['partial', 'fulfilled'].includes(status) && (
+          current.receivedAt ? (
+            <p className="rounded-lg bg-green-600/10 p-3 text-sm text-green-800">
+              <CheckCircle2 className="mr-1 inline h-4 w-4" />{tx.receivedBy(current.receivedByName || '—', dateFmt(toDate(current.receivedAt)))}
+              {current.receivedNote && <span className="mt-1 block whitespace-pre-wrap text-foreground">{current.receivedNote}</span>}
+            </p>
+          ) : (
+            <section className="rounded-2xl border-2 border-primary/40 bg-primary/5 p-3 space-y-2">
+              <h3 className="font-bold text-primary">{tx.confirmTitle}</h3>
+              <p className="text-xs text-muted-foreground">{tx.confirmHint}</p>
+              <textarea rows={2} value={form.receivedNote || ''} onChange={(e) => setForm((f) => ({ ...f, receivedNote: e.target.value }))} placeholder={tx.receivedNote} aria-label={tx.receivedNote}
+                className="block w-full rounded-lg border-2 border-border bg-background p-2 text-sm" />
+              <button type="button" disabled={busy} onClick={confirmReceived} className="h-11 rounded-xl bg-primary px-5 text-sm font-bold text-primary-foreground inline-flex items-center gap-2 disabled:opacity-60">
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}{tx.confirmBtn}
+              </button>
+            </section>
+          )
+        )}
+
+        {!isStock && current.id && ['partial', 'fulfilled'].includes(status) && toDate(current.weekStart) <= new Date() && (
+          <div className="space-y-1">
+            <button type="button" disabled={busy} onClick={checkUsage} className="h-10 rounded-lg border-2 border-border px-3 text-sm font-semibold inline-flex items-center gap-1.5">
+              <BarChart3 className="h-4 w-4" />{tx.usage}
+            </button>
+            {usage && <p className="text-xs text-muted-foreground">{usage.any ? tx.usageSub(de ? `${usage.days} Tagen` : `${usage.days} day${usage.days === 1 ? '' : 's'}`) : tx.usageNone}</p>}
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {editable && (
@@ -544,7 +744,8 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
   }
 
   const visible = isStock ? requests.filter((r) => r.status !== 'draft') : requests;
-  const open = visible.filter((r) => (isStock ? OPEN_FOR_STOCK : ['draft', 'submitted', 'in_progress', 'partial']).includes(r.status))
+  const needsReceipt = (r) => !isStock && ['partial', 'fulfilled'].includes(r.status) && !r.receivedAt;
+  const open = visible.filter((r) => (isStock ? OPEN_FOR_STOCK : ['draft', 'submitted', 'in_progress', 'partial']).includes(r.status) || needsReceipt(r))
     .sort((a, b) => String(a.neededBy || a.weekStart).localeCompare(String(b.neededBy || b.weekStart)));
   const earlier = visible.filter((r) => !open.includes(r));
 
@@ -560,7 +761,10 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
                 {tx.lines(items.length)}{r.neededBy ? ` · ${tx.neededBy} ${dateFmt(toDate(r.neededBy))}` : ''}{r.requestedByName ? ` · ${tx.by} ${r.requestedByName}` : ''}
               </div>
             </div>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${STATUS_TONE[r.status]}`}>{tx.status[r.status]}</span>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${STATUS_TONE[r.status]}`}>{tx.status[r.status]}</span>
+              {needsReceipt(r) && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">{tx.toConfirm}</span>}
+            </div>
           </div>
         </button>
       </li>
@@ -577,7 +781,19 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
         {!isStock && (
           <button type="button" onClick={startNew} className="h-11 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground inline-flex items-center gap-2"><Plus className="h-4 w-4" />{tx.newReq}</button>
         )}
+        {isStock && (
+          <button type="button" onClick={printAllShopping} className="h-11 rounded-xl border-2 border-border px-4 text-sm font-semibold inline-flex items-center gap-2"><ShoppingCart className="h-4 w-4" />{tx.allShopping}</button>
+        )}
       </div>
+      {reminder && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border-2 border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900">
+          <Bell className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 font-semibold">{reminder.draft ? tx.remindDraft(reminder.week) : tx.remind(reminder.week)}</span>
+          <button type="button" onClick={() => (reminder.draft ? openRequest(reminder.draft) : startNew())} className="h-9 rounded-lg bg-amber-600 px-3 text-xs font-bold text-white">
+            {reminder.draft ? tx.openDraft : tx.startNow}
+          </button>
+        </div>
+      )}
       {visible.length === 0 ? (
         <p className="rounded-xl border-2 border-dashed border-border p-6 text-center text-sm text-muted-foreground">{tx.none}</p>
       ) : (
@@ -614,4 +830,26 @@ export function useOpenStockRequests(client, enabled = true) {
     return () => { alive = false; if (unsub) unsub(); };
   }, [client, enabled]);
   return count;
+}
+
+// True from Thursday when next week's request has not been sent (for a dot on the KDS tab).
+export function useWeeklyRequestDue(client, enabled = true) {
+  const [due, setDue] = useState(false);
+  useEffect(() => {
+    if (!enabled || !client) return undefined;
+    let alive = true; let unsub = null;
+    const refresh = () => {
+      const now = new Date();
+      if ((now.getDay() + 6) % 7 < 3) { setDue(false); return; }
+      const ws = nextWeekStart(now); const we = new Date(ws); we.setDate(we.getDate() + 7);
+      client.collection('stock_requests').getList(1, 1, {
+        filter: `weekStart >= "${pbDateFilter(ws)}" && weekStart < "${pbDateFilter(we)}" && status != "draft" && status != "cancelled"`,
+        $autoCancel: false, requestKey: null,
+      }).then((r) => { if (alive) setDue(r.totalItems === 0); }).catch(() => {});
+    };
+    refresh();
+    client.collection('stock_requests').subscribe('*', refresh).then((fn) => { if (alive) unsub = fn; else fn(); }).catch(() => {});
+    return () => { alive = false; if (unsub) unsub(); };
+  }, [client, enabled]);
+  return due;
 }

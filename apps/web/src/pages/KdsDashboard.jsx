@@ -38,7 +38,7 @@ import AppLangToggle from '@/components/AppLangToggle.jsx';
 import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 import MenuManager from '@/components/MenuManager.jsx';
 import RecipeManager from '@/components/kitchen/RecipeManager.jsx';
-import StockRequests from '@/components/kitchen/StockRequests.jsx';
+import StockRequests, { useWeeklyRequestDue } from '@/components/kitchen/StockRequests.jsx';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -521,11 +521,12 @@ export default function KdsDashboard() {
   const isManager = isKds && kdsAuthModel?.role === 'kitchen_manager';
   const authModel = isKds ? kdsAuthModel : adminAuthModel;
   const canManage = isManager || (isAdmin && !isKds);
+  const requestDue = useWeeklyRequestDue(pb, authed && canManage);
   const sections = [
     { key: 'tickets', icon: ClipboardList, label: language === 'en' ? 'Tickets' : 'Bons', count: orders.length },
     canManage && { key: 'menu', icon: UtensilsCrossed, label: language === 'en' ? 'Menu' : 'Speisekarte' },
     { key: 'recipes', icon: BookOpen, label: language === 'en' ? 'Recipes' : 'Rezepte' },
-    canManage && { key: 'requests', icon: PackageSearch, label: language === 'en' ? 'Stock requests' : 'Lageranforderung' },
+    canManage && { key: 'requests', icon: PackageSearch, label: language === 'en' ? 'Stock requests' : 'Lageranforderung', dot: requestDue },
   ].filter(Boolean);
   const currentView = sections.some((x) => x.key === view) ? view : 'tickets';
   const viewRef = useRef(currentView);
@@ -894,11 +895,12 @@ export default function KdsDashboard() {
         <main className="p-3 sm:p-4">
           {authed && (
             <nav className="app-chip-row flex gap-2 overflow-x-auto pb-3 mb-1" aria-label={language === 'en' ? 'Kitchen sections' : 'Küchenbereiche'}>
-              {sections.map(({ key, icon: Icon, label, count }) => (
+              {sections.map(({ key, icon: Icon, label, count, dot }) => (
                 <button key={key} type="button" onClick={() => setView(key)} aria-current={currentView === key ? 'page' : undefined}
                   className={`shrink-0 flex items-center gap-1.5 h-10 px-4 rounded-full text-sm font-bold border-2 transition-colors ${currentView === key ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border hover:bg-muted'}`}>
                   <Icon className="h-4 w-4" />{label}
                   {count > 0 && <span className={`ml-0.5 rounded-full px-1.5 text-[11px] ${currentView === key ? 'bg-primary-foreground/20' : 'bg-secondary text-secondary-foreground'}`}>{count}</span>}
+                  {dot && <span className="h-2.5 w-2.5 rounded-full bg-amber-500" aria-label={language === 'en' ? 'Next week not sent yet' : 'Nächste Woche noch nicht gesendet'} />}
                 </button>
               ))}
             </nav>

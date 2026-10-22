@@ -62,12 +62,39 @@ export function parseJson(value, fallback) {
   try { return JSON.parse(value); } catch (_) { return fallback; }
 }
 
+// Stock item for a recipe line: the linked one, or one with the same name
+// (so an item added to the stock list later still counts).
+const nameIndex = new WeakMap();
+export function stockFor(ing, stockById) {
+  if (!stockById) return null;
+  if (ing?.stockItem && stockById[ing.stockItem]) return stockById[ing.stockItem];
+  const name = String(ing?.name || '').trim().toLowerCase();
+  if (!name) return null;
+  let idx = nameIndex.get(stockById);
+  if (!idx) {
+    idx = new Map();
+    for (const s of Object.values(stockById)) idx.set(String(s.name || '').trim().toLowerCase(), s);
+    nameIndex.set(stockById, idx);
+  }
+  return idx.get(name) || null;
+}
+
+// Menu price that gives the target food cost %.
+export const priceForFoodCost = (cost, pct = 30) => (cost > 0 && pct > 0 ? Math.ceil((cost / (pct / 100)) * 10) / 10 : null);
+
+// Scale a recipe amount from the recipe's yield to `portions`.
+export function scaledQty(qty, yieldPortions, portions) {
+  const y = Number(yieldPortions) > 0 ? Number(yieldPortions) : 1;
+  const n = (Number(qty) || 0) * (Number(portions) || y) / y;
+  return n >= 100 ? Math.round(n) : n >= 10 ? round(n, 1) : round(n, 2);
+}
+
 // Ingredients of one portion, with cost from the linked stock item.
 export function recipeCost(recipe, stockById, price) {
   const yieldPortions = Number(recipe?.yieldPortions) > 0 ? Number(recipe.yieldPortions) : 1;
   let cost = 0; let missing = 0;
   for (const ing of parseJson(recipe?.ingredients, [])) {
-    const item = ing.stockItem ? stockById[ing.stockItem] : null;
+    const item = stockFor(ing, stockById);
     const unitCost = Number(item?.unitCost);
     if (!item || !Number.isFinite(unitCost) || unitCost <= 0) { missing += 1; continue; }
     const q = convertQty(Number(ing.qty) / yieldPortions, ing.unit || item.unit, item.unit);
@@ -107,7 +134,7 @@ export function ingredientNeeds(recipes, plannedByMenuItem, stockById) {
     for (const ing of parseJson(r.ingredients, [])) {
       const perPortion = (Number(ing.qty) || 0) / yieldPortions;
       if (perPortion <= 0) continue;
-      const item = ing.stockItem ? stockById[ing.stockItem] : null;
+      const item = stockFor(ing, stockById);
       let unit = ing.unit || item?.unit || '';
       let qty = perPortion * portions;
       if (item) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate } from 'react-router-dom';
 import { stockPb } from '@/lib/staffClients.js';
@@ -95,6 +95,13 @@ export default function StockDashboard() {
 
   const [activeTab, setActiveTab] = useState('inventory');
   const openRequests = useOpenStockRequests(pb, authed);
+  // Open the kitchen requests first when some are waiting (once per visit).
+  const autoTabbed = useRef(false);
+  useEffect(() => {
+    if (autoTabbed.current || openRequests <= 0) return;
+    autoTabbed.current = true;
+    setActiveTab((t) => (t === 'inventory' ? 'requests' : t));
+  }, [openRequests]);
   const [items, setItems] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [waste, setWaste] = useState([]);
@@ -113,7 +120,7 @@ export default function StockDashboard() {
   const [editingItem, setEditingItem] = useState(null);
   const [itemForm, setItemForm] = useState({
     name: '', category: '', unit: '', quantity: '', minStock: '', notes: '', menuItem: '',
-    barcode: '', preparedAt: '', expiry: '', perishable: false,
+    barcode: '', preparedAt: '', expiry: '', perishable: false, unitCost: '',
   });
   const [savingItem, setSavingItem] = useState(false);
   const [lotBarcodesCache, setLotBarcodesCache] = useState([]);
@@ -352,7 +359,7 @@ export default function StockDashboard() {
     const nowLocal = toDatetimeLocalValue(new Date().toISOString());
     const taken = collectTakenBarcodes(items, lotBarcodesCache, {});
     setItemForm({
-      name: '', category: '', unit: '', quantity: '', minStock: '', notes: '', menuItem: '',
+      name: '', category: '', unit: '', quantity: '', minStock: '', notes: '', menuItem: '', unitCost: '',
       barcode: generateUniqueNumericBarcode(taken),
       preparedAt: nowLocal,
       expiry: '',
@@ -370,6 +377,7 @@ export default function StockDashboard() {
       unit: it.unit || '',
       quantity: String(it.quantity ?? ''),
       minStock: String(it.minStock ?? ''),
+      unitCost: it.unitCost ? String(it.unitCost) : '',
       notes: it.notes || '',
       menuItem: it.menuItem || '',
       barcode: it.barcode || '',
@@ -436,6 +444,7 @@ export default function StockDashboard() {
       unit: itemForm.unit.trim(),
       quantity: Number.isFinite(qty) ? qty : 0,
       minStock: Number.isFinite(minSt) ? minSt : 0,
+      unitCost: itemForm.unitCost === '' || !Number.isFinite(Number(itemForm.unitCost)) ? null : Number(itemForm.unitCost),
       notes: itemForm.notes.trim(),
       menuItem: itemForm.menuItem || null,
       barcode: bcCheck.value,
@@ -1243,6 +1252,11 @@ export default function StockDashboard() {
                 <div className="space-y-1.5">
                   <Label className="font-bold text-primary text-sm">{t('stock_minStock')}</Label>
                   <Input type="number" min="0" step="any" value={itemForm.minStock} onChange={(e) => setItemForm((f) => ({ ...f, minStock: e.target.value }))} className="h-11" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="font-bold text-primary text-sm">{language === 'en' ? 'Price per unit (€)' : 'Preis pro Einheit (€)'}</Label>
+                  <Input type="number" min="0" step="0.01" inputMode="decimal" value={itemForm.unitCost} onChange={(e) => setItemForm((f) => ({ ...f, unitCost: e.target.value }))} className="h-11" placeholder={itemForm.unit ? `€ / ${itemForm.unit}` : '€'} />
+                  <p className="text-[11px] text-muted-foreground">{language === 'en' ? 'Used for recipe costs. Goods-In updates it.' : 'Für Rezeptkosten. Wird beim Wareneingang aktualisiert.'}</p>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="font-bold text-primary text-sm">Barcode (numeric) *</Label>

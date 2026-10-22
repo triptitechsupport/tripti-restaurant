@@ -368,7 +368,9 @@ export async function createLotAndAdjust(pbClient, opts, keySuffix = '') {
   }, { $autoCancel: false, requestKey: `gi-lot-${itemId}-${keySuffix}` });
   // Bump aggregate stock level.
   const newQty = prevQty + quantity;
-  await pbClient.collection('stock_items').update(itemId, { quantity: newQty }, { $autoCancel: false, requestKey: `gi-item-up-${itemId}-${keySuffix}` });
+  // The latest purchase price becomes the item's price (used for recipe costs).
+  const price = Number(unitCost);
+  await pbClient.collection('stock_items').update(itemId, { quantity: newQty, ...(unitCost != null && unitCost !== '' && price > 0 ? { unitCost: price } : {}) }, { $autoCancel: false, requestKey: `gi-item-up-${itemId}-${keySuffix}` });
   // Audit trail.
   await pbClient.collection('stock_adjustments').create({
     stockItem: itemId,
