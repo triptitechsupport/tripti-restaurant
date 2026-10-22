@@ -40,7 +40,7 @@ onRecordUpdateRequest((e) => {
 
   if (col === 'kds_users') {
     // Confirming receipt of a request the stock manager finished.
-    if ((before === 'fulfilled' || before === 'partial') && after === before) {
+    if (before === 'fulfilled' && after === before) {
       ['weekStart', 'neededBy', 'notes', 'items', 'startedAt', 'fulfilledAt', 'fulfilledBy', 'fulfilledByName', 'stockNote', 'requestedBy', 'requestedByName', 'submittedAt'].forEach((f) => {
         if (old.getString(f) !== e.record.getString(f)) throw new ForbiddenError('Only the receipt can be confirmed now.');
       });
@@ -59,7 +59,9 @@ onRecordUpdateRequest((e) => {
     });
     const items = parse(e.record).map((it) => { const c = Object.assign({}, it); delete c.fulfilledQty; return c; });
     e.record.set('items', items);
-    if (after === 'submitted' && before !== 'submitted') e.record.set('submittedAt', now);
+    // Server-owned fields: never taken from the request body.
+    e.record.set('requestedByName', old.getString('requestedByName'));
+    e.record.set('submittedAt', after === 'submitted' && before !== 'submitted' ? now : old.getString('submittedAt'));
     e.next();
     return;
   }
@@ -69,6 +71,9 @@ onRecordUpdateRequest((e) => {
       throw new BadRequestError('This request is not open for the stock manager.');
     if (['submitted', 'in_progress', 'partial', 'fulfilled'].indexOf(after) < 0)
       throw new ForbiddenError('The stock manager cannot cancel a request. Ask the kitchen manager.');
+    // Only forward: submitted -> in_progress -> partial -> fulfilled.
+    const rank = { submitted: 0, in_progress: 1, partial: 2, fulfilled: 3 };
+    if (rank[after] < rank[before]) throw new ForbiddenError('A request cannot go back to an earlier step.');
     ['weekStart', 'neededBy', 'notes', 'requestedBy', 'requestedByName', 'submittedAt', 'receivedAt', 'receivedByName', 'receivedNote'].forEach((f) => {
       if (!same(f)) throw new ForbiddenError('Only the kitchen manager can change the request.');
     });
@@ -81,7 +86,9 @@ onRecordUpdateRequest((e) => {
       if (was && was !== now2) return true;
       return key(it, '') !== key(b[i], '');
     })) throw new ForbiddenError('The requested items cannot be changed by the stock manager.');
-    if (after !== before && after === 'in_progress' && !e.record.getString('startedAt')) e.record.set('startedAt', now);
+    // Server-owned fields: start from the stored values, then set them here.
+    ['startedAt', 'fulfilledAt', 'fulfilledBy', 'fulfilledByName'].forEach((f) => e.record.set(f, old.getString(f)));
+    if (after === 'in_progress' && !e.record.getString('startedAt')) e.record.set('startedAt', now);
     if (after === 'fulfilled' || after === 'partial') {
       e.record.set('fulfilledAt', now);
       e.record.set('fulfilledBy', auth.id);

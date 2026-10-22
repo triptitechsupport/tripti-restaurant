@@ -111,6 +111,7 @@ export function analyze(data, range) {
   const weekdays = Array.from({ length: 7 }, (_, w) => ({ wd: w, sales: 0, days: 0 }));
   days.forEach((d) => { weekdays[d.date.getDay()].days += 1; });
   const waiterMap = new Map(); const itemMap = new Map(); const catMap = new Map(); const tableMap = new Map();
+  const vatById = Object.fromEntries(menu.map((m) => [m.id, m.vat_Rate]));
   const vatMap = new Map(); const channel = { dineIn: { sales: 0, orders: new Set() }, pickup: { sales: 0, orders: new Set() } };
   const serveTimes = [];
   const soldIds = new Set(); const soldNames = new Set();
@@ -161,7 +162,8 @@ export function analyze(data, range) {
       itemMap.get(key).qty += qty; itemMap.get(key).sales += line;
       if (!catMap.has(cat)) catMap.set(cat, { category: cat, qty: 0, sales: 0 });
       catMap.get(cat).qty += qty; catMap.get(cat).sales += line;
-      const rate = VAT_PERCENT[it.vat_Rate] != null ? it.vat_Rate : 'STANDARD';
+      const r0 = it.vat_Rate || vatById[it.id];
+      const rate = VAT_PERCENT[r0] != null ? r0 : 'STANDARD';
       vatMap.set(rate, (vatMap.get(rate) || 0) + line);
     }
   }

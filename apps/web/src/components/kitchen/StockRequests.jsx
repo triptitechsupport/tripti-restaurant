@@ -48,6 +48,7 @@ const T = {
     addStock: 'Add to stock list', linked: (n) => `${n} is now in the stock list`,
     allShopping: 'Shopping list (all open)', belowMin: 'Below minimum', topUp: 'top up to minimum', forKitchen: 'For the kitchen',
     nothingToBuy: 'Nothing to buy right now.',
+    badUnit: (n) => `Not given, the unit does not match the stock list: ${n}`,
   },
   de: {
     title: 'Wöchentliche Lageranforderung', subKitchen: 'Zutaten für nächste Woche planen und die Liste an das Lager schicken.',
@@ -79,6 +80,7 @@ const T = {
     addStock: 'In Lagerliste aufnehmen', linked: (n) => `${n} ist jetzt in der Lagerliste`,
     allShopping: 'Einkaufsliste (alle offenen)', belowMin: 'Unter Mindestbestand', topUp: 'auf Mindestbestand auffüllen', forKitchen: 'Für die Küche',
     nothingToBuy: 'Derzeit nichts einzukaufen.',
+    badUnit: (n) => `Nicht ausgegeben, Einheit passt nicht zur Lagerliste: ${n}`,
   },
 };
 
@@ -337,21 +339,35 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
   const giveOut = async () => {
     setBusy(true);
     try {
+      // Lock the request first, so the kitchen manager cannot change or
+      // cancel it while stock is going out.
+      if (current.status === 'submitted') {
+        await client.collection('stock_requests').update(current.id, { status: 'in_progress' }, { $autoCancel: false });
+      }
       let count = 0;
       const reason = `Weekly request ${tx.week} ${weekNumber(toDate(current.weekStart))}`;
       const items = [];
+      const badUnit = [];
+      // Working copies: two lines for the same item must see each other's deductions.
+      const liveItems = {};
+      const liveLots = lots.map((x) => ({ ...x }));
       for (const l of form.items) {
         const giveRaw = l.give === '' ? defaultGive(l) : Number(l.give);
         let given = 0;
         if (giveRaw > 0) {
-          const item = itemFor(l);
-          if (item) {
-            const inItemUnit = convertQty(giveRaw, l.unit || item.unit, item.unit) ?? giveRaw;
-            const done = await issueFromStock(client, {
-              item, lots, qty: inItemUnit, staffId: current.requestedBy || 'kitchen', staffName: current.requestedByName || 'Kitchen',
-              role: user.role || 'stock', byName: user.name || '', byId: user.id || '', reason,
-            });
-            given = convertQty(done, item.unit, l.unit || item.unit) ?? done;
+          const found = itemFor(l);
+          if (found) {
+            const item = liveItems[found.id] || (liveItems[found.id] = { ...found });
+            const inItemUnit = convertQty(giveRaw, l.unit || item.unit, item.unit);
+            if (inItemUnit == null) {
+              badUnit.push(l.name);
+            } else {
+              const done = await issueFromStock(client, {
+                item, lots: liveLots, qty: inItemUnit, staffId: current.requestedBy || 'kitchen', staffName: current.requestedByName || 'Kitchen',
+                role: user.role || 'stock', byName: user.name || '', byId: user.id || '', reason,
+              });
+              given = convertQty(done, item.unit, l.unit || item.unit) ?? 0;
+            }
           } else {
             given = giveRaw; // bought or handed over outside the stock list
           }
@@ -361,6 +377,7 @@ export default function StockRequests({ client, mode = 'kitchen', user = {} }) {
         const linked = !rest.stockItem ? itemFor(rest) : null;
         items.push({ ...rest, ...(linked ? { stockItem: linked.id } : {}), fulfilledQty: round((Number(l.fulfilledQty) || 0) + given, 3) });
       }
+      if (badUnit.length) toast.error(tx.badUnit(badUnit.join(', ')));
       const complete = items.every((l) => (Number(l.fulfilledQty) || 0) + 1e-9 >= (Number(l.qty) || 0));
       const rec = await client.collection('stock_requests').update(current.id, {
         items, status: complete ? 'fulfilled' : 'partial', stockNote: form.stockNote || '',
@@ -678,7 +695,7 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
           </label>
         ) : current.stockNote ? <p className="rounded-lg bg-blue-600/5 p-3 text-sm whitespace-pre-wrap"><b>{tx.stockNote}:</b> {current.stockNote}</p> : null}
 
-        {!isStock && ['partial', 'fulfilled'].includes(status) && (
+        {!isStock && status === 'fulfilled' && (
           current.receivedAt ? (
             <p className="rounded-lg bg-green-600/10 p-3 text-sm text-green-800">
               <CheckCircle2 className="mr-1 inline h-4 w-4" />{tx.receivedBy(current.receivedByName || '—', dateFmt(toDate(current.receivedAt)))}
@@ -744,7 +761,7 @@ ${rows.map((r) => `<tr><td>${esc(r.l.name)}</td><td class="r">${fmtQty(r.rem)} $
   }
 
   const visible = isStock ? requests.filter((r) => r.status !== 'draft') : requests;
-  const needsReceipt = (r) => !isStock && ['partial', 'fulfilled'].includes(r.status) && !r.receivedAt;
+  const needsReceipt = (r) => !isStock && r.status === 'fulfilled' && !r.receivedAt;
   const open = visible.filter((r) => (isStock ? OPEN_FOR_STOCK : ['draft', 'submitted', 'in_progress', 'partial']).includes(r.status) || needsReceipt(r))
     .sort((a, b) => String(a.neededBy || a.weekStart).localeCompare(String(b.neededBy || b.weekStart)));
   const earlier = visible.filter((r) => !open.includes(r));

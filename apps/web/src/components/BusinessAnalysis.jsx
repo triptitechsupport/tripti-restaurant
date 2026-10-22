@@ -177,7 +177,7 @@ export default function BusinessAnalysis() {
         list('orders', { filter: created, fields: 'id,created,status,totalPrice,orderType' }),
         list('table_reservations', { filter: `reservationDate >= "${pbDateFilter(range.from)}" && reservationDate < "${to}"`, fields: 'id,reservationDate,status,numberOfGuests,partySize' }),
         list('waiter_timesheets', { filter: `clockIn >= "${pbDateFilter(range.from)}" && clockIn < "${to}"`, fields: 'id,waiter,clockIn,clockOut' }),
-        list('menu_items', { fields: 'id,name,nameEN,category,price,availability' }),
+        list('menu_items', { fields: 'id,name,nameEN,category,price,availability,vat_Rate' }),
         list('waiter_users', { fields: 'id,username,name' }),
       ]);
       const parents = Object.fromEntries(orders.map((o) => [o.id, o]));
