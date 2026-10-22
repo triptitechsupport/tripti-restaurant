@@ -500,6 +500,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const [payType, setPayType] = useState('CASH');
   const [receiptPreview, setReceiptPreview] = useState(null);
   const [billBusy, setBillBusy] = useState(null);
+  const [endBusy, setEndBusy] = useState(null);
   // Parent waiter_orders records (for open/closed status + endedAt).
   const [waiterOrders, setWaiterOrders] = useState([]);
   // Per-item spice level selections on the New Order cards (used before an
@@ -2741,6 +2742,30 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     billPending(parent) && parent.paymentStatus !== 'paid' && parent.orderStatus !== 'closed'
   ).sort((x, y) => new Date(x.parent.billRequestedAt) - new Date(y.parent.billRequestedAt)), [groupedOrders]);
 
+  // Orders a waiter asked the cashier to end, not ended yet.
+  const endRequests = useMemo(() => groupedOrders.groupArr.filter(({ parent }) =>
+    parent && parent.endRequestedAt && !parent.endedAt && parent.orderStatus !== 'closed'
+  ).sort((x, y) => new Date(x.parent.endRequestedAt) - new Date(y.parent.endRequestedAt)), [groupedOrders]);
+
+  // Tell the cashier about new end requests, and the waiter when the order was ended.
+  const endSeen = useRef(null);
+  useEffect(() => {
+    const now = new Map(waiterOrders.map((w) => [w.id, `${w.endRequestedAt || ''}|${w.endedAt || ''}`]));
+    const before = endSeen.current;
+    endSeen.current = now;
+    if (!before) return;
+    waiterOrders.forEach((w) => {
+      if (before.get(w.id) === now.get(w.id)) return;
+      if (canTakePayment && w.endRequestedAt && !w.endedAt) {
+        toast.warning(`Table ${w.tableNumber}: ${w.endRequestedBy || 'the waiter'} asks you to end the order`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      } else if (!canTakePayment && w.endedAt && w.endRequestedBy && w.endRequestedBy === placedBy) {
+        toast.success(`Table ${w.tableNumber}: the cashier ended the order.`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      }
+    });
+  }, [waiterOrders, canTakePayment, placedBy]);
+
   // Tell the cashier about new bill requests, and the waiter when a bill is ready.
   const billSeen = useRef(null);
   useEffect(() => {
@@ -2966,6 +2991,28 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // once every child KOT is completed (served). It does NOT set orderStatus —
   // the order stays "open" and the table stays occupied. orderStatus only
   // becomes "closed" later, by the explicit Free Table action.
+  // Waiter: ask the cashier to end the order once every ticket is served.
+  const requestEnd = async (parent, kots) => {
+    if (!parent?.id) return;
+    const open = (kots || []).filter((k) => k.status !== 'completed' && k.status !== 'cancelled');
+    if (open.length > 0) {
+      toast.error(`Not yet: ${open.length} ticket${open.length > 1 ? 's are' : ' is'} still in the kitchen or not served.`);
+      return;
+    }
+    setEndBusy(parent.id);
+    try {
+      await pb.collection('waiter_orders').update(parent.id, {
+        endRequestedAt: new Date().toISOString(), endRequestedBy: placedBy || '',
+      }, { $autoCancel: false });
+      toast.success(`Table ${parent.tableNumber}: the cashier has been asked to end the order.`);
+      fetchWaiterOrders();
+    } catch (err) {
+      toast.error(err?.response?.message || 'Could not send the request to the cashier');
+    } finally {
+      setEndBusy(null);
+    }
+  };
+
   const handleEndOrder = async () => {
     if (!endOrderTarget) return;
     const { parent, kots } = endOrderTarget;
@@ -3000,7 +3047,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       if (onPlaced) onPlaced();
     } catch (err) {
       console.error('Failed to end order:', err);
-      toast.error('Failed to end order');
+      toast.error(err?.response?.message || 'Failed to end order');
     } finally {
       setEndOrderTarget(null);
     }
@@ -3034,7 +3081,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       try {
         await pb.collection('waiter_orders').update(
           parent.id,
-          { endedAt: new Date().toISOString() },
+          canTakePayment
+            ? { endedAt: new Date().toISOString() }
+            : { endRequestedAt: new Date().toISOString(), endRequestedBy: placedBy || '' },
           { $autoCancel: false, requestKey: `end-grp-${parent.id}` },
         );
         ended.push(parent.tableNumber || parent.orderId);
@@ -3046,7 +3095,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     fetchWaiterOrders();
     fetchOrders();
     if (ended.length > 0 && blocked.length === 0) {
-      toast.success(`Ended ${ended.length} order(s): ${ended.join(', ')}`);
+      toast.success(canTakePayment
+        ? `Ended ${ended.length} order(s): ${ended.join(', ')}`
+        : `Asked the cashier to end ${ended.length} order(s): ${ended.join(', ')}`);
     } else if (ended.length > 0 && blocked.length > 0) {
       toast.message(`Ended ${ended.length}: ${ended.join(', ')}. Blocked ${blocked.length}: ${blocked.join(', ')}`);
     } else if (blocked.length > 0) {
@@ -3570,7 +3621,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       return (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            {!isEnded ? (
+                            {!isEnded && !canTakePayment && parent.endRequestedAt ? (
+                              <span className="flex-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-2 text-center flex items-center justify-center gap-1">
+                                <Clock className="h-3.5 w-3.5 shrink-0" /> Waiting for the cashier to end the order
+                              </span>
+                            ) : !isEnded && !canTakePayment ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="flex-1"
+                                disabled={!allResolved || endBusy === parent.id}
+                                onClick={() => requestEnd(parent, kots)}
+                              >
+                                {endBusy === parent.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CircleStop className="h-4 w-4 mr-1" />} Ask cashier to end order
+                              </Button>
+                            ) : !isEnded ? (
                               <Button
                                 size="sm"
                                 variant="destructive"
@@ -3578,7 +3643,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                 disabled={!allResolved}
                                 onClick={() => setEndOrderTarget({ parent, kots })}
                               >
-                                <CircleStop className="h-4 w-4 mr-1" /> End Order
+                                <CircleStop className="h-4 w-4 mr-1" /> {parent.endRequestedAt ? 'Confirm end of order' : 'End Order'}
                               </Button>
                             ) : (
                               <span className="flex-1 text-xs text-muted-foreground italic text-center">Order ended</span>
@@ -3605,7 +3670,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                           {!isEnded && !allResolved && (
                             <p className="text-[11px] text-amber-700 flex items-start gap-1.5">
                               <CircleStop className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span>End Order locked — {pendingCount} ticket{pendingCount > 1 ? 's' : ''} still pending or being prepared.</span>
+                              <span>Cannot end yet: {pendingCount} ticket{pendingCount > 1 ? 's are' : ' is'} still in the kitchen or not served. Mark each ticket served first.</span>
                             </p>
                           )}
                           {!freeable && !isFreed && (
@@ -3795,6 +3860,32 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 </div>
                 <Button size="sm" className="shrink-0" onClick={() => startPaymentSettlement({ parent, kots })}>
                   <CreditCard className="h-4 w-4 mr-1" /> Take payment
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Cashier: orders the waiters asked to end */}
+      {canTakePayment && showActiveTab && endRequests.length > 0 && (
+        <div className="mt-3 rounded-xl border-2 border-primary/40 bg-primary/5 p-3 space-y-2" role="status" aria-live="polite">
+          <p className="flex items-center gap-2 text-sm font-bold text-primary">
+            <CircleStop className="h-4 w-4" /> End order requests ({endRequests.length})
+          </p>
+          {endRequests.map(({ parent, kots }) => {
+            const open = kots.filter((k) => k.status !== 'completed' && k.status !== 'cancelled').length;
+            return (
+              <div key={parent.id} className="flex items-center justify-between gap-2 rounded-lg bg-card border border-border px-3 py-2">
+                <div className="min-w-0 text-sm">
+                  <p className="font-bold truncate">Table {parent.tableNumber}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {parent.endRequestedBy || 'Waiter'} · {new Date(parent.endRequestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {open > 0 ? ` · ${open} not served` : ''}
+                  </p>
+                </div>
+                <Button size="sm" variant="destructive" className="shrink-0" disabled={open > 0} onClick={() => setEndOrderTarget({ parent, kots })}>
+                  <CircleStop className="h-4 w-4 mr-1" /> Confirm end
                 </Button>
               </div>
             );
@@ -5045,7 +5136,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           ) : null}
           <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
             <AlertDialogCancel className="w-full sm:w-auto mt-0">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="w-full sm:w-auto" onClick={handleEndOrderGroup}>End Eligible Orders</AlertDialogAction>
+            <AlertDialogAction className="w-full sm:w-auto" onClick={handleEndOrderGroup}>{canTakePayment ? 'End Eligible Orders' : 'Ask cashier to end them'}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
