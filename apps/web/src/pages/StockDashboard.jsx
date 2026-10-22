@@ -27,7 +27,8 @@ import StockBarcodes from '@/components/StockBarcodes.jsx';
 import StockAlertsPanel from '@/components/StockAlertsPanel.jsx';
 import CsvImportExport from '@/components/CsvImportExport.jsx';
 import { stockItemsExportColumns, stockItemsImportConfig } from '@/lib/csvConfigs.js';
-import { Truck, Package, Layers, Barcode } from 'lucide-react';
+import { Truck, Package, Layers, Barcode, ClipboardList } from 'lucide-react';
+import StockRequests, { useOpenStockRequests } from '@/components/kitchen/StockRequests.jsx';
 import {
   validateNumericBarcode,
   generateUniqueNumericBarcode,
@@ -75,7 +76,7 @@ function StatCard({ icon: Icon, label, value, tone }) {
 }
 
 export default function StockDashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
 
   // Authorization: a real stock user (stock_users on the stock auth store) OR
@@ -93,6 +94,7 @@ export default function StockDashboard() {
   const userRole = isStock ? 'stock' : 'admin';
 
   const [activeTab, setActiveTab] = useState('inventory');
+  const openRequests = useOpenStockRequests(pb, authed);
   const [items, setItems] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [waste, setWaste] = useState([]);
@@ -875,6 +877,10 @@ export default function StockDashboard() {
             <button onClick={() => setActiveTab('inventory')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Boxes className="h-4 w-4 mr-2" /> {t('stock_tabInventory')}
             </button>
+            <button onClick={() => setActiveTab('requests')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'requests' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
+              <ClipboardList className="h-4 w-4 mr-2" /> {language === 'en' ? 'Kitchen requests' : 'Küchenanforderungen'}
+              {openRequests > 0 && <span className="ml-1.5 rounded-full bg-destructive px-1.5 text-[11px] text-destructive-foreground">{openRequests}</span>}
+            </button>
             <button onClick={() => setActiveTab('goodsin')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'goodsin' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Truck className="h-4 w-4 mr-2" /> Goods-In
             </button>
@@ -906,6 +912,7 @@ export default function StockDashboard() {
             <StatCard icon={Trash2} label={t('stock_totalWaste')} value={stats.waste} tone="bg-secondary/20 text-secondary-foreground" />
           </div>
 
+          {activeTab === 'requests' && <StockRequests client={pb} mode="stock" user={{ id: userId, name: displayName, role: userRole }} />}
           {activeTab === 'goodsin' && <StockGoodsIn pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
           {activeTab === 'issue' && <StockIssue pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
           {activeTab === 'lots' && <StockLots pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}

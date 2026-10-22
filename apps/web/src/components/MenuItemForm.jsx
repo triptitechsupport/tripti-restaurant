@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import pb from '@/lib/pocketbaseClient.js';
+import defaultPb from '@/lib/pocketbaseClient.js';
 import MobileFormField from '@/components/MobileFormField.jsx';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 
@@ -28,7 +28,9 @@ const ALLERGENS_LIST = [
   { id: 'R', label: 'Molluscs' }
 ];
 
-export default function MenuItemForm({ initialData, onSuccess, onCancel }) {
+export default function MenuItemForm({ initialData, onSuccess, onCancel, client }) {
+  // The kitchen manager uses their own login (client); the admin the default one.
+  const pb = client || defaultPb;
   const { language } = useLanguage();
   const [isLoading, setIsLoading] = useState(false);
   const [categories, setCategories] = useState([]);

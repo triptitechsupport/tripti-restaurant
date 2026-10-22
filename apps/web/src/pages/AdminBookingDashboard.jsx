@@ -1,17 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote, ShieldCheck, Smartphone, Activity } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote, ShieldCheck, Smartphone, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
 import AdminPickupSection from '@/components/pickup/AdminPickupSection.jsx';
 import AdminStaffAccounts, { STAFF_ROLES } from '@/components/AdminStaffAccounts.jsx';
 import AdminTableReservations from '@/components/AdminTableReservations.jsx';
-import MenuItemsList from '@/components/MenuItemsList.jsx';
-import MenuItemForm from '@/components/MenuItemForm.jsx';
 import AdminLogsTab from '@/components/AdminLogsTab.jsx';
 import TableCapacitySettings from '@/components/TableCapacitySettings.jsx';
 import TimeSlotConfiguration from '@/components/TimeSlotConfiguration.jsx';
@@ -34,12 +30,7 @@ import AdminStockManagement from '@/components/AdminStockManagement.jsx';
 import StockAlertsPanel from '@/components/StockAlertsPanel.jsx';
 import AdminKotPrintOrder from '@/components/AdminKotPrintOrder.jsx';
 import AdminAnalysisView from '@/components/AdminAnalysisView.jsx';
-import CategoryFormModal from '@/components/CategoryFormModal.jsx';
-import CsvImportExport from '@/components/CsvImportExport.jsx';
-import {
-  menuItemsExportColumns, menuItemsImportConfig,
-  categoriesExportColumns, categoriesImportConfig,
-} from '@/lib/csvConfigs.js';
+import MenuManager from '@/components/MenuManager.jsx';
 import SettlementBillingView from '@/components/SettlementBillingView.jsx';
 import StaffAppDownload from '@/components/StaffAppDownload.jsx';
 import LiveOverview from '@/components/LiveOverview.jsx';
@@ -96,18 +87,6 @@ export default function AdminBookingDashboard() {
     return undefined;
   }, [searchParams, setSearchParams]);
   
-  const [menuItems, setMenuItems] = useState([]);
-  const [isMenuLoading, setIsMenuLoading] = useState(true);
-  const [showMenuForm, setShowMenuForm] = useState(false);
-  const [editingMenuItem, setEditingMenuItem] = useState(null);
-
-  // Dynamic menu categories (sourced from the `categories` collection).
-  const [categories, setCategories] = useState([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
-  const [editingCategory, setEditingCategory] = useState(null);
-  const [categoryToDelete, setCategoryToDelete] = useState(null);
-  const [isDeletingCategory, setIsDeletingCategory] = useState(false);
 
   // Pending reservation requests — sticky attention panel at the top of the
   // dashboard. Updates immediately from realtime events (no full-page refresh)
@@ -162,37 +141,6 @@ export default function AdminBookingDashboard() {
     });
     setPendingLoading(false);
   }, [isGenuinelyPending, sortPendingNewestFirst]);
-
-  const fetchMenuItems = async () => {
-    setIsMenuLoading(true);
-    try {
-      const records = await pb.collection('menu_items').getFullList({ sort: '-created', $autoCancel: false });
-      setMenuItems(records);
-    } catch (err) {
-      toast.error('Failed to load menu items');
-    } finally {
-      setIsMenuLoading(false);
-    }
-  };
-
-  const fetchCategories = async () => {
-    setCategoriesLoading(true);
-    try {
-      const records = await pb.collection('categories').getFullList({ sort: 'display_order,name', $autoCancel: false });
-      setCategories(records);
-    } catch (err) {
-      toast.error('Failed to load categories');
-    } finally {
-      setCategoriesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isAdminAuthenticated) {
-      fetchMenuItems();
-      fetchCategories();
-    }
-  }, [isAdminAuthenticated]);
 
   const fetchPendingReservations = useCallback(async ({ silent = true } = {}) => {
     const gen = ++pendingFetchGenRef.current;
@@ -338,29 +286,6 @@ export default function AdminBookingDashboard() {
 
   const authToken = pb.authStore.token;
 
-  const handleEditMenu = (item) => { setEditingMenuItem(item); setShowMenuForm(true); };
-  const handleMenuFormSuccess = () => { setShowMenuForm(false); setEditingMenuItem(null); fetchMenuItems(); };
-  const handleMenuFormCancel = () => { setShowMenuForm(false); setEditingMenuItem(null); };
-
-  const handleAddCategory = () => { setEditingCategory(null); setShowCategoryForm(true); };
-  const handleEditCategory = (cat) => { setEditingCategory(cat); setShowCategoryForm(true); };
-  const handleCategoryFormClose = () => { setShowCategoryForm(false); setEditingCategory(null); };
-  const handleCategoryFormSuccess = () => { setShowCategoryForm(false); setEditingCategory(null); fetchCategories(); };
-  const handleDeleteCategoryConfirm = async () => {
-    if (!categoryToDelete) return;
-    setIsDeletingCategory(true);
-    try {
-      await pb.collection('categories').delete(categoryToDelete.id, { $autoCancel: false });
-      setCategories(prev => prev.filter(c => c.id !== categoryToDelete.id));
-      toast.success('Category deleted successfully');
-    } catch (err) {
-      toast.error(err.message || 'Failed to delete category.');
-    } finally {
-      setIsDeletingCategory(false);
-      setCategoryToDelete(null);
-    }
-  };
-
   const renderOrdersSection = () => <AdminPickupSection />;
   
   const renderReservationsSection = () => (
@@ -419,141 +344,7 @@ export default function AdminBookingDashboard() {
     </div>
   );
   
-  const renderMenuSection = () => (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-card p-mobile rounded-2xl border-2 border-border shadow-md">
-        <div>
-          <h2 className="text-2xl font-serif font-bold tracking-tight text-primary">{t('menuManagement')}</h2>
-          <p className="text-muted-foreground font-medium text-sm mt-1">Manage your digital menu offerings.</p>
-        </div>
-        {!showMenuForm && (
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <Button onClick={handleAddCategory} variant="outline" className="w-full sm:w-auto min-h-touch shadow-sm">
-              <Tag className="h-4 w-4 mr-2" /> Add Category
-            </Button>
-            <Button onClick={() => setShowMenuForm(true)} className="w-full sm:w-auto min-h-touch shadow-md">
-              <Plus className="h-4 w-4 mr-2" /> {t('addNewItem')}
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* CSV export / import for menu items — bulk management */}
-      {!showMenuForm && (
-        <div className="bg-card border-2 border-border rounded-2xl p-4 md:p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-            <div className="min-w-0">
-              <h3 className="text-sm font-serif font-bold text-primary">Menu Items — CSV Export / Import</h3>
-              <p className="text-xs text-muted-foreground font-medium mt-0.5">
-                Export the menu to CSV, edit offline, then re-import to bulk create or update items. Matched by ID or Name (EN).
-              </p>
-            </div>
-            <div className="sm:ml-auto">
-              <CsvImportExport
-                collection="menu_items"
-                entityLabel="menu items"
-                exportFileName="menu_items.csv"
-                exportColumns={menuItemsExportColumns}
-                importConfig={menuItemsImportConfig}
-                onImportComplete={fetchMenuItems}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Dynamic categories management */}
-      {!showMenuForm && (
-        <div className="bg-card border-2 border-border rounded-2xl p-mobile shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Tag className="w-4 h-4 text-primary" />
-            <h3 className="text-sm font-serif font-bold tracking-tight text-primary">Menu Categories</h3>
-            <span className="text-xs text-muted-foreground font-medium">({categories.length})</span>
-            <div className="ml-auto">
-              <CsvImportExport
-                collection="categories"
-                entityLabel="categories"
-                exportFileName="categories.csv"
-                exportColumns={categoriesExportColumns}
-                importConfig={categoriesImportConfig}
-                onImportComplete={fetchCategories}
-              />
-            </div>
-          </div>
-          {categoriesLoading ? (
-            <p className="text-sm text-muted-foreground italic">Loading categories…</p>
-          ) : categories.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No categories yet. Click “Add Category” to create one.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {categories.map(cat => (
-                <div key={cat.id} className="flex items-center gap-2 bg-muted/40 border border-border/60 rounded-lg pl-3 pr-1.5 py-1.5">
-                  <span className="text-sm font-medium text-foreground">{cat.name}</span>
-                  {cat.name_de && <span className="text-xs text-muted-foreground">/ {cat.name_de}</span>}
-                  {cat.display_order != null && (
-                    <span className="text-[10px] font-bold text-muted-foreground bg-muted rounded px-1.5 py-0.5">#{cat.display_order}</span>
-                  )}
-                  <button onClick={() => handleEditCategory(cat)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded p-1" aria-label={`Edit ${cat.name}`}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => setCategoryToDelete(cat)} className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded p-1" aria-label={`Delete ${cat.name}`}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {showMenuForm ? (
-        <Card className="border-2 border-primary shadow-xl animate-in fade-in duration-300 rounded-2xl overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between border-b-2 border-border bg-primary/5 pb-4">
-            <div>
-              <CardTitle className="font-serif text-primary text-xl">{editingMenuItem ? t('editItem') : t('addNewItem')}</CardTitle>
-              <CardDescription className="font-medium text-foreground">Fill in the details for the dish.</CardDescription>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleMenuFormCancel} className="touch-target hover:bg-destructive/10 hover:text-destructive">
-              <X className="h-5 w-5" />
-            </Button>
-          </CardHeader>
-          <CardContent className="pt-6 px-mobile bg-card">
-            <MenuItemForm initialData={editingMenuItem} onSuccess={handleMenuFormSuccess} onCancel={handleMenuFormCancel} />
-          </CardContent>
-        </Card>
-      ) : (
-        <MenuItemsList items={menuItems} onEdit={handleEditMenu} onDelete={fetchMenuItems} />
-      )}
-
-      <CategoryFormModal
-        isOpen={showCategoryForm}
-        onClose={handleCategoryFormClose}
-        onSuccess={handleCategoryFormSuccess}
-        editingCategory={editingCategory}
-      />
-
-      <AlertDialog open={!!categoryToDelete} onOpenChange={(open) => !open && !isDeletingCategory && setCategoryToDelete(null)}>
-        <AlertDialogContent className="modal-mobile-safe">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes <strong>{categoryToDelete?.name}</strong> from the category list. Existing menu items keep their current category value — reassign them individually if needed. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 mt-4">
-            <AlertDialogCancel disabled={isDeletingCategory} className="h-12 sm:h-10 mt-0">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); handleDeleteCategoryConfirm(); }}
-              disabled={isDeletingCategory}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-12 sm:h-10"
-            >
-              {isDeletingCategory ? 'Deleting...' : 'Delete Category'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
+  const renderMenuSection = () => <MenuManager />;
 
   const renderTablesSection = () => <AdminTableSettings />;
 

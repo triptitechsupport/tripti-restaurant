@@ -13,7 +13,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Pencil, Trash2, Image as ImageIcon, AlertCircle, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import pb from '@/lib/pocketbaseClient.js';
+import defaultPb from '@/lib/pocketbaseClient.js';
 import MobileTableCard from '@/components/MobileTableCard.jsx';
 import { useIsMobile } from '@/hooks/use-mobile.jsx';
 
@@ -31,7 +31,9 @@ function PickupHints({ item }) {
   );
 }
 
-export default function MenuItemsList({ refreshTrigger, onEdit }) {
+export default function MenuItemsList({ refreshTrigger, onEdit, client }) {
+  // The kitchen manager uses their own login (client); the admin the default one.
+  const pb = client || defaultPb;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

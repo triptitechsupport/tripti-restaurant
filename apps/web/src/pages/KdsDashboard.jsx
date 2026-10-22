@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   ChefHat, LogOut, Clock, CheckCircle2, Flame, RefreshCw, Settings, Volume2, VolumeX, Bell, Calendar, User, Layers, Printer, ArrowLeft,
+  ClipboardList, UtensilsCrossed, BookOpen, PackageSearch,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
@@ -35,6 +36,9 @@ import { pbDateFilter } from '@/lib/pbDateFilter.js';
 import { loginPath, isStaffApp } from '@/lib/staffApp.js';
 import AppLangToggle from '@/components/AppLangToggle.jsx';
 import AppMoreMenu from '@/components/AppMoreMenu.jsx';
+import MenuManager from '@/components/MenuManager.jsx';
+import RecipeManager from '@/components/kitchen/RecipeManager.jsx';
+import StockRequests from '@/components/kitchen/StockRequests.jsx';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -490,6 +494,11 @@ export default function KdsDashboard() {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Kitchen manager sections: tickets, menu, recipes, weekly stock requests.
+  const [view, setViewState] = useState(() => {
+    try { return sessionStorage.getItem('kds_view') || 'tickets'; } catch (_) { return 'tickets'; }
+  });
+  const setView = (v) => { setViewState(v); try { sessionStorage.setItem('kds_view', v); } catch (_) { /* ignore */ } };
   const [reprintTarget, setReprintTarget] = useState(null);
   const [reprintBusy, setReprintBusy] = useState(false);
   // table_groups + table_group_members — the source of truth for Shared
@@ -511,6 +520,33 @@ export default function KdsDashboard() {
   const pb = isKds ? kdsPb : pbDefault;
   const isManager = isKds && kdsAuthModel?.role === 'kitchen_manager';
   const authModel = isKds ? kdsAuthModel : adminAuthModel;
+  const canManage = isManager || (isAdmin && !isKds);
+  const sections = [
+    { key: 'tickets', icon: ClipboardList, label: language === 'en' ? 'Tickets' : 'Bons', count: orders.length },
+    canManage && { key: 'menu', icon: UtensilsCrossed, label: language === 'en' ? 'Menu' : 'Speisekarte' },
+    { key: 'recipes', icon: BookOpen, label: language === 'en' ? 'Recipes' : 'Rezepte' },
+    canManage && { key: 'requests', icon: PackageSearch, label: language === 'en' ? 'Stock requests' : 'Lageranforderung' },
+  ].filter(Boolean);
+  const currentView = sections.some((x) => x.key === view) ? view : 'tickets';
+  const viewRef = useRef(currentView);
+  viewRef.current = currentView;
+  // Tell the kitchen manager when the stock manager works on a request
+  // (the Stock requests screen shows its own messages when open).
+  useEffect(() => {
+    if (!canManage) return undefined;
+    let alive = true; let unsub = null;
+    pb.collection('stock_requests').subscribe('*', (e) => {
+      if (viewRef.current === 'requests' || e.action !== 'update') return;
+      const st = e.record?.status;
+      const msg = {
+        in_progress: language === 'en' ? 'The stock manager is preparing your weekly request' : 'Das Lager bereitet die Wochenanforderung vor',
+        partial: language === 'en' ? 'Part of your weekly request was given out' : 'Die Wochenanforderung wurde teilweise ausgegeben',
+        fulfilled: language === 'en' ? 'Your weekly stock request is done' : 'Die Wochenanforderung ist erledigt',
+      }[st];
+      if (msg) toast(msg, { icon: '📦', action: { label: language === 'en' ? 'Open' : 'Öffnen', onClick: () => setView('requests') } });
+    }).then((fn) => { if (alive) unsub = fn; else fn(); }).catch(() => {});
+    return () => { alive = false; if (unsub) unsub(); };
+  }, [canManage, pb, language]); // eslint-disable-line react-hooks/exhaustive-deps
   const chatName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Kitchen';
   // Restaurant-wide printing master switch — same single print_settings
   // record the Admin Panel and Waiter (OrderPlacement) read. KDS print /
@@ -856,6 +892,21 @@ export default function KdsDashboard() {
         )}
 
         <main className="p-3 sm:p-4">
+          {authed && (
+            <nav className="app-chip-row flex gap-2 overflow-x-auto pb-3 mb-1" aria-label={language === 'en' ? 'Kitchen sections' : 'Küchenbereiche'}>
+              {sections.map(({ key, icon: Icon, label, count }) => (
+                <button key={key} type="button" onClick={() => setView(key)} aria-current={currentView === key ? 'page' : undefined}
+                  className={`shrink-0 flex items-center gap-1.5 h-10 px-4 rounded-full text-sm font-bold border-2 transition-colors ${currentView === key ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border hover:bg-muted'}`}>
+                  <Icon className="h-4 w-4" />{label}
+                  {count > 0 && <span className={`ml-0.5 rounded-full px-1.5 text-[11px] ${currentView === key ? 'bg-primary-foreground/20' : 'bg-secondary text-secondary-foreground'}`}>{count}</span>}
+                </button>
+              ))}
+            </nav>
+          )}
+          {currentView === 'menu' && canManage && <MenuManager client={pb} />}
+          {currentView === 'recipes' && <RecipeManager client={pb} canEdit={canManage} userName={chatName} />}
+          {currentView === 'requests' && canManage && <StockRequests client={pb} mode="kitchen" user={{ id: authModel?.id, name: chatName, role: isAdmin && !isKds ? 'admin' : 'kitchen_manager' }} />}
+          {currentView === 'tickets' && (<>
           {!printAllowed && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-2.5">
               <Printer className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -912,6 +963,7 @@ export default function KdsDashboard() {
               </section>
             </div>
           )}
+          </>)}
         </main>
       </div>
 
