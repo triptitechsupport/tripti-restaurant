@@ -3,7 +3,7 @@ import PocketBase from 'pocketbase';
 // Receipts and payments a cashier may handle; everything else (cash register
 // setup, cancellations, recovery, DEP export) stays with the admin.
 const CASHIER_ROUTES = [
-  ['GET', /^\/(settlements|transactions|configuration)$/],
+  ['GET', /^\/(settlements|transactions|configuration|day-report)$/],
   ['GET', /^\/transactions\/[^/]+$/],
   ['POST', /^\/(settlements|orders)\/[^/]+\/generate$/],
   ['POST', /^\/transactions\/[^/]+\/retry$/],
@@ -11,7 +11,7 @@ const CASHIER_ROUTES = [
 const cashierMay = (req) => CASHIER_ROUTES.some(([method, path]) => req.method === method && path.test(req.path));
 
 // Auditors only read: receipts, payments, register list, status and DEP7.
-const AUDITOR_ROUTES = /^\/(settlements|transactions|configuration|periodic-receipts|registers|status|fon\/status|lifecycle\/receipts|dep7)$/;
+const AUDITOR_ROUTES = /^\/(settlements|transactions|configuration|day-report|periodic-receipts|registers|status|fon\/status|lifecycle\/receipts|dep7)$/;
 const auditorMay = (req) => req.method === 'GET' && AUDITOR_ROUTES.test(req.path);
 
 // Validate with PocketBase; decoding a JWT alone does not authenticate a user.

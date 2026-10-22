@@ -442,11 +442,11 @@ export const translations = {
     waiter_statusReadyPickup: 'Ready to Pickup',
     waiter_statusServed: 'Served',
     waiter_itemPrepared: 'Prepared',
-    waiter_itemPickedUp: 'Picked up',
+    waiter_itemPickedUp: 'Served',
     waiter_itemInProgress: 'In progress',
-    waiter_pickupItem: 'Pick up',
-    waiter_itemPickedUpToast: 'Item picked up',
-    waiter_allItemsPickedUp: 'All items picked up — ticket served',
+    waiter_pickupItem: 'Serve',
+    waiter_itemPickedUpToast: 'Dish served',
+    waiter_allItemsPickedUp: 'All dishes served — ticket done',
 
     // ---- KDS Dashboard ----
     kds_title: 'Kitchen Display',
@@ -1126,11 +1126,11 @@ export const translations = {
     waiter_statusReadyPickup: 'Abholbereit',
     waiter_statusServed: 'Serviert',
     waiter_itemPrepared: 'Zubereitet',
-    waiter_itemPickedUp: 'Abgeholt',
+    waiter_itemPickedUp: 'Serviert',
     waiter_itemInProgress: 'In Arbeit',
-    waiter_pickupItem: 'Abholen',
-    waiter_itemPickedUpToast: 'Artikel abgeholt',
-    waiter_allItemsPickedUp: 'Alle Artikel abgeholt — Ticket serviert',
+    waiter_pickupItem: 'Servieren',
+    waiter_itemPickedUpToast: 'Gericht serviert',
+    waiter_allItemsPickedUp: 'Alle Gerichte serviert — Bon erledigt',
 
     // ---- KDS Dashboard ----
     kds_title: 'Küchenanzeige',

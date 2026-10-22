@@ -83,3 +83,23 @@ if (typeof window !== 'undefined' && typeof HTMLAnchorElement !== 'undefined') {
 // Where a signed-out staff member goes: the one staff sign-in in the app,
 // otherwise the role's own login page.
 export const loginPath = (path) => (isStaffApp ? '/staff-login' : path);
+
+// Prints a ready-made HTML page: Android printing in the app, otherwise the
+// browser's print dialog through a hidden frame.
+export function printHtmlPage(html, title = 'Tripti') {
+  const plugin = native();
+  if (plugin) {
+    plugin.printHtml({ html, title, baseUrl: window.location.origin + '/' }).catch((err) => console.error('[StaffApp] print failed', err));
+    return;
+  }
+  const frame = document.createElement('iframe');
+  frame.setAttribute('style', 'position:fixed;right:0;bottom:0;width:0;height:0;border:0');
+  document.body.appendChild(frame);
+  frame.contentDocument.open();
+  frame.contentDocument.write(html);
+  frame.contentDocument.close();
+  setTimeout(() => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (_) { /* ignore */ }
+    setTimeout(() => frame.remove(), 1000);
+  }, 250);
+}

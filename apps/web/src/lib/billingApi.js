@@ -4,11 +4,11 @@ import api from "@/lib/apiServerClient.js";
 // cashier's login while it is open (see setBillingClient).
 let billingClient = null;
 export function setBillingClient(client) { billingClient = client || null; }
-export async function billingApi(path, body) {
+export async function billingApi(path, body, client) {
   const response = await api.fetch(`/billing${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      Authorization: `Bearer ${(billingClient || pb).authStore.token}`,
+      Authorization: `Bearer ${(client || billingClient || pb).authStore.token}`,
       "Content-Type": "application/json",
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

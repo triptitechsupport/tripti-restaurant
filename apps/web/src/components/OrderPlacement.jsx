@@ -38,7 +38,7 @@ import { printKOT, openKOT, SPICE_LEVELS, resolveOrderId, resolveBaseOrderId } f
 import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
 import { buildGroupMap, tableDisplayForParent, kdsTableLabel, isSharedParent } from '@/lib/tableGroups.js';
 import { isKotDelayed, DELAYED_CARD_CLS } from '@/lib/kotDelayed.js';
-import { ITEM_STATUS, getItemStatus, listUnits, splitForUnitStatus, splitForPayment, splitKotUnits, flatUnitIndex, allItemsPickedUp } from '@/lib/kotItemStatus.js';
+import { ITEM_STATUS, getItemStatus, listUnits, splitForUnitStatus, splitForPayment, splitKotUnits, flatUnitIndex, allItemsPickedUp, countItemStatuses, getItemStatuses } from '@/lib/kotItemStatus.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint, shouldAutoPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
@@ -129,6 +129,19 @@ function playReadyChime() {
   } catch (_) { /* Web Audio unavailable — visual banner + vibration still fire */ }
 }
 
+// Phones only allow sound after the user touched the screen once: unlock the
+// chime on the first tap so later alerts can play without a tap.
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !_readyAudioCtx) _readyAudioCtx = new AC();
+      if (_readyAudioCtx && _readyAudioCtx.state === 'suspended') _readyAudioCtx.resume().catch(() => {});
+    } catch (_) { /* no audio */ }
+  };
+  window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+}
+
 // Local-midnight (browser timezone) as a PocketBase date-filter literal.
 // PocketBase stores `created` as a UTC instant, so comparing
 // `created >= "<local-midnight PB date>"` yields "records from today" in the
@@ -184,12 +197,25 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Previous status per KOT id, so we only notify on an actual transition
   // INTO `ready` (not on every realtime tick or re-fetch).
   const prevStatusRef = useRef(new Map());
+  // Dishes the kitchen marked ready one by one, per ticket, to alert on new ones.
+  const prevPreparedRef = useRef(new Map());
   useEffect(() => {
     ordersRef.current = orders;
     const m = new Map();
-    orders.forEach((o) => m.set(o.id, o.status));
+    const prepared = new Map();
+    orders.forEach((o) => { m.set(o.id, o.status); prepared.set(o.id, countItemStatuses(o).prepared); });
     prevStatusRef.current = m;
+    prevPreparedRef.current = prepared;
   }, [orders]);
+  // Ready alerts go only to the waiter who took the order (or added the ticket).
+  const placedByRef = useRef(placedBy);
+  useEffect(() => { placedByRef.current = placedBy; }, [placedBy]);
+  const isMine = useCallback((kot) => {
+    const me = placedByRef.current;
+    const parent = kot && kot.expand && kot.expand.parentOrder;
+    const owners = [kot && kot.placedBy, parent && parent.placedBy].filter(Boolean);
+    return !me || owners.length === 0 || owners.includes(me);
+  }, []);
 
   // KOTs the waiter has acknowledged (dismissed the banner or opened the
   // Active tab) so the persistent Ready-for-Pickup banner does not reappear
@@ -261,7 +287,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     // banner appears automatically because it is derived from `orders`.
     if (rec.status === 'ready' && prevStatus !== 'ready') {
       const existing = ordersRef.current.find((o) => o.id === rec.id) || rec;
-      notifyReadyForPickup(existing);
+      if (isMine({ ...existing, placedBy: rec.placedBy || existing.placedBy })) notifyReadyForPickup(existing);
+    } else if (rec.status === 'preparing') {
+      // The kitchen marked single dishes ready: chime and name them.
+      const before = prevPreparedRef.current.get(rec.id) || 0;
+      const nowPrepared = countItemStatuses(rec).prepared;
+      const existing = ordersRef.current.find((o) => o.id === rec.id) || rec;
+      if (nowPrepared > before && isMine({ ...existing, placedBy: rec.placedBy || existing.placedBy })) {
+        playReadyChime();
+        try { navigator.vibrate?.([200, 100, 200]); } catch (_) { /* ignore */ }
+        const table = (existing.expand && existing.expand.parentOrder && existing.expand.parentOrder.tableNumber) || rec.tableNumber || '';
+        const statuses = getItemStatuses(rec);
+        const names = (rec.items || []).filter((_, i) => statuses[String(i)] === ITEM_STATUS.PREPARED).map((it) => it.name);
+        toast(`🔔 Table ${table || '—'}: dish ready`, { description: names.join(', '), duration: 10000 });
+      }
+      prevPreparedRef.current.set(rec.id, nowPrepared);
     }
     // Transition OUT of ready → drop from acknowledged so a future ready
     // transition can alert again, and the banner clears naturally (the KOT
@@ -274,7 +314,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         return next;
       });
     }
-  }, [notifyReadyForPickup]);
+  }, [notifyReadyForPickup, isMine]);
 
   // Sticky tab bar offset — the site header + marquee bar are fixed/sticky
   // at the top of the viewport (z-50 / z-40). The tab bar must stick BELOW
@@ -323,14 +363,14 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // but still-ready unacknowledged KOTs still show the banner.
   const readyPickups = useMemo(() => {
     return orders
-      .filter((o) => o.status === 'ready' && !acknowledgedReadyIds.has(o.id))
+      .filter((o) => o.status === 'ready' && !acknowledgedReadyIds.has(o.id) && isMine(o))
       .map((o) => ({
         id: o.id,
         kotId: resolveOrderId(o) || o.id,
         table: (o.expand && o.expand.parentOrder && o.expand.parentOrder.tableNumber) || o.tableNumber || '',
         orderId: (o.expand && o.expand.parentOrder && o.expand.parentOrder.orderId) || '',
       }));
-  }, [orders, acknowledgedReadyIds]);
+  }, [orders, acknowledgedReadyIds, isMine]);
 
   // Height of the persistent Ready-for-Pickup banner (0 when hidden). Used to
   // push the sticky tab bar (and the Order tab's sticky header) down so the
@@ -1082,7 +1122,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     if (order.status === 'cancelled' || order.status === 'completed') return;
     const units = listUnits(order);
     const unit = units.find((u) => u.itemIndex === itemIndex && u.unitIndex === unitIndex);
-    if (!unit || unit.status !== ITEM_STATUS.PREPARED) return;
+    // When the whole ticket is ready, every dish not served yet can be served.
+    const servable = unit && (unit.status === ITEM_STATUS.PREPARED || (order.status === 'ready' && unit.status !== ITEM_STATUS.PICKEDUP));
+    if (!servable) return;
     const split = splitForUnitStatus(order, unit.itemIndex, unit.unitIndex, ITEM_STATUS.PICKEDUP);
     const optimistic = { ...order, items: split.items, itemStatuses: split.itemStatuses };
     setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, items: split.items, itemStatuses: split.itemStatuses } : o)));
@@ -3513,7 +3555,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                   ) : null}
                                   <div className="ml-auto flex items-center gap-1.5 shrink-0">
                                     {(() => {
-                                      const ist = unit.status;
+                                      const ist = order.status === 'ready' && unit.status !== ITEM_STATUS.PICKEDUP ? ITEM_STATUS.PREPARED : unit.status;
                                       const active = order.status === 'preparing' || order.status === 'ready';
                                       if (ist === ITEM_STATUS.PREPARED) {
                                         return (
@@ -4995,7 +5037,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                             </span>
                           ) : null}
                           {(() => {
-                            const ist = unit.status;
+                            const ist = order.status === 'ready' && unit.status !== ITEM_STATUS.PICKEDUP ? ITEM_STATUS.PREPARED : unit.status;
                             const active = order.status === 'preparing' || order.status === 'ready';
                             if (ist === ITEM_STATUS.PREPARED) {
                               return (

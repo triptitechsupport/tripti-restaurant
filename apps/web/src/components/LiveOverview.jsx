@@ -3,6 +3,7 @@ import { Activity, ChefHat, Clock, CookingPot, Bell, Euro, HandCoins, Users, Ref
 import defaultPb from '@/lib/pocketbaseClient.js';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
+import DayReport from '@/components/DayReport.jsx';
 
 // Live view for the cashier and the admin: today's open orders, every KOT
 // still in the kitchen, money still to collect, and what each waiter has
@@ -154,6 +155,8 @@ export default function LiveOverview({ client }) {
           </div>
         ))}
       </div>
+
+      <DayReport client={client} />
 
       <section className="rounded-xl border-2 border-border bg-card">
         <h3 className="px-4 py-3 font-bold text-primary flex items-center gap-2 border-b border-border"><ChefHat className="h-4 w-4" />{tx.kots} ({view.live.length})</h3>
