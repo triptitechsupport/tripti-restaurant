@@ -144,9 +144,9 @@ class _BillTileState extends State<_BillTile> {
                 if (widget.kind != _Kind.end || o.paymentStatus != 'paid')
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _busy || o.paymentStatus == 'paid' ? null : () => showPaySheet(context, o),
+                      onPressed: _busy || o.paymentStatus == 'paid' || open > 0 ? null : () => showPaySheet(context, o),
                       icon: const Icon(Icons.point_of_sale),
-                      label: Text(tr(context, 'Take payment', 'Kassieren')),
+                      label: Text(open > 0 ? tr(context, 'Serve all dishes first', 'Erst alles servieren') : tr(context, 'Take payment', 'Kassieren')),
                     ),
                   ),
                 if (widget.kind == _Kind.end) ...[

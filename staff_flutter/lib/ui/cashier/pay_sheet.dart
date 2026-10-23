@@ -102,6 +102,7 @@ class _PaySheetState extends State<_PaySheet> {
     final unpaidTotal = lines.fold<double>(0, (a, l) => a + _price(l.it));
     final allOn = _sel!.length == lines.length;
     final name = {for (final m in s.menu) m.id: m};
+    final unserved = s.ticketsOf(o).where((t) => t.open).length;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -164,9 +165,11 @@ class _PaySheetState extends State<_PaySheet> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54), backgroundColor: TriptiColors.green),
-                onPressed: _busy || amount <= 0 ? null : () => _pay(o, s.ticketsOf(o), amount),
-                icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check),
-                label: Text('${tr(context, 'Take payment', 'Zahlung kassieren')} · ${euro(amount)}'),
+                onPressed: _busy || amount <= 0 || unserved > 0 ? null : () => _pay(o, s.ticketsOf(o), amount),
+                icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Icon(unserved > 0 ? Icons.hourglass_top : Icons.check),
+                label: Text(unserved > 0
+                    ? tr(context, '$unserved ticket(s) not served yet', '$unserved Ticket(s) noch nicht serviert')
+                    : '${tr(context, 'Take payment', 'Zahlung kassieren')} · ${euro(amount)}'),
               ),
             ),
           ),

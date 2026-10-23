@@ -24,6 +24,9 @@ routerAdd('POST', '/api/payment-settlements/confirm', e => {
     if (!app.canAccessRecord(order, e.requestInfo(), order.collection().updateRule)) throw new ForbiddenError('Cannot settle this order.');
     // Legacy full-order receipts remain authoritative. Do not allocate their items again.
     if (order.getBool('fiscalLocked')) throw new BadRequestError('This order already has a whole-order fiscal receipt. Use the legacy payment workflow.');
+    // Payment only after every dish was served (no ticket pending, cooking or ready).
+    const unserved = app.findRecordsByFilter('kitchen_orders', 'parentOrder = {:id} && status != "completed" && status != "cancelled"', '', 0, 0, {id: order.id});
+    if (unserved.length) throw new BadRequestError(`Payment is not possible yet: ${unserved.length} ticket${unserved.length > 1 ? 's are' : ' is'} still in the kitchen or not served. Serve all dishes first.`);
     const selected = [], seen = {};
     let cents = 0;
     body.selections.forEach(selection => {

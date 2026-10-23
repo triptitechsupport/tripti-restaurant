@@ -91,7 +91,15 @@ class _TableSheetState extends State<_TableSheet> {
     if (cashier && !paid && active.isNotEmpty) {
       buttons.add(FilledButton.icon(
         style: FilledButton.styleFrom(backgroundColor: TriptiColors.green),
-        onPressed: _busy ? null : () => showPaySheet(context, o),
+        onPressed: _busy
+            ? null
+            : () {
+                if (unfinished > 0) {
+                  toast(context, tr(context, 'Serve every dish first ($unfinished ticket(s) not served).', 'Zuerst alle Gerichte servieren ($unfinished Ticket(s) nicht serviert).'), error: true);
+                  return;
+                }
+                showPaySheet(context, o);
+              },
         icon: const Icon(Icons.point_of_sale),
         label: Text(tr(context, 'Take payment', 'Kassieren')),
       ));
@@ -110,7 +118,15 @@ class _TableSheetState extends State<_TableSheet> {
       ));
       if (!cashier && !o.billPending && !paid) {
         buttons.add(OutlinedButton.icon(
-          onPressed: _busy ? null : () => _do(() => a.requestBill(o), tr(context, 'The cashier was asked for the bill.', 'Die Kasse wurde um die Rechnung gebeten.')),
+          onPressed: _busy
+              ? null
+              : () {
+                  if (unfinished > 0) {
+                    toast(context, tr(context, 'Serve every dish first ($unfinished ticket(s) not served).', 'Zuerst alle Gerichte servieren ($unfinished Ticket(s) nicht serviert).'), error: true);
+                    return;
+                  }
+                  _do(() => a.requestBill(o), tr(context, 'The cashier was asked for the bill.', 'Die Kasse wurde um die Rechnung gebeten.'));
+                },
           icon: const Icon(Icons.receipt_long),
           label: Text(tr(context, 'Request bill from cashier', 'Rechnung bei der Kasse anfordern')),
         ));
@@ -121,7 +137,7 @@ class _TableSheetState extends State<_TableSheet> {
               ? null
               : () async {
                   if (unfinished > 0) {
-                    toast(context, tr(context, 'Serve or cancel every ticket first ($unfinished open).', 'Zuerst alle Tickets servieren oder stornieren ($unfinished offen).'), error: true);
+                    toast(context, tr(context, 'Serve every dish first ($unfinished ticket(s) not served).', 'Zuerst alle Gerichte servieren ($unfinished Ticket(s) nicht serviert).'), error: true);
                     return;
                   }
                   await _do(() => a.askToEnd(o), tr(context, 'The cashier was asked to end the order.', 'Die Kasse wurde gebeten, die Bestellung zu beenden.'));
@@ -136,7 +152,7 @@ class _TableSheetState extends State<_TableSheet> {
               ? null
               : () async {
                   if (unfinished > 0) {
-                    toast(context, tr(context, 'Serve or cancel every ticket first ($unfinished open).', 'Zuerst alle Tickets servieren oder stornieren ($unfinished offen).'), error: true);
+                    toast(context, tr(context, 'Serve every dish first ($unfinished ticket(s) not served).', 'Zuerst alle Gerichte servieren ($unfinished Ticket(s) nicht serviert).'), error: true);
                     return;
                   }
                   final done = tr(context, 'Order ended.', 'Bestellung beendet.');
