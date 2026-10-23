@@ -5,6 +5,7 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/widgets.dart';
+import '../cashier/pay_sheet.dart';
 import 'order_page.dart';
 import 'ticket_card.dart';
 import 'waiter_home.dart';
@@ -87,6 +88,14 @@ class _TableSheetState extends State<_TableSheet> {
     final ended = o.ended || !o.isOpen;
 
     final buttons = <Widget>[];
+    if (cashier && !paid && active.isNotEmpty) {
+      buttons.add(FilledButton.icon(
+        style: FilledButton.styleFrom(backgroundColor: TriptiColors.green),
+        onPressed: _busy ? null : () => showPaySheet(context, o),
+        icon: const Icon(Icons.point_of_sale),
+        label: Text(tr(context, 'Take payment', 'Kassieren')),
+      ));
+    }
     if (!ended) {
       buttons.add(FilledButton.icon(
         onPressed: _busy

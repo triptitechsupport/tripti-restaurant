@@ -32,7 +32,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --release
+      - run: flutter build apk --release --target-platform android-arm,android-arm64
       - uses: actions/upload-artifact@v4
         with:
           name: tripti-staff-flutter-apk

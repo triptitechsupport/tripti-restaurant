@@ -9,6 +9,8 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../home.dart';
+import '../cashier/bills_page.dart';
+import '../cashier/receipts_page.dart';
 import 'active_page.dart';
 import 'tables_page.dart';
 
@@ -81,7 +83,7 @@ class _WaiterHomeState extends State<WaiterHome> {
         TextButton(
           onPressed: () {
             m.clearMaterialBanners();
-            setState(() => _tab = 1);
+            setState(() => _tab = AppScope.read(context).role == StaffRole.cashier ? 3 : 1);
           },
           child: Text(tr(context, 'Open', 'Öffnen')),
         ),
@@ -107,6 +109,7 @@ class _WaiterHomeState extends State<WaiterHome> {
       child: Builder(builder: (context) {
         final s = StoreScope.of(context);
         final readyCount = s.tickets.where((t) => t.placedBy == session.displayName && (t.status == 'ready' || List.generate(t.items.length, t.itemStatus).contains('prepared')) && t.open).length;
+        final requests = s.liveOrderByTable.values.where((o) => o.billPending || o.endPending).length;
         return Scaffold(
           appBar: AppBar(
             title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -138,13 +141,21 @@ class _WaiterHomeState extends State<WaiterHome> {
                   trailing: TextButton(onPressed: s.refreshAll, child: Text(tr(context, 'Retry', 'Erneut'))),
                 ),
               ),
-            Expanded(child: !s.loaded ? const Center(child: CircularProgressIndicator()) : IndexedStack(index: _tab, children: const [TablesPage(), ActivePage()])),
+            Expanded(child: !s.loaded ? const Center(child: CircularProgressIndicator()) : IndexedStack(index: _tab, children: cashier ? const [TablesPage(), BillsPage(), ReceiptsPage(), ActivePage()] : const [TablesPage(), ActivePage()])),
           ]),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _tab,
             onDestinationSelected: (i) => setState(() => _tab = i),
             destinations: [
               NavigationDestination(icon: const Icon(Icons.table_restaurant_outlined), selectedIcon: const Icon(Icons.table_restaurant), label: tr(context, 'Tables', 'Tische')),
+              if (cashier) ...[
+                NavigationDestination(
+                  icon: Badge(isLabelVisible: requests > 0, label: Text('$requests'), child: const Icon(Icons.point_of_sale_outlined)),
+                  selectedIcon: const Icon(Icons.point_of_sale),
+                  label: tr(context, 'Bills', 'Rechnungen'),
+                ),
+                NavigationDestination(icon: const Icon(Icons.receipt_outlined), selectedIcon: const Icon(Icons.receipt), label: tr(context, 'Receipts', 'Belege')),
+              ],
               NavigationDestination(
                 icon: Badge(isLabelVisible: readyCount > 0, label: Text('$readyCount'), backgroundColor: TriptiColors.green, child: const Icon(Icons.receipt_long_outlined)),
                 selectedIcon: const Icon(Icons.receipt_long),
