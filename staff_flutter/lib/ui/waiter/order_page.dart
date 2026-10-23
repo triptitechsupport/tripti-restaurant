@@ -25,9 +25,13 @@ String spiceName(BuildContext context, String s) {
 }
 
 /// Menu and cart for one table. Sending creates a kitchen ticket.
+/// For combined tables pass [combineTables] (new combination) or open it
+/// for a table that already belongs to one.
 class OrderPage extends StatefulWidget {
-  const OrderPage({super.key, required this.table});
+  const OrderPage({super.key, required this.table, this.combineTables, this.combineMode = 'linked'});
   final TableInfo table;
+  final List<String>? combineTables;
+  final String combineMode;
 
   @override
   State<OrderPage> createState() => _OrderPageState();
@@ -39,6 +43,18 @@ class _OrderPageState extends State<OrderPage> {
   final _notes = TextEditingController();
   String _category = '';
   bool _sending = false;
+  String _forTable = '';
+
+  /// Tables, mode ('single', 'shared', 'linked') and saved combination id.
+  ({List<String> tables, String mode, String groupId}) _target(LiveStore s) {
+    final own = widget.table.name;
+    if (widget.combineTables != null && widget.combineTables!.length > 1) {
+      return (tables: widget.combineTables!, mode: widget.combineMode, groupId: '');
+    }
+    final g = s.groupOf(own);
+    if (g != null) return (tables: [own, ...g.tables.where((t) => t != own)], mode: g.mode, groupId: g.id);
+    return (tables: [own], mode: 'single', groupId: '');
+  }
 
   @override
   void dispose() {
@@ -52,11 +68,12 @@ class _OrderPageState extends State<OrderPage> {
 
   void _add(MenuItem m) {
     setState(() {
-      final l = _cart.where((x) => x.item.id == m.id && x.spice == 'None').firstOrNull;
+      final tn = _forTable.isEmpty ? widget.table.name : _forTable;
+      final l = _cart.where((x) => x.item.id == m.id && x.spice == 'None' && x.table == tn).firstOrNull;
       if (l != null) {
         l.qty++;
       } else {
-        _cart.add(CartLine(m));
+        _cart.add(CartLine(m, table: tn));
       }
     });
   }
@@ -66,15 +83,20 @@ class _OrderPageState extends State<OrderPage> {
     setState(() => _sending = true);
     final a = StoreScope.actionsOf(context);
     final s = StoreScope.of(context);
+    final t = _target(s);
+    String roomOf(String tn) => s.tables.where((x) => x.name == tn).firstOrNull?.room ?? widget.table.room;
     final ok = await runAction(
       context,
-      () => a.sendTicket(table: widget.table.name, room: widget.table.room, lines: _cart, notes: _notes.text.trim()),
+      () => t.tables.length > 1
+          ? a.sendCombined(tables: t.tables, mode: t.mode, groupId: t.groupId, roomOf: roomOf, lines: _cart, notes: _notes.text.trim())
+          : a.sendTicket(table: widget.table.name, room: widget.table.room, lines: _cart, notes: _notes.text.trim(), groupId: t.groupId),
       done: tr(context, 'Ticket sent to the kitchen.', 'Ticket an die Küche gesendet.'),
     );
     if (!mounted) return;
     setState(() => _sending = false);
     if (ok) {
       s.refreshLive();
+      s.refreshGroups();
       Navigator.of(context).pop(true);
     }
   }
@@ -91,9 +113,17 @@ class _OrderPageState extends State<OrderPage> {
       return _category.isEmpty || m.category == _category;
     }).toList();
     final o = s.liveOrderByTable[widget.table.name];
+    final t = _target(s);
+    final combined = t.tables.length > 1;
     return Scaffold(
       appBar: AppBar(
-        title: Text(tr(context, 'Table ${widget.table.number}', 'Tisch ${widget.table.number}')),
+        title: combined
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${tr(context, 'Tables', 'Tische')} ${t.tables.join(' + ')}'),
+                Text(t.mode == 'shared' ? tr(context, 'One shared bill', 'Eine gemeinsame Rechnung') : tr(context, 'Separate bills', 'Getrennte Rechnungen'),
+                    style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w400)),
+              ])
+            : Text(tr(context, 'Table ${widget.table.number}', 'Tisch ${widget.table.number}')),
         actions: [
           if (o != null)
             Padding(
@@ -103,6 +133,25 @@ class _OrderPageState extends State<OrderPage> {
         ],
       ),
       body: Column(children: [
+        if (combined)
+          Container(
+            color: TriptiColors.gold.withValues(alpha: 0.15),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+            child: Row(children: [
+              Text(tr(context, 'Dishes for table', 'Gerichte für Tisch'), style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Wrap(spacing: 6, children: [
+                  for (final tn in t.tables)
+                    ChoiceChip(
+                      label: Text(tn),
+                      selected: (_forTable.isEmpty ? widget.table.name : _forTable) == tn,
+                      onSelected: (_) => setState(() => _forTable = tn),
+                    ),
+                ]),
+              ),
+            ]),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
           child: TextField(
@@ -217,13 +266,16 @@ class _OrderPageState extends State<OrderPage> {
         }
 
         final de = AppScope.of(context).de;
+        final tables = _target(StoreScope.of(context)).tables;
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: ConstrainedBox(
             constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.85),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               ListTile(
-                title: Text(tr(context, 'Order for table ${widget.table.number}', 'Bestellung Tisch ${widget.table.number}'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                title: Text(
+                    tables.length > 1 ? tr(context, 'Order for tables ${tables.join(' + ')}', 'Bestellung Tische ${tables.join(' + ')}') : tr(context, 'Order for table ${widget.table.number}', 'Bestellung Tisch ${widget.table.number}'),
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
                 trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(ctx).pop()),
               ),
               Flexible(
@@ -244,6 +296,15 @@ class _OrderPageState extends State<OrderPage> {
                               items: [for (final sp in spiceLevels) DropdownMenuItem(value: sp, child: Text(spiceName(context, sp)))],
                               onChanged: (v) => update(() => l.spice = v ?? 'None'),
                             ),
+                            if (tables.length > 1) ...[
+                              const SizedBox(width: 8),
+                              DropdownButton<String>(
+                                value: tables.contains(l.table) ? l.table : tables.first,
+                                underline: const SizedBox(),
+                                items: [for (final tn in tables) DropdownMenuItem(value: tn, child: Text('${tr(context, 'Table', 'Tisch')} $tn'))],
+                                onChanged: (v) => update(() => l.table = v ?? l.table),
+                              ),
+                            ],
                             const Spacer(),
                             IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => update(() => l.qty > 1 ? l.qty-- : _cart.remove(l))),
                             Text('${l.qty}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),

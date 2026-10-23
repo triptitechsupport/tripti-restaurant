@@ -168,7 +168,12 @@ class _TableSheetState extends State<_TableSheet> {
       Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(4)))),
       const SizedBox(height: 12),
       Row(children: [
-        Text(tr(context, 'Table ${widget.table.number}', 'Tisch ${widget.table.number}'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: TriptiColors.ink)),
+        Flexible(
+          child: Text(
+            s.groups[o.groupId]?.shared == true ? tr(context, 'Tables ${s.groups[o.groupId]!.display}', 'Tische ${s.groups[o.groupId]!.display}') : tr(context, 'Table ${widget.table.number}', 'Tisch ${widget.table.number}'),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: TriptiColors.ink),
+          ),
+        ),
         const SizedBox(width: 10),
         Text(o.orderId, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w600)),
         const Spacer(),
@@ -176,6 +181,8 @@ class _TableSheetState extends State<_TableSheet> {
       ]),
       const SizedBox(height: 8),
       Wrap(spacing: 6, runSpacing: 6, children: [
+        if (s.groupOf(widget.table.name) != null && s.groupOf(widget.table.name)!.shared == false)
+          StatusPill(tr(context, 'Linked with ${s.groupOf(widget.table.name)!.tables.where((x) => x != widget.table.name).join(' + ')}', 'Verbunden mit ${s.groupOf(widget.table.name)!.tables.where((x) => x != widget.table.name).join(' + ')}'), TriptiColors.blue, icon: Icons.link),
         if (ended) StatusPill(tr(context, 'Ended', 'Beendet'), Colors.grey, icon: Icons.flag),
         if (o.billPending) StatusPill(tr(context, 'Bill requested', 'Rechnung angefordert'), TriptiColors.amber, icon: Icons.receipt_long),
         if (o.billReady) StatusPill(tr(context, 'Bill ready at cashier', 'Rechnung an der Kasse bereit'), TriptiColors.green, icon: Icons.receipt),

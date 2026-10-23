@@ -114,8 +114,22 @@ class Order {
   double get total => toDouble(data['totalAmount']);
   double get outstanding => toDouble(data['outstandingAmount']);
   String get channel => data['channel'] ?? '';
+  String get groupId => '${data['tableGroup'] ?? ''}';
   bool get isPickup => '${data['pickupOrder'] ?? ''}'.isNotEmpty || channel == 'pickup';
 }
+
+/// Combined tables (table_groups + active table_group_members).
+/// shared: one order and one bill for all tables; linked: each table keeps
+/// its own order and bill, the kitchen sees them together.
+class TableGroup {
+  TableGroup(this.id, this.mode, this.label, this.tables);
+  final String id, mode, label;
+  final List<String> tables;
+  bool get shared => mode == 'shared';
+  String get display => tables.join(' + ');
+}
+
+int compareTableNames(String a, String b) => (tableNum(a) ?? 0).compareTo(tableNum(b) ?? 0);
 
 class MenuItem {
   MenuItem(this.data);
@@ -156,6 +170,8 @@ class LiveStore extends ChangeNotifier {
   List<TableInfo> tables = [];
   List<Order> orders = [];
   List<Ticket> tickets = [];
+  Map<String, Map<String, dynamic>> groupRecs = {};
+  List<Map<String, dynamic>> members = [];
   bool loaded = false;
   String? error;
   DateTime? lastSync;
@@ -201,13 +217,15 @@ class LiveStore extends ChangeNotifier {
         _notify();
       }));
       _subs.add(await pb.collection('menu_items').subscribe('*', (_) => refreshMenu()));
+      _subs.add(await pb.collection('table_groups').subscribe('*', (_) => refreshGroups()));
+      _subs.add(await pb.collection('table_group_members').subscribe('*', (_) => refreshGroups()));
     } catch (e) {
       debugPrint('realtime: $e');
     }
   }
 
   Future<void> refreshAll() async {
-    await Future.wait([refreshMenu(), refreshTables(), refreshLive()]);
+    await Future.wait([refreshMenu(), refreshTables(), refreshLive(), refreshGroups()]);
     loaded = true;
     _notify();
   }
@@ -256,6 +274,39 @@ class LiveStore extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshGroups() async {
+    try {
+      final r = await Future.wait([
+        pb.collection('table_groups').getFullList(filter: 'status = "active"'),
+        pb.collection('table_group_members').getFullList(filter: 'isActive = true'),
+      ]);
+      groupRecs = {for (final g in r[0]) g.id: g.toJson()};
+      members = r[1].map((e) => e.toJson()).toList();
+      _notify();
+    } catch (_) {}
+  }
+
+  /// Active combinations with 2+ tables.
+  Map<String, TableGroup> get groups {
+    final tables = <String, Set<String>>{};
+    for (final m in members) {
+      final gid = '${m['tableGroup'] ?? ''}', tn = '${m['tableNumber'] ?? ''}';
+      if (gid.isEmpty || tn.isEmpty || !groupRecs.containsKey(gid)) continue;
+      tables.putIfAbsent(gid, () => {}).add(tn);
+    }
+    return {
+      for (final e in tables.entries)
+        if (e.value.length > 1) e.key: TableGroup(e.key, '${groupRecs[e.key]?['mode'] ?? 'linked'}', '${groupRecs[e.key]?['label'] ?? ''}', e.value.toList()..sort(compareTableNames)),
+    };
+  }
+
+  TableGroup? groupOf(String table) {
+    for (final g in groups.values) {
+      if (g.tables.contains(table)) return g;
+    }
+    return null;
+  }
+
   /// Orders and tickets from today, plus orders from an earlier day that were
   /// never freed (their table is still taken and their bill still open).
   Future<void> refreshLive() async {
@@ -286,6 +337,14 @@ class LiveStore extends ChangeNotifier {
       if (prev == null || (o.created ?? DateTime(0)).isAfter(prev.created ?? DateTime(0))) m[o.table] = o;
     }
     m.removeWhere((_, o) => o.freed);
+    // A shared order covers every table of its combination.
+    for (final g in groups.values.where((g) => g.shared)) {
+      final o = m.values.where((o) => o.groupId == g.id && o.isOpen).firstOrNull;
+      if (o == null) continue;
+      for (final t in g.tables) {
+        m[t] ??= o;
+      }
+    }
     return m;
   }
 

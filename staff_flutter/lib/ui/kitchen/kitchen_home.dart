@@ -275,7 +275,7 @@ class _KitchenHomeState extends State<KitchenHome> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(color: TriptiColors.primary, borderRadius: BorderRadius.circular(8)),
-              child: Text('${tr(context, 'Table', 'Tisch')} ${t.table}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+              child: Text('${t.data['tableLabel'] ?? ''}'.contains('+') ? '${t.data['tableLabel']}'.replaceFirst('Tables', tr(context, 'Tables', 'Tische')) : '${tr(context, 'Table', 'Tisch')} ${t.table}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
             ),
             const SizedBox(width: 8),
             Expanded(child: Text(ticketLabel(t, _orders[t.parentId] == null ? null : Order(_orders[t.parentId]!)), style: const TextStyle(fontWeight: FontWeight.w800, color: TriptiColors.ink))),
