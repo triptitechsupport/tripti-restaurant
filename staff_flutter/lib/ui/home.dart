@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/scope.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
+import 'kitchen/kitchen_home.dart';
 import 'waiter/waiter_home.dart';
 
 /// Opens the screens of the signed-in role.
@@ -16,6 +17,9 @@ class HomePage extends StatelessWidget {
       case StaffRole.waiter:
       case StaffRole.cashier:
         return const WaiterHome();
+      case StaffRole.kitchen:
+      case StaffRole.kitchenManager:
+        return const KitchenHome();
       default:
         return const ComingSoon();
     }

@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/actions.dart';
+import '../../core/alert.dart';
 import '../../core/scope.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
@@ -68,8 +68,7 @@ class _WaiterHomeState extends State<WaiterHome> {
     final wasPrepared = int.tryParse(before.split('|')[1]) ?? 0;
     final becameReady = t.status == 'ready' && !before.startsWith('ready');
     if (!becameReady && prepared <= wasPrepared) return;
-    HapticFeedback.heavyImpact();
-    SystemSound.play(SystemSoundType.alert);
+    alertBeep();
     final msg = becameReady
         ? tr(context, 'Table ${t.table}: the ticket is ready to serve.', 'Tisch ${t.table}: Das Ticket ist fertig.')
         : tr(context, 'Table ${t.table}: a dish is ready to serve.', 'Tisch ${t.table}: Ein Gericht ist fertig.');
