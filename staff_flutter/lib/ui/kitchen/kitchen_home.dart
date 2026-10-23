@@ -14,7 +14,9 @@ import '../../core/theme.dart';
 import '../common/pickups_page.dart';
 import '../common/widgets.dart';
 import '../home.dart';
+import 'recipes_page.dart';
 import 'sold_out_page.dart';
+import 'stock_requests_page.dart';
 
 const _active = ['pending', 'preparing', 'ready'];
 const _delay = Duration(minutes: 5);
@@ -220,8 +222,12 @@ class _KitchenHomeState extends State<KitchenHome> {
         Expanded(
           child: _tab == 1
               ? PickupsPage(kitchen: true, manager: manager)
-              : _tab == 2 && manager
+              : _tab == 2
+              ? RecipesPage(canEdit: manager)
+              : _tab == 3 && manager
               ? const SoldOutPage()
+              : _tab == 4 && manager
+              ? const StockRequestsPage()
               : !_loaded
                   ? const Center(child: CircularProgressIndicator())
                   : _tickets.isEmpty
@@ -244,7 +250,9 @@ class _KitchenHomeState extends State<KitchenHome> {
         destinations: [
           NavigationDestination(icon: Badge(isLabelVisible: _tickets.isNotEmpty, label: Text('${_tickets.length}'), child: const Icon(Icons.receipt_long)), label: tr(context, 'Tickets', 'Tickets')),
           NavigationDestination(icon: const Icon(Icons.shopping_bag_outlined), label: tr(context, 'Pre-orders', 'Vorbestellungen')),
+          NavigationDestination(icon: const Icon(Icons.menu_book_outlined), label: tr(context, 'Recipes', 'Rezepte')),
           if (manager) NavigationDestination(icon: const Icon(Icons.no_food_outlined), label: tr(context, 'Sold out', 'Ausverkauft')),
+          if (manager) NavigationDestination(icon: const Icon(Icons.inventory_2_outlined), label: tr(context, 'Stock', 'Lager')),
         ],
       ),
     );
