@@ -70,9 +70,9 @@ export default function SettlementBillingView({ cashier = false, auditor = false
   return (
     <section className="p-4 md:p-6 space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3"><div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><Receipt className="h-5 w-5 text-primary"/></div>
+        {cashier ? <span className="hidden sm:block"/> : <div className="flex items-center gap-3"><div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><Receipt className="h-5 w-5 text-primary"/></div>
           <div><h2 className="text-xl sm:text-2xl font-serif font-bold text-primary">{b("Billing")}</h2><p className="text-sm text-muted-foreground">{b(auditor ? "Payments and signed receipts (view only)." : "Generate and print a separate receipt for each confirmed payment.")}</p></div>
-        </div>
+        </div>}
         <Button variant="outline" disabled={refreshing} className="h-10 w-full sm:w-auto" onClick={() => {setRefreshKey(value => value + 1); void fiscal.refresh();}}>{refreshing ? <Loader2 className="h-4 w-4 mr-2 animate-spin"/> : <RefreshCw className="h-4 w-4 mr-2"/>}{b("Refresh")}</Button>
       </div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeClosed} onChange={event => setIncludeClosed(event.target.checked)}/>{b("Include closed orders for billing and reprints")}</label>
