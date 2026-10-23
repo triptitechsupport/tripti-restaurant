@@ -54,7 +54,7 @@ String roleName(BuildContext context, StaffRole? r) {
 }
 
 /// The "More" sheet: who is signed in, language and sign out.
-Future<void> showMoreSheet(BuildContext context, {List<Widget> extra = const []}) {
+Future<void> showMoreSheet(BuildContext context, {List<Widget> extra = const [], Future<void> Function()? beforeSignOut}) {
   final session = AppScope.read(context);
   return showModalBottomSheet(
     context: context,
@@ -78,8 +78,13 @@ Future<void> showMoreSheet(BuildContext context, {List<Widget> extra = const []}
         ListTile(
           leading: const Icon(Icons.logout, color: TriptiColors.red),
           title: Text(tr(context, 'Sign out', 'Abmelden'), style: const TextStyle(color: TriptiColors.red, fontWeight: FontWeight.w700)),
-          onTap: () {
+          onTap: () async {
             Navigator.pop(ctx);
+            if (beforeSignOut != null) {
+              try {
+                await beforeSignOut();
+              } catch (_) {}
+            }
             session.signOut();
           },
         ),

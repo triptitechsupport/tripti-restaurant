@@ -12,6 +12,7 @@ import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/pickups_page.dart';
+import '../common/team_chat.dart';
 import '../common/widgets.dart';
 import '../home.dart';
 import 'recipes_page.dart';
@@ -190,6 +191,7 @@ class _KitchenHomeState extends State<KitchenHome> {
               _savePref('kds_sound', _sound);
             },
           ),
+          const TeamChatButton(role: 'kds'),
           IconButton(icon: const Icon(Icons.refresh), onPressed: () => _load()),
           IconButton(
             icon: const Icon(Icons.more_vert),

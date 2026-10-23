@@ -6,11 +6,13 @@ import '../../core/actions.dart';
 import '../../core/alert.dart';
 import '../../core/scope.dart';
 import '../../core/session.dart';
+import '../../core/shift.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../home.dart';
 import '../cashier/bills_page.dart';
 import '../common/pickups_page.dart';
+import '../common/team_chat.dart';
 import '../cashier/receipts_page.dart';
 import 'active_page.dart';
 import 'tables_page.dart';
@@ -37,6 +39,10 @@ class _WaiterHomeState extends State<WaiterHome> {
   StreamSubscription? _sub;
   int _tab = 0;
   final Map<String, String> _seen = {}; // ticket id -> status|prepared count
+  late final Shifts _shifts;
+  Map<String, dynamic>? _shift;
+  bool _shiftBusy = false;
+  Timer? _shiftTick;
 
   @override
   void initState() {
@@ -50,6 +56,52 @@ class _WaiterHomeState extends State<WaiterHome> {
       }
     });
     _sub = store.ticketEvents.listen((e) => _checkReady(e.record?.id));
+    _shifts = Shifts(session.pb, session.user?.id ?? '');
+    _shifts.active().then((a) {
+      if (mounted) setState(() => _shift = a);
+    });
+    _shiftTick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && _shift != null) setState(() {});
+    });
+  }
+
+  int get _shiftMinutes {
+    final start = parseDate(_shift?['clockIn']);
+    return start == null ? 0 : DateTime.now().difference(start).inMinutes;
+  }
+
+  Future<void> _toggleShift() async {
+    if (_shiftBusy) return;
+    setState(() => _shiftBusy = true);
+    final clockingIn = _shift == null;
+    final ok = await runActionPlain(() async {
+      if (clockingIn) {
+        _shift = await _shifts.clockIn();
+      } else {
+        await _shifts.clockOut();
+        _shift = null;
+      }
+    });
+    if (!mounted) return;
+    setState(() => _shiftBusy = false);
+    toastShift(ok, clockingIn);
+  }
+
+  void toastShift(bool ok, bool clockingIn) {
+    if (!ok) {
+      toast(context, clockingIn ? tr(context, 'Could not clock in.', 'Einstempeln fehlgeschlagen.') : tr(context, 'Could not clock out.', 'Ausstempeln fehlgeschlagen.'), error: true);
+    } else {
+      toast(context, clockingIn ? tr(context, 'Clocked in. Have a good shift!', 'Eingestempelt. Gute Schicht!') : tr(context, 'Clocked out.', 'Ausgestempelt.'));
+    }
+  }
+
+  Future<bool> runActionPlain(Future<void> Function() f) async {
+    try {
+      await f();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   String _key(Ticket t) => '${t.status}|${List.generate(t.items.length, t.itemStatus).where((s) => s == 'prepared').length}';
@@ -95,6 +147,7 @@ class _WaiterHomeState extends State<WaiterHome> {
   @override
   void dispose() {
     _sub?.cancel();
+    _shiftTick?.cancel();
     store.dispose();
     super.dispose();
   }
@@ -114,7 +167,8 @@ class _WaiterHomeState extends State<WaiterHome> {
           appBar: AppBar(
             title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(cashier ? tr(context, 'Cashier', 'Kasse') : tr(context, 'Waiter', 'Kellner')),
-              Text(session.displayName, style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: null, fontWeight: FontWeight.w400)),
+              Text('${session.displayName} · ${_shift != null ? '${tr(context, 'Shift', 'Schicht')} ${formatShift(_shiftMinutes)}' : tr(context, 'not clocked in', 'nicht eingestempelt')}',
+                  style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: null, fontWeight: FontWeight.w400)),
             ]),
             actions: [
               IconButton(
@@ -124,10 +178,20 @@ class _WaiterHomeState extends State<WaiterHome> {
                   builder: (_) => Scaffold(appBar: AppBar(title: Text(tr(context, 'Pickups', 'Abholungen'))), body: const PickupsPage()),
                 )),
               ),
+              const TeamChatButton(role: 'waiter'),
               IconButton(icon: const Icon(Icons.refresh), tooltip: tr(context, 'Refresh', 'Aktualisieren'), onPressed: s.refreshAll),
               IconButton(
                 icon: const Icon(Icons.more_vert),
-                onPressed: () => showMoreSheet(context, extra: [
+                onPressed: () => showMoreSheet(context, beforeSignOut: _shifts.clockOut, extra: [
+                  ListTile(
+                    leading: Icon(_shift != null ? Icons.timer_off_outlined : Icons.timer_outlined),
+                    title: Text(_shift != null ? tr(context, 'Clock out', 'Ausstempeln') : tr(context, 'Clock in', 'Einstempeln')),
+                    subtitle: Text(_shift != null ? '${tr(context, 'Shift', 'Schicht')} ${formatShift(_shiftMinutes)}' : tr(context, 'Not clocked in', 'Nicht eingestempelt')),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _toggleShift();
+                    },
+                  ),
                   ListTile(
                     leading: const Icon(Icons.sync),
                     title: Text(tr(context, 'Last update', 'Letzte Aktualisierung')),

@@ -1,13 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+
+const _sound = MethodChannel('tripti/sound');
 
 /// Plays the phone's notification sound and vibrates.
 Future<void> alertBeep() async {
   HapticFeedback.heavyImpact();
   if (kIsWeb) return;
   try {
-    await FlutterRingtonePlayer().playNotification(volume: 1.0, asAlarm: false);
+    await _sound.invokeMethod('notify');
   } catch (_) {
     SystemSound.play(SystemSoundType.alert);
   }
