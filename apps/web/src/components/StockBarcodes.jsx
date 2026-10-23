@@ -189,10 +189,10 @@ export default function StockBarcodes({ pb }) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lots by item, barcode, bill…" className="pl-9 h-11" />
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={printAllLocations} className="h-11"><Printer className="h-4 w-4 mr-2" /> All location labels</Button>
-          <Button variant="outline" onClick={printAllFiltered} className="h-11"><Printer className="h-4 w-4 mr-2" /> Print filtered</Button>
-          <Button onClick={fetchAll} variant="ghost" className="h-11"><RefreshCw className="h-4 w-4" /></Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={printAllLocations} className="h-11 flex-1 sm:flex-none"><Printer className="h-4 w-4 mr-2" /> All location labels</Button>
+          <Button variant="outline" onClick={printAllFiltered} className="h-11 flex-1 sm:flex-none"><Printer className="h-4 w-4 mr-2" /> Print filtered</Button>
+          <Button onClick={fetchAll} variant="ghost" className="h-11" aria-label="Refresh"><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>
 

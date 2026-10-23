@@ -875,14 +875,18 @@ export default function StockDashboard() {
 
         <main className="p-4 max-w-7xl mx-auto">
           {/* Stock alerts — low/out of stock + expiring/expired lots */}
+          {/* On the phone the alerts and totals show on the Inventory tab only, so
+              each other tab starts at the top of the screen. */}
+          {(!isStaffApp || activeTab === 'inventory') && (
           <StockAlertsPanel
-            pb={pb}
-            variant="stock"
-            onAction={(target) => {
-              if (target === 'inventory' || target === 'lots') setActiveTab(target);
-            }}
-            className="mb-6"
-          />
+              pb={pb}
+              variant="stock"
+              onAction={(target) => {
+                if (target === 'inventory' || target === 'lots') setActiveTab(target);
+              }}
+              className="mb-6"
+            />
+          )}
 
           {/* Tabs */}
           <div className={isStaffApp ? 'app-chip-row' : 'flex flex-wrap gap-2 mb-6 p-2 bg-card border-2 border-border rounded-2xl shadow-sm w-fit'}>
@@ -920,7 +924,7 @@ export default function StockDashboard() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 ${isStaffApp && activeTab !== 'inventory' ? 'hidden' : ''}`}>
             <StatCard icon={Boxes} label={t('stock_totalItems')} value={stats.total} />
             <StatCard icon={AlertTriangle} label={t('stock_lowStockCount')} value={stats.low} tone="bg-amber-500/15 text-amber-700" />
             <StatCard icon={AlertTriangle} label={t('stock_outOfStockCount')} value={stats.out} tone="bg-destructive/15 text-destructive" />
