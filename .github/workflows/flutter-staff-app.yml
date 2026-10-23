@@ -1,0 +1,53 @@
+name: Flutter staff app
+
+# Builds the native Flutter Tripti Staff app (staff_flutter/) and publishes it at:
+# https://github.com/triptitechsupport/tripti-restaurant/releases/download/staff-flutter-latest/tripti-staff-flutter.apk
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'staff_flutter/**'
+      - '.github/workflows/flutter-staff-app.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: staff_flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tripti-staff-flutter-apk
+          path: staff_flutter/build/app/outputs/flutter-apk/app-release.apk
+      - name: Publish at the fixed download link
+        if: github.event_name == 'push' && (github.ref_name == 'android-app' || github.ref_name == 'pickup-orders' || github.ref_name == 'main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk tripti-staff-flutter.apk
+          NOTES="Native Flutter app for Tripti staff (test version). Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. It installs next to the current Tripti Staff app."
+          if gh release view staff-flutter-latest >/dev/null 2>&1; then
+            gh release upload staff-flutter-latest tripti-staff-flutter.apk --clobber
+            gh release edit staff-flutter-latest --notes "$NOTES"
+          else
+            gh release create staff-flutter-latest tripti-staff-flutter.apk --prerelease --target "$GITHUB_SHA" \
+              --title "Tripti Staff Flutter app (latest)" --notes "$NOTES"
+          fi
