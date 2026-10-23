@@ -274,7 +274,6 @@ class _PickupsPageState extends State<PickupsPage> {
         ),
       ),
     );
-    ctl.dispose();
     if (reason != null && mounted) await _act(o, 'cancelled', reason: reason);
   }
 }

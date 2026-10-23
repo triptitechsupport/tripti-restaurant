@@ -162,7 +162,7 @@ class _WaiterHomeState extends State<WaiterHome> {
       child: Builder(builder: (context) {
         final s = StoreScope.of(context);
         final readyCount = s.tickets.where((t) => t.placedBy == session.displayName && (t.status == 'ready' || List.generate(t.items.length, t.itemStatus).contains('prepared')) && t.open).length;
-        final requests = s.liveOrderByTable.values.where((o) => o.billPending || o.endPending).length;
+        final requests = s.liveOrders.where((o) => o.billPending || o.endPending).length;
         return Scaffold(
           appBar: AppBar(
             title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

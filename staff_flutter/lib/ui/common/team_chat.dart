@@ -103,6 +103,7 @@ class _TeamChatPageState extends State<TeamChatPage> {
   bool _sending = false;
   UnsubscribeFunc? _unsub;
   final Set<String> _marked = {};
+  bool _picked = false;
 
   PocketBase get pb => AppScope.read(context).pb;
   String get me => AppScope.read(context).user?.id ?? '';
@@ -138,6 +139,10 @@ class _TeamChatPageState extends State<TeamChatPage> {
       final r = await pb.collection('staff_messages').getList(perPage: 300, sort: '-created', filter: chatFilter(me, widget.role));
       if (!mounted) return;
       setState(() => _messages = r.items.reversed.map((e) => e.toJson()).toList());
+      if (!_picked) {
+        _picked = true;
+        _openUnread();
+      }
       _markRead();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
@@ -145,6 +150,21 @@ class _TeamChatPageState extends State<TeamChatPage> {
     } catch (e) {
       if (mounted) toast(context, errorMessage(e), error: true);
     }
+  }
+
+  /// Opens the conversation that has the newest unread message.
+  void _openUnread() {
+    if (_unread(_peer) > 0) return;
+    final m = _messages.reversed.where((m) => m['read'] != true && chatIncoming(m, me, widget.role)).firstOrNull;
+    if (m == null) return;
+    final from = '${m['senderRole'] ?? ''}';
+    ChatPeer? p;
+    if (from == 'waiter' && widget.role != 'waiter' && '${m['senderId'] ?? ''}'.isNotEmpty) {
+      p = ChatPeer.waiter('${m['senderId']}', '${m['senderName'] ?? ''}');
+    } else {
+      p = _rolePeers.where((r) => r.role == from).firstOrNull;
+    }
+    if (p != null && chatInConversation(m, p, me, widget.role)) setState(() => _peer = p!);
   }
 
   void _markRead() {

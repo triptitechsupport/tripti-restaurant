@@ -348,6 +348,18 @@ class LiveStore extends ChangeNotifier {
     return m;
   }
 
+  /// Each live table order once (a shared order covers several tables).
+  List<Order> get liveOrders {
+    final seen = <String>{};
+    return liveOrderByTable.values.where((o) => seen.add(o.id)).toList();
+  }
+
+  /// "1 + 2" for a shared combined order, otherwise the order's own table.
+  String tableTitle(Order o) {
+    final g = groups[o.groupId];
+    return g != null && g.shared ? g.display : o.table;
+  }
+
   List<Ticket> ticketsOf(Order o) => tickets.where((t) => t.parentId == o.id).toList()
     ..sort((a, b) => (a.created ?? DateTime(0)).compareTo(b.created ?? DateTime(0)));
 

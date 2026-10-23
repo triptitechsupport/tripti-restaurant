@@ -14,7 +14,7 @@ class BillsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = StoreScope.of(context);
-    final live = s.liveOrderByTable.values.toList();
+    final live = s.liveOrders;
     final bills = live.where((o) => o.billPending).toList()..sort((a, b) => (a.billRequestedAt ?? DateTime(0)).compareTo(b.billRequestedAt ?? DateTime(0)));
     final ends = live.where((o) => o.endPending).toList()..sort((a, b) => (a.endRequestedAt ?? DateTime(0)).compareTo(b.endRequestedAt ?? DateTime(0)));
     final unpaid = live.where((o) => !o.billPending && o.paymentStatus != 'paid' && s.ticketsOf(o).any((t) => t.status != 'cancelled')).toList();
@@ -81,7 +81,7 @@ class _BillTileState extends State<_BillTile> {
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Text(tr(context, 'Table ${o.table}', 'Tisch ${o.table}'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: TriptiColors.ink)),
+            Text(s.tableTitle(o).contains('+') ? tr(context, 'Tables ${s.tableTitle(o)}', 'Tische ${s.tableTitle(o)}') : tr(context, 'Table ${o.table}', 'Tisch ${o.table}'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: TriptiColors.ink)),
             const SizedBox(width: 8),
             Text(o.orderId, style: const TextStyle(color: Colors.black54)),
             const Spacer(),

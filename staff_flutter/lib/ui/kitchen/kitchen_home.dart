@@ -310,6 +310,8 @@ class _KitchenHomeState extends State<KitchenHome> {
                     Expanded(
                       child: Text.rich(TextSpan(children: [
                         TextSpan(text: '${items[i]['name'] ?? ''}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, decoration: t.itemStatus(i) == 'pickedup' ? TextDecoration.lineThrough : null)),
+                        if ('${items[i]['tableNumber'] ?? ''}'.isNotEmpty && '${t.data['tableLabel'] ?? ''}'.contains('+'))
+                          TextSpan(text: '  ${tr(context, 'Table', 'Tisch')} ${items[i]['tableNumber']}', style: const TextStyle(color: TriptiColors.blue, fontWeight: FontWeight.w700)),
                         if ('${items[i]['spiceLevel'] ?? 'None'}' != 'None') TextSpan(text: '  ${items[i]['spiceLevel']}', style: const TextStyle(color: TriptiColors.amber, fontWeight: FontWeight.w700)),
                       ])),
                     ),

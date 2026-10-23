@@ -253,6 +253,24 @@ class OrderActions {
     return all;
   }
 
+  /// Serves every dish that is ready. The ticket completes only when no
+  /// dish is left in the kitchen.
+  Future<void> serveReady(Ticket t) async {
+    if (t.status == 'ready') return markServed(t);
+    final items = <Map<String, dynamic>>[];
+    final statuses = <String, dynamic>{};
+    for (var i = 0; i < t.items.length; i++) {
+      final st = t.itemStatus(i);
+      for (var u = 0; u < unitCount(t.items[i]); u++) {
+        final idx = items.length;
+        items.add({...t.items[i], 'quantity': 1});
+        if (st == 'prepared' || st == 'pickedup') statuses['$idx'] = 'pickedup';
+      }
+    }
+    final all = items.isNotEmpty && List.generate(items.length, (i) => statuses['$i'] == 'pickedup').every((x) => x);
+    await pb.collection('kitchen_orders').update(t.id, body: {'items': items, 'itemStatuses': statuses, if (all) 'status': 'completed'});
+  }
+
   Future<void> markServed(Ticket t) => pb.collection('kitchen_orders').update(t.id, body: {'status': 'completed'});
 
   Future<void> cancelTicket(Ticket t) => pb.collection('kitchen_orders').update(t.id, body: {'status': 'cancelled'});

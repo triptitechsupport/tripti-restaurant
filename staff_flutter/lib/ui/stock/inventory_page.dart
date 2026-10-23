@@ -80,12 +80,16 @@ class _InventoryPageState extends State<InventoryPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          _stat(Icons.inventory_2_outlined, tr(context, 'Items', 'Artikel'), '${_items.length}', TriptiColors.ink),
-          _stat(Icons.trending_down, tr(context, 'Low', 'Knapp'), '$low', TriptiColors.amber),
-          _stat(Icons.remove_shopping_cart_outlined, tr(context, 'Out', 'Leer'), '$out', TriptiColors.red),
-          _stat(Icons.event_busy, tr(context, 'Expiring', 'Läuft ab'), '$expiring', TriptiColors.blue),
-        ]),
+        LayoutBuilder(builder: (context, c) {
+          final cols = c.maxWidth >= 560 ? 4 : 2;
+          final w = (c.maxWidth - 8 * (cols - 1)) / cols;
+          return Wrap(spacing: 8, runSpacing: 8, children: [
+            _stat(w, Icons.inventory_2_outlined, tr(context, 'Items', 'Artikel'), '${_items.length}', TriptiColors.ink),
+            _stat(w, Icons.trending_down, tr(context, 'Low', 'Knapp'), '$low', TriptiColors.amber),
+            _stat(w, Icons.remove_shopping_cart_outlined, tr(context, 'Out', 'Leer'), '$out', TriptiColors.red),
+            _stat(w, Icons.event_busy, tr(context, 'Expiring', 'Läuft ab'), '$expiring', TriptiColors.blue),
+          ]);
+        }),
         const SizedBox(height: 10),
         TextField(
           decoration: InputDecoration(hintText: tr(context, 'Search name, category or barcode', 'Name, Kategorie oder Barcode suchen'), prefixIcon: const Icon(Icons.search)),
@@ -104,8 +108,8 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
-  Widget _stat(IconData icon, String label, String value, Color color) => Container(
-        width: 150,
+  Widget _stat(double width, IconData icon, String label, String value, Color color) => Container(
+        width: width,
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(color: TriptiColors.card, borderRadius: BorderRadius.circular(14), border: Border.all(color: TriptiColors.border)),
         child: Row(children: [

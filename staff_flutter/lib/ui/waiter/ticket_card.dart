@@ -52,7 +52,8 @@ class _TicketCardState extends State<TicketCard> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(color: TriptiColors.primary, borderRadius: BorderRadius.circular(8)),
-                child: Text('${tr(context, 'Table', 'Tisch')} ${t.table}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
+                child: Text('${t.data['tableLabel'] ?? ''}'.contains('+') ? '${t.data['tableLabel']}'.replaceFirst('Tables', tr(context, 'Tables', 'Tische')) : '${tr(context, 'Table', 'Tisch')} ${t.table}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
               ),
               const SizedBox(width: 8),
             ],
@@ -83,6 +84,8 @@ class _TicketCardState extends State<TicketCard> {
                 Expanded(
                   child: Text.rich(TextSpan(children: [
                     TextSpan(text: '${u.item['name'] ?? ''}', style: TextStyle(decoration: t.status == 'cancelled' ? TextDecoration.lineThrough : null, fontWeight: FontWeight.w600)),
+                    if ('${u.item['tableNumber'] ?? ''}'.isNotEmpty && '${u.item['tableNumber']}' != t.table)
+                      TextSpan(text: '  ${tr(context, 'Table', 'Tisch')} ${u.item['tableNumber']}', style: const TextStyle(color: TriptiColors.blue, fontSize: 12, fontWeight: FontWeight.w700)),
                     if ('${u.item['spiceLevel'] ?? 'None'}' != 'None') TextSpan(text: '  ${u.item['spiceLevel']}', style: const TextStyle(color: TriptiColors.amber, fontSize: 12)),
                   ])),
                 ),
@@ -125,9 +128,9 @@ class _TicketCardState extends State<TicketCard> {
               if (servable > 1)
                 FilledButton.icon(
                   style: FilledButton.styleFrom(backgroundColor: TriptiColors.green, minimumSize: const Size(40, 40)),
-                  onPressed: _busy ? null : () => _do(() => a.markServed(t), done: tr(context, 'Ticket served', 'Ticket serviert')),
+                  onPressed: _busy ? null : () => _do(() => a.serveReady(t), done: tr(context, 'Ready dishes served', 'Fertige Gerichte serviert')),
                   icon: const Icon(Icons.done_all, size: 18),
-                  label: Text(tr(context, 'Serve all', 'Alle servieren')),
+                  label: Text(t.status == 'ready' ? tr(context, 'Serve all', 'Alle servieren') : tr(context, 'Serve $servable ready', '$servable fertige servieren')),
                 ),
             ]),
           ],

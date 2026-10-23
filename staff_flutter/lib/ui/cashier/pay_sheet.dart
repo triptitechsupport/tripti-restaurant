@@ -101,7 +101,7 @@ class _PaySheetState extends State<_PaySheet> {
 
     return Column(mainAxisSize: MainAxisSize.min, children: [
       ListTile(
-        title: Text(tr(context, 'Payment · Table ${o.table}', 'Zahlung · Tisch ${o.table}'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+        title: Text(tr(context, 'Payment · Table ${s.tableTitle(o)}', 'Zahlung · Tisch ${s.tableTitle(o)}'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
         subtitle: Text('${o.orderId} · ${tr(context, 'open', 'offen')} ${euro(unpaidTotal)}'),
         trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
       ),
