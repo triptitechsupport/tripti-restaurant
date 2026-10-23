@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShoppingCart as ShoppingCartIcon, X, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -11,45 +11,13 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 
 const ShoppingCart = ({ isCartOpen, setIsCartOpen }) => {
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, isOrderingEnabled } = useLanguage();
   const navigate = useNavigate();
   const { cartItems, removeFromCart, updateQuantity, getCartTotal } = useCart();
   
-  const [orderSettings, setOrderSettings] = useState(null);
-  const [isOrderAvailable, setIsOrderAvailable] = useState(true);
-
-  useEffect(() => {
-    if (!isCartOpen) return;
-
-    const fetchSettings = async () => {
-      try {
-        const records = await pb.collection('order_settings').getFullList({ $autoCancel: false });
-        if (records.length > 0) {
-          const settings = records[0];
-          setOrderSettings(settings);
-          
-          if (!settings.ordersEnabled) {
-            setIsOrderAvailable(false);
-            return;
-          }
-
-          const now = new Date();
-          const currentMinutes = now.getHours() * 60 + now.getMinutes();
-          
-          const [startH, startM] = settings.startTime.split(':').map(Number);
-          const startMinutes = startH * 60 + startM;
-          
-          const [endH, endM] = settings.endTime.split(':').map(Number);
-          const endMinutes = endH * 60 + endM;
-
-          setIsOrderAvailable(currentMinutes >= startMinutes && currentMinutes <= endMinutes);
-        }
-      } catch (err) {
-        console.error('Failed to fetch order settings:', err);
-      }
-    };
-    fetchSettings();
-  }, [isCartOpen]);
+  // The admin "Enable Online Orders" switch (order_settings.isOrderingEnabled)
+  // decides. Pickup times are checked at checkout from the pickup settings.
+  const isOrderAvailable = !!isOrderingEnabled;
 
   const handleCheckout = useCallback(() => {
     if (!isOrderAvailable) {
@@ -105,9 +73,7 @@ const ShoppingCart = ({ isCartOpen, setIsCartOpen }) => {
                 <div>
                   <h3 className="font-semibold">{t('ordersCurrentlyUnavailable')}</h3>
                   <p className="text-sm mt-1 opacity-90">
-                    {orderSettings && !orderSettings.ordersEnabled
-                      ? t('onlineOrderingDisabled')
-                      : `${t('ordersAcceptBetweenPrefix')} ${orderSettings?.startTime} ${orderSettings?.endTime}${t('ordersAcceptBetweenSuffix')}`}
+                    {t('onlineOrderingDisabled')}
                   </p>
                 </div>
               </div>
