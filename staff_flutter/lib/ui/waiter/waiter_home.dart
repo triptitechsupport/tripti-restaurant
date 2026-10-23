@@ -10,6 +10,7 @@ import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../home.dart';
 import '../cashier/bills_page.dart';
+import '../common/pickups_page.dart';
 import '../cashier/receipts_page.dart';
 import 'active_page.dart';
 import 'tables_page.dart';
@@ -116,6 +117,13 @@ class _WaiterHomeState extends State<WaiterHome> {
               Text(session.displayName, style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: null, fontWeight: FontWeight.w400)),
             ]),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.shopping_bag_outlined),
+                tooltip: tr(context, 'Pickups', 'Abholungen'),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => Scaffold(appBar: AppBar(title: Text(tr(context, 'Pickups', 'Abholungen'))), body: const PickupsPage()),
+                )),
+              ),
               IconButton(icon: const Icon(Icons.refresh), tooltip: tr(context, 'Refresh', 'Aktualisieren'), onPressed: s.refreshAll),
               IconButton(
                 icon: const Icon(Icons.more_vert),

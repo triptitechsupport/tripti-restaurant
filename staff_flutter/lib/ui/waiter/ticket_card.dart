@@ -95,7 +95,7 @@ class _TicketCardState extends State<TicketCard> {
               ]),
             ),
           if (t.notes.isNotEmpty)
-            Padding(padding: const EdgeInsets.only(top: 4), child: Text('📝 ${t.notes}', style: const TextStyle(fontSize: 13, color: Colors.black54))),
+            Padding(padding: const EdgeInsets.only(top: 4), child: Text('${tr(context, 'Note', 'Notiz')}: ${t.notes}', style: const TextStyle(fontSize: 13, color: Colors.black54))),
           if (t.open) ...[
             const SizedBox(height: 6),
             Row(children: [

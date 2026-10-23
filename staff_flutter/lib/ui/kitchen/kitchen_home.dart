@@ -11,6 +11,7 @@ import '../../core/scope.dart';
 import '../../core/session.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
+import '../common/pickups_page.dart';
 import '../common/widgets.dart';
 import '../home.dart';
 import 'sold_out_page.dart';
@@ -217,7 +218,9 @@ class _KitchenHomeState extends State<KitchenHome> {
             child: ListTile(dense: true, leading: const Icon(Icons.timer, color: TriptiColors.red), title: Text(tr(context, '$delayed ticket(s) waiting over 5 minutes', '$delayed Ticket(s) warten über 5 Minuten'), style: const TextStyle(color: TriptiColors.red, fontWeight: FontWeight.w700))),
           ),
         Expanded(
-          child: _tab == 1 && manager
+          child: _tab == 1
+              ? PickupsPage(kitchen: true, manager: manager)
+              : _tab == 2 && manager
               ? const SoldOutPage()
               : !_loaded
                   ? const Center(child: CircularProgressIndicator())
@@ -235,16 +238,15 @@ class _KitchenHomeState extends State<KitchenHome> {
                         ),
         ),
       ]),
-      bottomNavigationBar: manager
-          ? NavigationBar(
-              selectedIndex: _tab,
-              onDestinationSelected: (i) => setState(() => _tab = i),
-              destinations: [
-                NavigationDestination(icon: Badge(isLabelVisible: _tickets.isNotEmpty, label: Text('${_tickets.length}'), child: const Icon(Icons.receipt_long)), label: tr(context, 'Tickets', 'Tickets')),
-                NavigationDestination(icon: const Icon(Icons.no_food_outlined), label: tr(context, 'Sold out', 'Ausverkauft')),
-              ],
-            )
-          : null,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: [
+          NavigationDestination(icon: Badge(isLabelVisible: _tickets.isNotEmpty, label: Text('${_tickets.length}'), child: const Icon(Icons.receipt_long)), label: tr(context, 'Tickets', 'Tickets')),
+          NavigationDestination(icon: const Icon(Icons.shopping_bag_outlined), label: tr(context, 'Pre-orders', 'Vorbestellungen')),
+          if (manager) NavigationDestination(icon: const Icon(Icons.no_food_outlined), label: tr(context, 'Sold out', 'Ausverkauft')),
+        ],
+      ),
     );
   }
 
@@ -276,7 +278,7 @@ class _KitchenHomeState extends State<KitchenHome> {
               margin: const EdgeInsets.only(top: 6),
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(8)),
-              child: Text('📝 ${t.notes}', style: const TextStyle(fontWeight: FontWeight.w700)),
+              child: Text('${tr(context, 'Note', 'Notiz')}: ${t.notes}', style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
           const Divider(height: 18),
           for (var i = 0; i < items.length; i++)
