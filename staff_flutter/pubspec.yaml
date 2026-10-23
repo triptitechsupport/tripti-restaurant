@@ -41,6 +41,7 @@ dependencies:
   pdf: ^3.13.1
   printing: ^5.15.1
   flutter_ringtone_player: ^4.0.0+4
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:

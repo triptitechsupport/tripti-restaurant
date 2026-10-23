@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/scope.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
+import 'auditor/auditor_home.dart';
 import 'kitchen/kitchen_home.dart';
 import 'stock/stock_home.dart';
 import 'waiter/waiter_home.dart';
@@ -23,6 +24,8 @@ class HomePage extends StatelessWidget {
         return const KitchenHome();
       case StaffRole.stock:
         return const StockHome();
+      case StaffRole.auditor:
+        return const AuditorHome();
       default:
         return const ComingSoon();
     }

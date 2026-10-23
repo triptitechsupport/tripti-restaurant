@@ -10,8 +10,10 @@ import '../common/widgets.dart';
 import 'receipt_view.dart';
 
 /// Today's payments with their RKSV receipts: reprint, or retry signing.
+/// With [readOnly] (auditor) nothing can be retried, only viewed and printed.
 class ReceiptsPage extends StatefulWidget {
-  const ReceiptsPage({super.key});
+  const ReceiptsPage({super.key, this.readOnly = false});
+  final bool readOnly;
 
   @override
   State<ReceiptsPage> createState() => _ReceiptsPageState();
@@ -84,10 +86,45 @@ class _ReceiptsPageState extends State<ReceiptsPage> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(tr(context, '$missing payment(s) without a signed receipt.', '$missing Zahlung(en) ohne signierten Beleg.'), style: const TextStyle(color: TriptiColors.amber, fontWeight: FontWeight.w700)),
           ),
+        if (_loaded && rows.isNotEmpty) _totals(rows),
         if (!_loaded && _error == null) const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator())),
         if (_loaded && rows.isEmpty) EmptyState(Icons.receipt_long, tr(context, 'No payments yet.', 'Noch keine Zahlungen.')),
         for (final x in rows) _tile(x),
       ]),
+    );
+  }
+
+  String _when(DateTime? d) {
+    if (d == null) return '';
+    final l = d.toLocal(), n = DateTime.now();
+    return l.year == n.year && l.month == n.month && l.day == n.day ? timeOf(l) : '${l.day}.${l.month}. ${timeOf(l)}';
+  }
+
+  Widget _totals(List<Map<String, dynamic>> rows) {
+    var cash = 0.0, card = 0.0, total = 0.0;
+    for (final x in rows) {
+      final a = toDouble(x['amount']);
+      total += a;
+      final pt = '${_receiptFor('${x['id']}')?.data['paymentType'] ?? ''}'.toUpperCase();
+      if (pt == 'CASH') cash += a;
+      if (pt.isNotEmpty && pt != 'CASH') card += a;
+    }
+    Widget cell(String label, String value) => Expanded(
+          child: Column(children: [
+            Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: TriptiColors.ink)),
+            Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          ]),
+        );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(children: [
+          cell(tr(context, 'Payments', 'Zahlungen'), '${rows.length}'),
+          cell(tr(context, 'Cash', 'Bar'), euro(cash)),
+          cell(tr(context, 'Card', 'Karte'), euro(card)),
+          cell(tr(context, 'Total', 'Gesamt'), euro(total)),
+        ]),
+      ),
     );
   }
 
@@ -108,7 +145,7 @@ class _ReceiptsPageState extends State<ReceiptsPage> {
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Row(children: [
-            Text('${euro(toDouble(x['amount']))} · ${timeOf(parseDate(x['created']))}  '),
+            Text('${euro(toDouble(x['amount']))} · ${_when(parseDate(x['created']))}  '),
             StatusPill(label, color),
             if (r != null && r.data['paymentType'] != null) Text('  ${r.data['paymentType']}', style: const TextStyle(fontSize: 12)),
           ]),
@@ -121,7 +158,7 @@ class _ReceiptsPageState extends State<ReceiptsPage> {
                     tooltip: tr(context, 'Print', 'Drucken'),
                     onPressed: () => openReceipt(context, r.printable ? r : r.asFallback()),
                   )
-                : r != null && (status == 'failed' || status == 'queued')
+                : !widget.readOnly && r != null && (status == 'failed' || status == 'queued')
                     ? TextButton(
                         onPressed: () async {
                           setState(() => _busy = id);
