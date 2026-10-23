@@ -4,6 +4,7 @@ import '../core/scope.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import 'kitchen/kitchen_home.dart';
+import 'stock/stock_home.dart';
 import 'waiter/waiter_home.dart';
 
 /// Opens the screens of the signed-in role.
@@ -20,6 +21,8 @@ class HomePage extends StatelessWidget {
       case StaffRole.kitchen:
       case StaffRole.kitchenManager:
         return const KitchenHome();
+      case StaffRole.stock:
+        return const StockHome();
       default:
         return const ComingSoon();
     }

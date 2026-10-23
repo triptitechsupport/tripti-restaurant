@@ -1,10 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:pocketbase/pocketbase.dart';
+import 'package:printing/printing.dart';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/foundation.dart' show Uint8List;
 
 import '../../core/planning.dart';
 import '../../core/scope.dart';
+import '../../core/stock.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/widgets.dart';
@@ -24,9 +30,57 @@ String weekLabel(BuildContext context, DateTime? s) {
   return '${tr(context, 'Week', 'KW')} ${weekNumber(s)} · ${s.day}.${s.month}. – ${e.day}.${e.month}.';
 }
 
+double _remainingOf(Map<String, dynamic> l) {
+  final r = toDouble(l['qty']) - toDouble(l['fulfilledQty']);
+  return r > 0 ? r : 0;
+}
+
+/// A4 list of what is still to give out, with what is in store and what
+/// has to be bought.
+Future<void> printShoppingList(String title, List<({String name, String unit, double need, double? have})> rows, {String note = '', required bool de}) async {
+  final font = pw.Font.ttf(await rootBundle.load('assets/fonts/DejaVuSans.ttf'));
+  final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/DejaVuSans-Bold.ttf'));
+  final doc = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: bold));
+  String t(String en, String g) => de ? g : en;
+  pw.Widget cell(String v, {bool b = false, bool right = false}) => pw.Padding(
+        padding: const pw.EdgeInsets.all(4),
+        child: pw.Text(v, textAlign: right ? pw.TextAlign.right : pw.TextAlign.left, style: b ? pw.TextStyle(font: bold) : null),
+      );
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    build: (_) => [
+      pw.Text(title, style: pw.TextStyle(font: bold, fontSize: 18)),
+      pw.SizedBox(height: 8),
+      pw.Table(
+        border: const pw.TableBorder(horizontalInside: pw.BorderSide(color: PdfColors.grey400), bottom: pw.BorderSide(color: PdfColors.grey400)),
+        columnWidths: {0: const pw.FlexColumnWidth(3)},
+        children: [
+          pw.TableRow(children: [cell(t('Item', 'Artikel'), b: true), cell(t('Needed', 'Benötigt'), b: true, right: true), cell(t('In store', 'Im Lager'), b: true, right: true), cell(t('To buy', 'Einkaufen'), b: true, right: true)]),
+          for (final r in rows)
+            pw.TableRow(children: [
+              cell(r.name),
+              cell('${fmtNum(r.need)} ${r.unit}', right: true),
+              cell(r.have == null ? '-' : '${fmtNum(r.have!)} ${r.unit}', right: true),
+              cell(() {
+                final buy = r.have == null ? r.need : (r.need - r.have! > 0 ? r.need - r.have! : 0);
+                return buy > 0 ? '${fmtNum(buy)} ${r.unit}' : '';
+              }(), b: true, right: true),
+            ]),
+        ],
+      ),
+      if (note.isNotEmpty) ...[pw.SizedBox(height: 10), pw.Text(note)],
+    ],
+  ));
+  final bytes = await doc.save();
+  await Printing.layoutPdf(name: title, onLayout: (_) async => Uint8List.fromList(bytes));
+}
+
 /// Kitchen manager: weekly ingredient requests to the stock manager.
+/// With [stockMode] the stock manager sees the sent requests and gives the
+/// goods out of the store.
 class StockRequestsPage extends StatefulWidget {
-  const StockRequestsPage({super.key});
+  const StockRequestsPage({super.key, this.stockMode = false});
+  final bool stockMode;
 
   @override
   State<StockRequestsPage> createState() => _StockRequestsPageState();
@@ -35,6 +89,7 @@ class StockRequestsPage extends StatefulWidget {
 class _StockRequestsPageState extends State<StockRequestsPage> {
   List<Map<String, dynamic>> _requests = [];
   Map<String, Map<String, dynamic>> _stock = {};
+  List<Map<String, dynamic>> _lots = [];
   bool _loading = true;
   UnsubscribeFunc? _unsub;
 
@@ -59,11 +114,13 @@ class _StockRequestsPageState extends State<StockRequestsPage> {
       final r = await Future.wait([
         pb.collection('stock_requests').getFullList(filter: 'weekStart >= "$since"', sort: '-weekStart,-created'),
         pb.collection('stock_items').getFullList(sort: 'name', fields: 'id,name,unit,quantity,unitCost,minStock,category').catchError((_) => <RecordModel>[]),
+        if (widget.stockMode) pb.collection('stock_lots').getFullList(fields: 'id,stockItem,quantity,remainingQty,expiry,status,location').catchError((_) => <RecordModel>[]),
       ]);
       if (!mounted) return;
       setState(() {
         _requests = r[0].map((e) => e.toJson()).toList();
         _stock = {for (final s in r[1]) s.id: s.toJson()};
+        _lots = widget.stockMode ? r[2].map((e) => e.toJson()).toList() : [];
         _loading = false;
       });
     } catch (e) {
@@ -76,13 +133,14 @@ class _StockRequestsPageState extends State<StockRequestsPage> {
 
   Future<void> _open(Map<String, dynamic>? r) async {
     final last = _requests.where((x) => x['status'] != 'cancelled' && x['id'] != r?['id'] && jsonList(x['items']).isNotEmpty).firstOrNull;
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => RequestEditor(request: r, stock: _stock, last: last)));
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => RequestEditor(request: r, stock: _stock, last: last, stockMode: widget.stockMode, lots: _lots)));
     _load();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
+    if (widget.stockMode) return _stockList();
     final now = DateTime.now();
     final next = isoDay(nextWeekStart(now));
     final forNext = _requests.where((r) => parseDate(r['weekStart']) != null && isoDay(parseDate(r['weekStart'])!) == next && r['status'] != 'cancelled').toList();
@@ -116,6 +174,46 @@ class _StockRequestsPageState extends State<StockRequestsPage> {
     );
   }
 
+  Widget _stockList() {
+    final visible = _requests.where((r) => r['status'] != 'draft').toList();
+    final open = visible.where((r) => openForStock.contains(r['status'])).toList()
+      ..sort((a, b) => '${a['neededBy'] ?? a['weekStart']}'.compareTo('${b['neededBy'] ?? b['weekStart']}'));
+    final done = visible.where((r) => !open.contains(r)).toList();
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
+        Text(tr(context, 'Weekly lists from the kitchen. Give out what is in store; the rest goes on the shopping list.', 'Wochenlisten der Küche. Vorhandenes ausgeben, der Rest kommt auf die Einkaufsliste.'), style: const TextStyle(color: Colors.black54)),
+        const SizedBox(height: 10),
+        if (open.isNotEmpty)
+          OutlinedButton.icon(onPressed: () => _printAll(open), icon: const Icon(Icons.shopping_cart_outlined), label: Text(tr(context, 'Shopping list for all open requests', 'Einkaufsliste für alle offenen Anforderungen'))),
+        if (visible.isEmpty) EmptyState(Icons.assignment_outlined, tr(context, 'No requests from the kitchen yet.', 'Noch keine Anforderungen der Küche.')),
+        if (open.isNotEmpty) _head(tr(context, 'To do', 'Zu erledigen')),
+        for (final r in open) _tile(r),
+        if (done.isNotEmpty) _head(tr(context, 'Earlier', 'Frühere')),
+        for (final r in done) _tile(r),
+      ]),
+    );
+  }
+
+  Future<void> _printAll(List<Map<String, dynamic>> open) async {
+    final de = AppScope.read(context).de;
+    final rows = <String, ({String name, String unit, double need, double? have})>{};
+    for (final r in open) {
+      for (final l in jsonList(r['items'])) {
+        final rem = _remainingOf(l);
+        if (rem <= 0) continue;
+        final item = stockFor(l, _stock);
+        final unit = item != null && '${item['unit'] ?? ''}'.isNotEmpty ? '${item['unit']}' : '${l['unit'] ?? ''}';
+        final qty = item != null ? (convertQty(rem, '${l['unit'] ?? ''}'.isEmpty ? unit : '${l['unit']}', unit) ?? rem) : rem;
+        final key = item != null ? 's:${item['id']}' : 'n:${'${l['name']}'.toLowerCase()}:${l['unit']}';
+        final prev = rows[key];
+        rows[key] = (name: item != null ? '${item['name']}' : '${l['name']}', unit: unit, need: (prev?.need ?? 0) + qty, have: item != null ? toDouble(item['quantity']) : null);
+      }
+    }
+    final list = rows.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    await printShoppingList(de ? 'Einkaufsliste' : 'Shopping list', list, de: de);
+  }
+
   Widget _head(String t) => Padding(padding: const EdgeInsets.fromLTRB(4, 8, 4, 4), child: Text(t, style: const TextStyle(fontWeight: FontWeight.w800, color: TriptiColors.ink)));
 
   Widget _tile(Map<String, dynamic> r) {
@@ -138,17 +236,20 @@ class _ReqLine {
       : data = Map<String, dynamic>.from(l),
         name = TextEditingController(text: '${l['name'] ?? ''}'),
         qty = TextEditingController(text: l['qty'] == null ? '' : fmtNum(toDouble(l['qty']))),
-        note = TextEditingController(text: '${l['note'] ?? ''}');
+        note = TextEditingController(text: '${l['note'] ?? ''}'),
+        give = TextEditingController();
   final Map<String, dynamic> data;
-  final TextEditingController name, qty, note;
+  final TextEditingController name, qty, note, give;
   String get unit => '${data['unit'] ?? ''}';
 }
 
 class RequestEditor extends StatefulWidget {
-  const RequestEditor({super.key, required this.request, required this.stock, this.last});
+  const RequestEditor({super.key, required this.request, required this.stock, this.last, this.stockMode = false, this.lots = const []});
   final Map<String, dynamic>? request;
   final Map<String, Map<String, dynamic>> stock;
   final Map<String, dynamic>? last;
+  final bool stockMode;
+  final List<Map<String, dynamic>> lots;
 
   @override
   State<RequestEditor> createState() => _RequestEditorState();
@@ -157,7 +258,7 @@ class RequestEditor extends StatefulWidget {
 class _RequestEditorState extends State<RequestEditor> {
   late String _week;
   late DateTime? _neededBy;
-  late final TextEditingController _notes, _received;
+  late final TextEditingController _notes, _received, _stockNote;
   late List<_ReqLine> _lines;
   bool _busy = false;
   // Planning from recipes.
@@ -166,7 +267,8 @@ class _RequestEditorState extends State<RequestEditor> {
 
   Map<String, dynamic>? get r => widget.request;
   String get _status => '${r?['status'] ?? 'draft'}';
-  bool get _editable => ['draft', 'submitted'].contains(_status);
+  bool get _editable => !widget.stockMode && ['draft', 'submitted'].contains(_status);
+  bool get _stockOpen => widget.stockMode && openForStock.contains(_status);
 
   @override
   void initState() {
@@ -176,6 +278,7 @@ class _RequestEditorState extends State<RequestEditor> {
     _neededBy = parseDate(r?['neededBy']) ?? DateTime.parse(_week);
     _notes = TextEditingController(text: '${r?['notes'] ?? ''}');
     _received = TextEditingController(text: '${r?['receivedNote'] ?? ''}');
+    _stockNote = TextEditingController(text: '${r?['stockNote'] ?? ''}');
     _lines = jsonList(r?['items']).map(_ReqLine.new).toList();
   }
 
@@ -241,6 +344,108 @@ class _RequestEditorState extends State<RequestEditor> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (ok) Navigator.of(context).pop();
+  }
+
+  double _defaultGive(_ReqLine l) {
+    final rem = _remainingOf({'qty': l.qty.text, 'fulfilledQty': l.data['fulfilledQty']});
+    final have = _inStore(l);
+    if (have == null) return 0;
+    final h = round(have, 3);
+    return h <= 0 ? 0 : (rem < h ? rem : h);
+  }
+
+  double _giveOf(_ReqLine l) => l.give.text.trim().isEmpty ? _defaultGive(l) : toDouble(l.give.text.replaceAll(',', '.'));
+
+  Future<void> _startPreparing() => _simple((pb) => pb.collection('stock_requests').update(r!['id'], body: {'status': 'in_progress'}), tr(context, 'Started. The kitchen can no longer change this list.', 'Gestartet. Die Küche kann die Liste nicht mehr ändern.'));
+
+  Future<void> _giveOut() async {
+    final session = AppScope.read(context);
+    final pb = session.pb;
+    final weekWord = tr(context, 'week', 'KW');
+    final badUnitMsg = tr(context, 'Units do not match the stock list for', 'Einheit passt nicht zur Lagerliste bei');
+    setState(() => _busy = true);
+    final ok = await runAction(context, () async {
+      if (_status == 'submitted') {
+        await pb.collection('stock_requests').update(r!['id'], body: {'status': 'in_progress'});
+      }
+      final reason = 'Weekly request $weekWord ${weekNumber(parseDate(r!['weekStart']) ?? DateTime.now())}';
+      final liveItems = <String, Map<String, dynamic>>{};
+      final liveLots = widget.lots.map((x) => {...x}).toList();
+      final items = <Map<String, dynamic>>[];
+      final badUnit = <String>[];
+      for (final l in _lines) {
+        final giveRaw = _giveOf(l);
+        var given = 0.0;
+        final found = stockFor({'name': l.name.text, 'stockItem': l.data['stockItem']}, widget.stock);
+        if (giveRaw > 0) {
+          if (found != null) {
+            final item = liveItems.putIfAbsent('${found['id']}', () => {...found});
+            final unit = '${item['unit'] ?? ''}';
+            final inItemUnit = convertQty(giveRaw, l.unit.isEmpty ? unit : l.unit, unit);
+            if (inItemUnit == null) {
+              badUnit.add(l.name.text);
+            } else {
+              final done = await issueFromStock(pb,
+                  item: item,
+                  lots: liveLots,
+                  qty: inItemUnit,
+                  staffId: '${r!['requestedBy'] ?? ''}'.isEmpty ? 'kitchen' : '${r!['requestedBy']}',
+                  staffName: '${r!['requestedByName'] ?? ''}'.isEmpty ? 'Kitchen' : '${r!['requestedByName']}',
+                  role: 'stock',
+                  byName: session.displayName,
+                  byId: session.user?.id ?? '',
+                  reason: reason);
+              given = convertQty(done, unit, l.unit.isEmpty ? unit : l.unit) ?? 0;
+            }
+          } else {
+            given = giveRaw; // bought or handed over outside the stock list
+          }
+        }
+        final line = {...l.data}..remove('give');
+        if ('${line['stockItem'] ?? ''}'.isEmpty && found != null) line['stockItem'] = found['id'];
+        line['fulfilledQty'] = round(toDouble(l.data['fulfilledQty']) + given, 3);
+        items.add(line);
+      }
+      final complete = items.every((l) => toDouble(l['fulfilledQty']) + 1e-9 >= toDouble(l['qty']));
+      await pb.collection('stock_requests').update(r!['id'], body: {'items': items, 'status': complete ? 'fulfilled' : 'partial', 'stockNote': _stockNote.text});
+      if (badUnit.isNotEmpty) throw Exception('$badUnitMsg: ${badUnit.join(', ')}');
+    }, done: tr(context, 'Stock given out', 'Ware ausgegeben'));
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (ok) Navigator.of(context).pop();
+  }
+
+  Future<void> _addToStock(_ReqLine l) async {
+    final pb = AppScope.read(context).pb;
+    setState(() => _busy = true);
+    await runAction(context, () async {
+      final u = l.unit.toLowerCase();
+      final item = await pb.collection('stock_items').create(body: {
+        'name': l.name.text.trim(),
+        'unit': u == 'g' ? 'kg' : u == 'ml' ? 'l' : (l.unit.isEmpty ? 'pcs' : l.unit),
+        'quantity': 0,
+        'category': 'Kitchen',
+      });
+      l.data['stockItem'] = item.id;
+      widget.stock[item.id] = item.toJson();
+      final saved = [
+        for (final x in jsonList(r!['items'])) {...x}
+      ];
+      final i = _lines.indexOf(l);
+      if (i >= 0 && i < saved.length) saved[i]['stockItem'] = item.id;
+      await pb.collection('stock_requests').update(r!['id'], body: {'items': saved});
+    }, done: tr(context, '${l.name.text} added to the stock list', '${l.name.text} in die Lagerliste aufgenommen'));
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _printList(bool onlyShort) async {
+    final de = AppScope.read(context).de;
+    final rows = [
+      for (final l in _lines)
+        (name: l.name.text, unit: l.unit, need: _remainingOf({'qty': l.qty.text, 'fulfilledQty': l.data['fulfilledQty']}), have: _inStore(l)),
+    ].where((x) => !onlyShort || (x.have == null ? x.need : x.need - x.have!) > 0).toList();
+    final week = weekLabel(context, DateTime.parse(_week));
+    await printShoppingList('${onlyShort ? (de ? 'Einkaufsliste' : 'Shopping list') : (de ? 'Anforderung' : 'Request')} · $week', rows, note: _notes.text, de: de);
   }
 
   void _copyLast() {
@@ -320,7 +525,7 @@ class _RequestEditorState extends State<RequestEditor> {
         absorbing: _busy,
         child: ListView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 32), children: [
           Row(children: [StatusPill(label, color), const SizedBox(width: 8), if ('${r?['requestedByName'] ?? ''}'.isNotEmpty) Text('${tr(context, 'Requested by', 'Angefordert von')} ${r!['requestedByName']}', style: const TextStyle(color: Colors.black54))]),
-          if (!_editable && _status != 'cancelled')
+          if (!widget.stockMode && !_editable && _status != 'cancelled')
             Padding(padding: const EdgeInsets.only(top: 8), child: Text(tr(context, 'The stock manager is working on this request. Ask them for changes.', 'Das Lager bearbeitet diese Anforderung bereits. Änderungen bitte mit dem Lager absprechen.'), style: const TextStyle(color: TriptiColors.amber))),
           const SizedBox(height: 10),
           if (_editable) ...[
@@ -357,8 +562,37 @@ class _RequestEditorState extends State<RequestEditor> {
           for (final l in _lines) _lineCard(l, stockList),
           if (_editable) OutlinedButton.icon(onPressed: () => setState(() => _lines.add(_ReqLine({'unit': 'kg'}))), icon: const Icon(Icons.add), label: Text(tr(context, 'Add item', 'Artikel hinzufügen'))),
           const SizedBox(height: 12),
-          TextField(controller: _notes, enabled: _editable, maxLines: 2, decoration: InputDecoration(labelText: tr(context, 'Notes for the stock manager', 'Notiz für das Lager'))),
-          if ('${r?['stockNote'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text('${tr(context, 'Note from stock', 'Notiz vom Lager')}: ${r!['stockNote']}')),
+          if (!widget.stockMode)
+            TextField(controller: _notes, enabled: _editable, maxLines: 2, decoration: InputDecoration(labelText: tr(context, 'Notes for the stock manager', 'Notiz für das Lager')))
+          else if (_notes.text.trim().isNotEmpty)
+            Text('${tr(context, 'Note from the kitchen', 'Notiz der Küche')}: ${_notes.text}'),
+          if (_stockOpen) ...[
+            const SizedBox(height: 8),
+            TextField(controller: _stockNote, maxLines: 2, decoration: InputDecoration(labelText: tr(context, 'Note for the kitchen', 'Notiz für die Küche'))),
+            const SizedBox(height: 12),
+            if (_status == 'submitted')
+              OutlinedButton.icon(onPressed: _startPreparing, icon: const Icon(Icons.play_arrow), label: Text(tr(context, 'Start preparing', 'Vorbereitung starten'))),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+              onPressed: _giveOut,
+              icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.inventory),
+              label: Text(tr(context, 'Give out', 'Ausgeben')),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(tr(context, 'You can give out part now and the rest later. The kitchen sees what is still missing.', 'Teilweise ausgeben geht auch, der Rest später. Die Küche sieht, was noch fehlt.'), style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            ),
+          ] else if ('${r?['stockNote'] ?? ''}'.isNotEmpty)
+            Padding(padding: const EdgeInsets.only(top: 8), child: Text('${tr(context, 'Note from stock', 'Notiz vom Lager')}: ${r!['stockNote']}')),
+          if (r?['id'] != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Wrap(spacing: 8, children: [
+                OutlinedButton.icon(onPressed: () => _printList(true), icon: const Icon(Icons.shopping_cart_outlined), label: Text(tr(context, 'Shopping list', 'Einkaufsliste'))),
+                OutlinedButton.icon(onPressed: () => _printList(false), icon: const Icon(Icons.print), label: Text(tr(context, 'Print list', 'Liste drucken'))),
+              ]),
+            ),
           const SizedBox(height: 16),
           if (_editable) ...[
             FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)), onPressed: () => _save('submitted'), icon: const Icon(Icons.send), label: Text(tr(context, 'Send to stock manager', 'An das Lager senden'))),
@@ -379,7 +613,7 @@ class _RequestEditorState extends State<RequestEditor> {
                 label: Text(tr(context, 'Delete draft', 'Entwurf löschen')),
               ),
           ],
-          if (_status == 'fulfilled')
+          if (_status == 'fulfilled' && !widget.stockMode)
             '${r?['receivedAt'] ?? ''}'.isNotEmpty
                 ? Text(tr(context, 'Received by ${r!['receivedByName']} on ${timeOf(parseDate(r!['receivedAt']))}', 'Erhalten von ${r!['receivedByName']} um ${timeOf(parseDate(r!['receivedAt']))}'), style: const TextStyle(color: TriptiColors.green, fontWeight: FontWeight.w700))
                 : Card(
@@ -461,6 +695,50 @@ class _RequestEditorState extends State<RequestEditor> {
   Widget _lineCard(_ReqLine l, List<Map<String, dynamic>> stockList) {
     final have = _inStore(l);
     final given = toDouble(l.data['fulfilledQty']);
+    if (widget.stockMode) {
+      final rem = _remainingOf({'qty': l.qty.text, 'fulfilledQty': given});
+      final short = have == null ? rem : (rem - have > 0 ? rem - have : 0.0);
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Text(l.name.text, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
+              if (rem <= 0) const Icon(Icons.check_circle, color: TriptiColors.green),
+            ]),
+            Text(
+              '${tr(context, 'Requested', 'Angefordert')}: ${fmtNum(toDouble(l.qty.text))} ${l.unit}'
+              '${given > 0 ? ' · ${tr(context, 'given', 'ausgegeben')}: ${fmtNum(given)} ${l.unit}' : ''}'
+              '${have != null ? ' · ${tr(context, 'in store', 'im Lager')}: ${fmtNum(have)} ${l.unit}' : ''}'
+              '${l.note.text.isNotEmpty ? ' · ${l.note.text}' : ''}',
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+            ),
+            if (short > 0 && rem > 0) Text('${tr(context, 'Short', 'Fehlt')}: ${fmtNum(short)} ${l.unit}', style: const TextStyle(fontSize: 12.5, color: TriptiColors.red, fontWeight: FontWeight.w700)),
+            if (have == null)
+              Row(children: [
+                Expanded(child: Text(tr(context, 'Not in the stock list', 'Nicht in der Lagerliste'), style: const TextStyle(fontSize: 12, color: Colors.black45))),
+                if (_stockOpen) TextButton.icon(onPressed: () => _addToStock(l), icon: const Icon(Icons.add_box_outlined, size: 18), label: Text(tr(context, 'Add to stock list', 'In Lagerliste aufnehmen'))),
+              ]),
+            if (_stockOpen && rem > 0)
+              Row(children: [
+                Text(tr(context, 'Give', 'Ausgeben'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 90,
+                  child: TextField(
+                    controller: l.give,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    textAlign: TextAlign.right,
+                    decoration: InputDecoration(hintText: fmtNum(_defaultGive(l)), isDense: true),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(l.unit),
+              ]),
+          ]),
+        ),
+      );
+    }
     if (!_editable) {
       return Card(
         child: ListTile(
