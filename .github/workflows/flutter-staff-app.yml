@@ -32,7 +32,15 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build apk --release --target-platform android-arm,android-arm64
+      - name: Build APK
+        run: |
+          set -o pipefail
+          if ! flutter build apk --release --target-platform android-arm,android-arm64 2>&1 | tee build.log; then
+            # Show the reason as an annotation, readable without the log.
+            msg=$( (grep -n -E "What went wrong|error:|Error:|e: |FAILURE|Could not|failed" -A4 build.log || tail -40 build.log) | tail -60 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=APK build failed::$msg"
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: tripti-staff-flutter-apk
