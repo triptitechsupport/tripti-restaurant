@@ -150,7 +150,7 @@ class _StockRequestsPageState extends State<StockRequestsPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
-        Text(tr(context, 'Plan next week\'s ingredients and send the list to the stock manager.', 'Zutaten für nächste Woche planen und die Liste an das Lager schicken.'), style: const TextStyle(color: Colors.black54)),
+        PageIntro(Icons.shopping_basket_outlined, tr(context, 'Stock requests', 'Lageranfragen'), tr(context, 'Plan next week\'s ingredients and send the list to the stock manager.', 'Zutaten für nächste Woche planen und die Liste an das Lager schicken.')),
         const SizedBox(height: 10),
         if (remind)
           Card(
@@ -182,7 +182,7 @@ class _StockRequestsPageState extends State<StockRequestsPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
-        Text(tr(context, 'Weekly lists from the kitchen. Give out what is in store; the rest goes on the shopping list.', 'Wochenlisten der Küche. Vorhandenes ausgeben, der Rest kommt auf die Einkaufsliste.'), style: const TextStyle(color: Colors.black54)),
+        PageIntro(Icons.assignment_outlined, tr(context, 'Kitchen requests', 'Küchenanfragen'), tr(context, 'Weekly lists from the kitchen. Give out what is in store; the rest goes on the shopping list.', 'Wochenlisten der Küche. Vorhandenes ausgeben, der Rest kommt auf die Einkaufsliste.')),
         const SizedBox(height: 10),
         if (open.isNotEmpty)
           OutlinedButton.icon(onPressed: () => _printAll(open), icon: const Icon(Icons.shopping_cart_outlined), label: Text(tr(context, 'Shopping list for all open requests', 'Einkaufsliste für alle offenen Anforderungen'))),
@@ -214,18 +214,44 @@ class _StockRequestsPageState extends State<StockRequestsPage> {
     await printShoppingList(de ? 'Einkaufsliste' : 'Shopping list', list, de: de);
   }
 
-  Widget _head(String t) => Padding(padding: const EdgeInsets.fromLTRB(4, 8, 4, 4), child: Text(t, style: const TextStyle(fontWeight: FontWeight.w800, color: TriptiColors.ink)));
+  Widget _head(String t) => Padding(padding: const EdgeInsets.fromLTRB(4, 12, 4, 6), child: Text(t, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: TriptiColors.ink)));
 
   Widget _tile(Map<String, dynamic> r) {
     final (label, color) = requestStatus(context, '${r['status']}');
     final n = jsonList(r['items']).length;
     final toConfirm = r['status'] == 'fulfilled' && '${r['receivedAt'] ?? ''}'.isEmpty;
-    return Card(
-      child: ListTile(
+    final lines = jsonList(r['items']);
+    final given = lines.where((l) => _remainingOf(l) <= 0).length;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AccentCard(
+        color: color,
         onTap: () => _open(r),
-        title: Text(weekLabel(context, parseDate(r['weekStart'])), style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text('$n ${tr(context, 'items', 'Artikel')}${'${r['requestedByName'] ?? ''}'.isNotEmpty ? ' · ${r['requestedByName']}' : ''}${toConfirm ? ' · ${tr(context, 'Confirm receipt', 'Erhalt bestätigen')}' : ''}'),
-        trailing: StatusPill(label, color),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.calendar_month_outlined, size: 20, color: TriptiColors.primary),
+            const SizedBox(width: 8),
+            Expanded(child: Text(weekLabel(context, parseDate(r['weekStart'])), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: TriptiColors.ink))),
+            StatusPill(label, color),
+          ]),
+          const SizedBox(height: 4),
+          Text('$n ${tr(context, 'items', 'Artikel')}${'${r['requestedByName'] ?? ''}'.isNotEmpty ? ' · ${r['requestedByName']}' : ''}', style: const TextStyle(fontSize: 12.5, color: Colors.black54)),
+          if (toConfirm) Padding(padding: const EdgeInsets.only(top: 4), child: StatusPill(tr(context, 'Confirm receipt', 'Erhalt bestätigen'), TriptiColors.blue, icon: Icons.fact_check_outlined)),
+          if (n > 0 && r['status'] != 'draft' && r['status'] != 'cancelled') ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(99),
+                  child: LinearProgressIndicator(value: given / n, minHeight: 5, color: given == n ? TriptiColors.green : TriptiColors.amber, backgroundColor: TriptiColors.muted),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('$given/$n ${tr(context, 'given', 'ausgegeben')}', style: const TextStyle(fontSize: 11.5, color: Colors.black54)),
+            ]),
+          ],
+        ]),
       ),
     );
   }

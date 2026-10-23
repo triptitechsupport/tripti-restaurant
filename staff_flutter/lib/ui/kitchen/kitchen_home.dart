@@ -32,6 +32,7 @@ class KitchenHome extends StatefulWidget {
 }
 
 class _KitchenHomeState extends State<KitchenHome> {
+  String? _only;
   List<Ticket> _tickets = [];
   final Map<String, Map<String, dynamic>> _orders = {}; // parent id -> waiter_order
   Map<String, int?> _printOrder = {};
@@ -239,8 +240,19 @@ class _KitchenHomeState extends State<KitchenHome> {
                           child: LayoutBuilder(builder: (context, c) {
                             final cols = (c.maxWidth / 360).floor().clamp(1, 4);
                             final w = (c.maxWidth - 20 - (cols - 1) * 10) / cols;
+                            int n(String st) => _tickets.where((t) => t.status == st).length;
+                            final shown = _only == null ? _tickets : _tickets.where((t) => t.status == _only).toList();
+                            SummaryStat stat(IconData icon, String label, String st, Color color) =>
+                                SummaryStat(icon, _only == st ? '$label ✓' : label, '${n(st)}', color, onTap: () => setState(() => _only = _only == st ? null : st));
                             return ListView(padding: const EdgeInsets.all(10), children: [
-                              Wrap(spacing: 10, runSpacing: 10, children: [for (final t in _tickets) SizedBox(width: w, child: _card(t))]),
+                              SummaryRow([
+                                stat(Icons.hourglass_top, tr(context, 'Waiting', 'Wartet'), 'pending', TriptiColors.red),
+                                stat(Icons.local_fire_department_outlined, tr(context, 'Cooking', 'In Arbeit'), 'preparing', TriptiColors.amber),
+                                stat(Icons.room_service_outlined, tr(context, 'Ready', 'Fertig'), 'ready', TriptiColors.green),
+                              ]),
+                              const SizedBox(height: 10),
+                              if (shown.isEmpty) EmptyState(Icons.soup_kitchen, tr(context, 'Nothing here right now.', 'Gerade nichts hier.')),
+                              Wrap(spacing: 10, runSpacing: 10, children: [for (final t in shown) SizedBox(width: w, child: _card(t))]),
                             ]);
                           }),
                         ),

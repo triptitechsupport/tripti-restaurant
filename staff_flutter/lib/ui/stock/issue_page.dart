@@ -114,7 +114,7 @@ class _IssuePageState extends State<IssuePage> {
     return AbsorbPointer(
       absorbing: _busy,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
-        Text(tr(context, 'Give stock to a staff member. The oldest expiry goes out first.', 'Ware an Mitarbeiter ausgeben. Was zuerst abläuft, geht zuerst raus.'), style: const TextStyle(color: Colors.black54)),
+        PageIntro(Icons.outbox_outlined, tr(context, 'Give out', 'Ausgabe'), tr(context, 'Give stock to a staff member. The oldest expiry goes out first.', 'Ware an Mitarbeiter ausgeben. Was zuerst abläuft, geht zuerst raus.')),
         const SizedBox(height: 8),
         if (_last != null)
           Card(color: const Color(0xFFDCFCE7), child: ListTile(leading: const Icon(Icons.check_circle, color: TriptiColors.green), title: Text(_last!))),

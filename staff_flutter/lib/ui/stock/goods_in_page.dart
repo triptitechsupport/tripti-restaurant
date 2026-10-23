@@ -110,7 +110,7 @@ class _GoodsInPageState extends State<GoodsInPage> {
     return AbsorbPointer(
       absorbing: _busy,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
-        Text(tr(context, 'Book a delivery into the store. Each line becomes a lot with its own expiry.', 'Lieferung einbuchen. Jede Zeile wird eine Charge mit eigenem Ablaufdatum.'), style: const TextStyle(color: Colors.black54)),
+        PageIntro(Icons.local_shipping_outlined, tr(context, 'Goods in', 'Wareneingang'), tr(context, 'Book a delivery into the store. Each line becomes a lot with its own expiry.', 'Lieferung einbuchen. Jede Zeile wird eine Charge mit eigenem Ablaufdatum.')),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: TextField(controller: _supplier, decoration: InputDecoration(labelText: tr(context, 'Supplier', 'Lieferant')))),

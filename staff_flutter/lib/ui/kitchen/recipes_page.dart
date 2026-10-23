@@ -99,13 +99,12 @@ class _RecipesPageState extends State<RecipesPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
-        Text(tr(context, '$withRecipe of ${_menu.length} dishes have a recipe', '$withRecipe von ${_menu.length} Gerichten haben ein Rezept'), style: const TextStyle(fontWeight: FontWeight.w700)),
-        if (pcts.isNotEmpty)
-          Text(
-            '${tr(context, 'Average food cost', 'Wareneinsatz im Schnitt')} ${round(pcts.reduce((a, b) => a + b) / pcts.length, 1)}%'
-            '${pcts.where((p) => p > 35).isNotEmpty ? ' · ${pcts.where((p) => p > 35).length} ${tr(context, 'above 35%', 'über 35%')}' : ''}',
-            style: TextStyle(color: _costColor(pcts.reduce((a, b) => a + b) / pcts.length), fontWeight: FontWeight.w600),
-          ),
+        SummaryRow([
+          SummaryStat(Icons.menu_book_outlined, tr(context, 'With recipe', 'Mit Rezept'), '$withRecipe / ${_menu.length}', withRecipe == _menu.length ? TriptiColors.green : TriptiColors.ink),
+          SummaryStat(Icons.pie_chart_outline, tr(context, 'Avg food cost', 'Wareneinsatz Ø'), pcts.isEmpty ? '–' : '${round(pcts.reduce((a, b) => a + b) / pcts.length, 1)}%', pcts.isEmpty ? TriptiColors.ink : _costColor(pcts.reduce((a, b) => a + b) / pcts.length)),
+          SummaryStat(Icons.warning_amber_rounded, tr(context, 'Above 35%', 'Über 35%'), '${pcts.where((p) => p > 35).length}', pcts.where((p) => p > 35).isEmpty ? TriptiColors.green : TriptiColors.red),
+        ]),
+        const SizedBox(height: 4),
         const SizedBox(height: 8),
         TextField(controller: _q, onChanged: (_) => setState(() {}), decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: tr(context, 'Search dishes', 'Gerichte suchen'))),
         const SizedBox(height: 8),

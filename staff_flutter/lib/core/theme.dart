@@ -65,9 +65,31 @@ ThemeData triptiTheme() {
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: TriptiColors.card,
-      indicatorColor: TriptiColors.primary.withValues(alpha: 0.12),
+      surfaceTintColor: Colors.transparent,
+      indicatorColor: TriptiColors.primary.withValues(alpha: 0.14),
+      iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(color: s.contains(WidgetState.selected) ? TriptiColors.primary : TriptiColors.ink.withValues(alpha: 0.75))),
       labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: TriptiColors.ink)),
     ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: TriptiColors.card,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titleTextStyle: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: TriptiColors.ink),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: TriptiColors.card,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    ),
+    datePickerTheme: const DatePickerThemeData(backgroundColor: TriptiColors.card, surfaceTintColor: Colors.transparent),
+    popupMenuTheme: const PopupMenuThemeData(color: TriptiColors.card, surfaceTintColor: Colors.transparent),
+    menuTheme: const MenuThemeData(style: MenuStyle(backgroundColor: WidgetStatePropertyAll(TriptiColors.card), surfaceTintColor: WidgetStatePropertyAll(Colors.transparent))),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    dividerTheme: const DividerThemeData(color: TriptiColors.border, thickness: 1),
+    listTileTheme: const ListTileThemeData(iconColor: TriptiColors.primary),
     chipTheme: ChipThemeData(
       backgroundColor: TriptiColors.card,
       selectedColor: TriptiColors.primary,

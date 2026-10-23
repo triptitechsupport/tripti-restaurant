@@ -127,13 +127,12 @@ class _WastePageState extends State<WastePage> {
       child: AbsorbPointer(
         absorbing: _busy,
         child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
+          PageIntro(Icons.delete_sweep_outlined, tr(context, 'Record waste', 'Verlust erfassen'), tr(context, 'Pick a stock item to lower its quantity too, or type any name.', 'Lagerartikel wählen, damit auch der Bestand sinkt, oder einen Namen eintippen.')),
+          const SizedBox(height: 10),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Text(tr(context, 'Record waste', 'Verlust erfassen'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                Text(tr(context, 'Pick a stock item to lower its quantity too, or type any name.', 'Lagerartikel wählen, damit auch der Bestand sinkt, oder einen Namen eintippen.'), style: const TextStyle(fontSize: 12.5, color: Colors.black54)),
-                const SizedBox(height: 6),
                 StockItemPicker(
                   key: ValueKey(_pickerKey),
                   items: _items,

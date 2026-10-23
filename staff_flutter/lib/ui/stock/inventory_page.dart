@@ -80,16 +80,12 @@ class _InventoryPageState extends State<InventoryPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
-        LayoutBuilder(builder: (context, c) {
-          final cols = c.maxWidth >= 560 ? 4 : 2;
-          final w = (c.maxWidth - 8 * (cols - 1)) / cols;
-          return Wrap(spacing: 8, runSpacing: 8, children: [
-            _stat(w, Icons.inventory_2_outlined, tr(context, 'Items', 'Artikel'), '${_items.length}', TriptiColors.ink),
-            _stat(w, Icons.trending_down, tr(context, 'Low', 'Knapp'), '$low', TriptiColors.amber),
-            _stat(w, Icons.remove_shopping_cart_outlined, tr(context, 'Out', 'Leer'), '$out', TriptiColors.red),
-            _stat(w, Icons.event_busy, tr(context, 'Expiring', 'Läuft ab'), '$expiring', TriptiColors.blue),
-          ]);
-        }),
+        SummaryRow([
+          SummaryStat(Icons.inventory_2_outlined, tr(context, 'Items', 'Artikel'), '${_items.length}', TriptiColors.ink, onTap: () => setState(() => _lowOnly = false)),
+          SummaryStat(Icons.trending_down, tr(context, 'Low', 'Knapp'), '$low', low > 0 ? TriptiColors.amber : TriptiColors.green, onTap: () => setState(() => _lowOnly = true)),
+          SummaryStat(Icons.remove_shopping_cart_outlined, tr(context, 'Out', 'Leer'), '$out', out > 0 ? TriptiColors.red : TriptiColors.green, onTap: () => setState(() => _lowOnly = true)),
+          SummaryStat(Icons.event_busy, tr(context, 'Expiring', 'Läuft ab'), '$expiring', expiring > 0 ? TriptiColors.red : TriptiColors.blue),
+        ]),
         const SizedBox(height: 10),
         TextField(
           decoration: InputDecoration(hintText: tr(context, 'Search name, category or barcode', 'Name, Kategorie oder Barcode suchen'), prefixIcon: const Icon(Icons.search)),
@@ -108,20 +104,6 @@ class _InventoryPageState extends State<InventoryPage> {
     );
   }
 
-  Widget _stat(double width, IconData icon, String label, String value, Color color) => Container(
-        width: width,
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(color: TriptiColors.card, borderRadius: BorderRadius.circular(14), border: Border.all(color: TriptiColors.border)),
-        child: Row(children: [
-          Icon(icon, color: color),
-          const SizedBox(width: 8),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: color)),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-          ]),
-        ]),
-      );
-
   Widget _tile(Map<String, dynamic> it) {
     final exp = expiryState(it['expiry']);
     final days = daysUntilExpiry(it['expiry']);
@@ -132,15 +114,38 @@ class _InventoryPageState extends State<InventoryPage> {
       if (exp == 'expired') tr(context, 'expired', 'abgelaufen'),
       if (exp == 'warning') tr(context, 'expires in $days d', 'läuft in $days T ab'),
     ].join(' · ');
-    return Card(
-      child: ListTile(
+    final st = stockStatus(it);
+    final accent = exp == 'expired' || st == 'out' ? TriptiColors.red : st == 'low' || exp == 'warning' ? TriptiColors.amber : TriptiColors.green;
+    final q = toDouble(it['quantity']), min = toDouble(it['minStock']);
+    final level = min > 0 ? (q / (min * 3)).clamp(0.0, 1.0) : null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AccentCard(
+        color: accent,
         onTap: () => _sheet(it),
-        title: Text('${it['name']}', style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: sub.isEmpty ? null : Text(sub, style: TextStyle(color: exp == 'expired' ? TriptiColors.red : null)),
-        trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(qtyText(it), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 3),
-          stockPill(context, it),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${it['name']}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: TriptiColors.ink)),
+                if (sub.isNotEmpty) Text(sub, style: TextStyle(fontSize: 12.5, color: exp == 'expired' ? TriptiColors.red : Colors.black54)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(qtyText(it), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: TriptiColors.ink)),
+              const SizedBox(height: 3),
+              stockPill(context, it),
+            ]),
+          ]),
+          if (level != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(value: level, minHeight: 5, color: accent, backgroundColor: TriptiColors.muted),
+            ),
+          ],
         ]),
       ),
     );
