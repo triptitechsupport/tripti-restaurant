@@ -1,6 +1,6 @@
 // eslint-disable-next-line import/no-unresolved -- Vite ?raw import
 import receiptCss from '@/styles/fiscal-receipt.css?raw';
-import { nativePrint } from '@/lib/staffApp.js';
+import { printHtmlInFrame } from '@/lib/printFrame.js';
 
 // Print a fiscal (RKSV) receipt the same way kitchen tickets are printed
 // (lib/kotPrint.js): a separate 80 mm page in a hidden frame, sent to the
@@ -18,22 +18,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
 .fiscal-no-print { display: none !important; }
 @page { size: 80mm auto; margin: 0; }
 </style></head><body>${receiptHtml}</body></html>`;
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('style', 'position:fixed;right:0;bottom:0;width:0;height:0;border:0');
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const done = () => {
-      try {
-        iframe.contentWindow.focus();
-        if (!nativePrint(iframe.contentWindow, title)) iframe.contentWindow.print();
-      } catch (_) { /* ignore */ }
-      setTimeout(() => { try { document.body.removeChild(iframe); } catch (_) { /* ignore */ } }, 2000);
-    };
-    if (doc.readyState === 'complete') setTimeout(done, 200);
-    else iframe.onload = () => setTimeout(done, 200);
+    printHtmlInFrame(html, title);
     return true;
   } catch (err) {
     console.error('Receipt print failed:', err);

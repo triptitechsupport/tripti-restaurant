@@ -6,7 +6,7 @@ import { downloadCsv } from '@/lib/csvUtils.js';
 import CsvImportExport from '@/components/CsvImportExport.jsx';
 import { menuItemsExportColumns, menuItemsImportConfig, categoriesExportColumns, categoriesImportConfig } from '@/lib/csvConfigs.js';
 import {
-  ROLE_TABLES, collectBackup, backupToCsv, parseBackupCsv, restoreBackup, countBackup, recipesToCsv, parseRecipesCsv,
+  ROLE_TABLES, ROLE_REFS, collectRefs, collectBackup, backupToCsv, parseBackupCsv, restoreBackup, countBackup, recipesToCsv, parseRecipesCsv,
 } from '@/lib/kitchenBackup.js';
 
 // Backup and restore of kitchen / stock data as CSV.
@@ -25,6 +25,8 @@ const T = {
     restore: 'Restore now', restoring: 'Restoring…', done: 'Restore finished', inFile: 'In the file',
     created: 'new', updated: 'updated', deleted: 'removed', failed: 'failed', kept: 'kept',
     autoRestored: (t) => `The server had started empty. Your data was restored from this device's backup (${t}).`,
+    autoPartial: (n) => `The server had started empty. Restoring this device's backup left ${n} record(s) out. Open Backup to see them and restore again.`,
+    noRoom: 'This device has no room left to keep the backup. Download the backup file instead.', partial: (n) => `Restore finished, but ${n} record(s) could not be saved.`,
     recipes: 'Recipes as CSV', recipesSub: 'One row per dish. Ingredients like "Basmati rice 600 g; Chicken 800 g".',
     exportRecipes: 'Export recipes', importRecipes: 'Import recipes', recipesDone: (n) => `${n} recipes saved`,
     menu: 'Menu and categories as CSV', menuSub: 'Export, edit in Excel, import again. Dishes are matched by ID or English name.',
@@ -40,6 +42,8 @@ const T = {
     restore: 'Jetzt wiederherstellen', restoring: 'Wird wiederhergestellt…', done: 'Wiederherstellung fertig', inFile: 'In der Datei',
     created: 'neu', updated: 'aktualisiert', deleted: 'entfernt', failed: 'fehlgeschlagen', kept: 'behalten',
     autoRestored: (t) => `Der Server war leer gestartet. Die Daten wurden aus der Sicherung dieses Geräts wiederhergestellt (${t}).`,
+    autoPartial: (n) => `Der Server war leer gestartet. Beim Wiederherstellen der Gerätesicherung fehlen ${n} Datensätze. Unter „Sicherung“ nachsehen und erneut wiederherstellen.`,
+    noRoom: 'Auf diesem Gerät ist kein Platz für die Sicherung. Bitte die Sicherungsdatei herunterladen.', partial: (n) => `Wiederherstellung fertig, aber ${n} Datensätze konnten nicht gespeichert werden.`,
     recipes: 'Rezepte als CSV', recipesSub: 'Eine Zeile pro Gericht. Zutaten z. B. "Basmatireis 600 g; Hähnchen 800 g".',
     exportRecipes: 'Rezepte exportieren', importRecipes: 'Rezepte importieren', recipesDone: (n) => `${n} Rezepte gespeichert`,
     menu: 'Speisekarte und Kategorien als CSV', menuSub: 'Exportieren, in Excel bearbeiten, wieder importieren. Zuordnung über ID oder englischen Namen.',
@@ -54,6 +58,13 @@ const readStored = (role) => { try { return JSON.parse(localStorage.getItem(stor
 const writeStored = (role, value) => { try { localStorage.setItem(storeKey(role), JSON.stringify(value)); return true; } catch (_) { return false; } };
 const infoField = (role) => (role === 'stock' ? 'stockBackupAt' : 'kitchenBackupAt');
 const today = () => new Date().toISOString().slice(0, 10);
+const failedCount = (summary) => Object.values(summary || {}).reduce((n, s) => n + (s.failed || 0), 0);
+// The newest backup already restored into this database for this role.
+const restoredAtFor = (info, role) => Math.max(
+  Date.parse(info?.[infoField(role)] || '') || 0,
+  role === 'admin' ? Date.parse(info?.stockBackupAt || '') || 0 : 0,
+  Date.parse(info?.seedBackupAt || '') || 0,
+);
 
 async function instanceInfo(client) {
   try { return (await client.collection('instance_info').getList(1, 1, { $autoCancel: false, requestKey: null })).items[0] || null; }
@@ -67,14 +78,18 @@ export async function saveDeviceBackup(client, role) {
   const data = await collectBackup(client, tables);
   if (!Object.values(data).some((v) => v && v.length)) return null;
   const savedAt = new Date().toISOString();
-  const csv = backupToCsv(data, { role, savedAt });
+  const csv = backupToCsv(data, { role, savedAt }, await collectRefs(client, ROLE_REFS[role]));
   const prev = readStored(role);
   const value = { savedAt, instance: info?.id || '', csv, counts: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v ? v.length : 0])) };
   // Keep the copy from the previous database too, in case this one is wrong.
   if (prev && prev.instance && prev.instance !== value.instance) value.previous = { savedAt: prev.savedAt, instance: prev.instance, csv: prev.csv };
   else if (prev?.previous) value.previous = prev.previous;
-  writeStored(role, value);
-  return value;
+  if (writeStored(role, value)) return value;
+  // Storage full: the current copy matters more than the older one.
+  delete value.previous;
+  if (writeStored(role, value)) return value;
+  const err = new Error('no room'); err.noRoom = true;
+  throw err;
 }
 
 // Automatic: restore after a fresh database, then keep backing up.
@@ -91,10 +106,16 @@ export function useAutoBackup(client, role, enabled = true) {
       const info = await instanceInfo(client);
       const stored = readStored(role);
       const field = infoField(role);
-      const restoredAt = Math.max(Date.parse(info?.[field] || '') || 0, Date.parse(info?.seedBackupAt || '') || 0);
-      if (info && stored?.csv && stored.instance && stored.instance !== info.id && Date.parse(stored.savedAt) > restoredAt) {
+      if (info && stored?.csv && stored.instance && stored.instance !== info.id && Date.parse(stored.savedAt) > restoredAtFor(info, role)) {
         const parsed = parseBackupCsv(stored.csv);
-        await restoreBackup(client, parsed, { tables: ROLE_TABLES[role], mode: 'mirror' });
+        const summary = await restoreBackup(client, parsed, { tables: ROLE_TABLES[role], mode: 'mirror' });
+        const failed = failedCount(summary);
+        if (failed) {
+          // Not marked as restored, so another device with a full copy may still restore.
+          console.warn('[Backup] automatic restore incomplete', summary);
+          toast.warning(tx.autoPartial(failed), { duration: 15000 });
+          return; // keep this device's copy as it is (the next run tries again)
+        }
         const patch = { [field]: stored.savedAt };
         if (role === 'admin') { patch.kitchenBackupAt = stored.savedAt; patch.stockBackupAt = stored.savedAt; }
         await client.collection('instance_info').update(info.id, patch, { $autoCancel: false }).catch(() => {});
@@ -110,6 +131,7 @@ export function useAutoBackup(client, role, enabled = true) {
         await client.collection('instance_info').update(info.id, patch, { $autoCancel: false, requestKey: null }).catch(() => {});
       }
     } catch (err) {
+      if (err?.noRoom) toast.error(tx.noRoom, { id: 'backup-no-room', duration: 15000 });
       console.error('[Backup] automatic backup failed', err);
     } finally {
       busy.current = false;
@@ -144,14 +166,14 @@ export default function DataBackup({ client, role = 'kitchen_manager', auto }) {
   const backupNow = async () => {
     setBusy('now');
     try { const v = await saveDeviceBackup(client, role); if (v) { auto?.setState?.(v); toast.success(tx.saved); } }
-    catch (err) { toast.error(err?.message || 'Backup failed'); } finally { setBusy(''); }
+    catch (err) { toast.error(err?.noRoom ? tx.noRoom : err?.message || 'Backup failed'); } finally { setBusy(''); }
   };
 
   const download = async () => {
     setBusy('download');
     try {
       const data = await collectBackup(client, tables);
-      downloadCsv(`tripti-${role === 'stock' ? 'stock' : 'kitchen'}-backup-${today()}.csv`, backupToCsv(data, { role }));
+      downloadCsv(`tripti-${role === 'stock' ? 'stock' : 'kitchen'}-backup-${today()}.csv`, backupToCsv(data, { role }, await collectRefs(client, ROLE_REFS[role])));
     } catch (err) { toast.error(err?.message || 'Export failed'); } finally { setBusy(''); }
   };
 
@@ -171,7 +193,7 @@ export default function DataBackup({ client, role = 'kitchen_manager', auto }) {
     try {
       const summary = await restoreBackup(client, file.parsed, { tables, mode });
       setResult(summary);
-      toast.success(tx.done);
+      if (failedCount(summary)) toast.warning(tx.partial(failedCount(summary))); else toast.success(tx.done);
       const v = await saveDeviceBackup(client, role);
       if (v) auto?.setState?.(v);
     } catch (err) { toast.error(err?.message || 'Restore failed'); } finally { setBusy(''); }

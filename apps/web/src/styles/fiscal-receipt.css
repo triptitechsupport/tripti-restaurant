@@ -19,10 +19,3 @@
 .fiscal-qr svg { max-width: 100%; height: auto; }
 .fiscal-footer { text-align: center; border-top: 1px dashed #555; padding-top: 10px; font-size: 10px; break-inside: avoid; }
 .fiscal-footer strong { display: block; margin-top: 4px; letter-spacing: 1px; }
-@media print {
-  body.printing-fiscal-receipt * { visibility: hidden !important; }
-  body.printing-fiscal-receipt .fiscal-receipt, body.printing-fiscal-receipt .fiscal-receipt * { visibility: visible !important; }
-  body.printing-fiscal-receipt [role="dialog"] { position: absolute !important; inset: 0 auto auto 0 !important; transform: none !important; width: 80mm !important; max-height: none !important; overflow: visible !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; display: block !important; }
-  body.printing-fiscal-receipt .fiscal-receipt { width: 80mm; max-width: 80mm; margin: 0; padding: 4mm; box-sizing: border-box; border: 0; box-shadow: none; }
-  body.printing-fiscal-receipt .fiscal-no-print { display: none !important; }
-}

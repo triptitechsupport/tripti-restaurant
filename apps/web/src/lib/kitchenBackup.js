@@ -26,8 +26,24 @@ export const ROLE_TABLES = {
   admin: BACKUP_TABLES.map((t) => t.name),
 };
 
+// Tables a role's backup points to without restoring them. Their ids and
+// names are written to the file ("#ref:" rows) so a restore into a fresh
+// database, where these records have new ids, can still link to them.
+export const ROLE_REFS = {
+  kitchen_manager: ['stock_items'],
+  stock: ['menu_items'],
+  admin: [],
+};
+const tableDef = (name) => BACKUP_TABLES.find((t) => t.name === name);
+
 const SYSTEM = ['created', 'updated', 'collectionId', 'collectionName', 'expand'];
 const norm = (v) => String(v ?? '').trim().toLowerCase();
+const same = (a, b) => {
+  const parse = (v) => { if (typeof v === 'string' && /^[[{]/.test(v)) { try { return JSON.parse(v); } catch (_) { return v; } } return v; };
+  const x = parse(a); const y = parse(b);
+  if ((x == null || x === '') && (y == null || y === '')) return true;
+  return typeof x === 'object' || typeof y === 'object' ? JSON.stringify(x) === JSON.stringify(y) : String(x) === String(y);
+};
 
 // ---------- CSV ----------
 const esc = (v) => {
@@ -71,9 +87,23 @@ export async function collectBackup(pb, tables) {
   return data;
 }
 
-export function backupToCsv(data, meta = {}) {
+// Ids and names of the referenced tables (see ROLE_REFS).
+export async function collectRefs(pb, tables) {
+  const refs = {};
+  for (const name of tables || []) {
+    try { refs[name] = await pb.collection(name).getFullList({ $autoCancel: false, requestKey: null }); }
+    catch (_) { /* no access: links to this table stay as they are */ }
+  }
+  return refs;
+}
+
+export function backupToCsv(data, meta = {}, refs = {}) {
   const rows = [['table', 'id', 'data']];
   rows.push(['#backup', '', JSON.stringify({ version: BACKUP_VERSION, savedAt: new Date().toISOString(), ...meta })]);
+  for (const [name, list] of Object.entries(refs)) {
+    const t = tableDef(name);
+    for (const r of list || []) rows.push([`#ref:${name}`, r.id, JSON.stringify({ id: r.id, key: t?.key ? t.key(r) || '' : '' })]);
+  }
   for (const t of BACKUP_TABLES) {
     for (const r of data[t.name] || []) {
       const clean = {};
@@ -88,9 +118,13 @@ export function parseBackupCsv(text) {
   const rows = parseCsv(text);
   const head = (rows[0] || []).map(norm);
   if (head[0] !== 'table' || head[2] !== 'data') throw new Error('This is not a Tripti backup file (columns table,id,data).');
-  const out = { meta: {}, tables: {} };
+  const out = { meta: {}, tables: {}, refs: {} };
   for (const [table, id, json] of rows.slice(1)) {
     if (table === '#backup') { try { out.meta = JSON.parse(json); } catch (_) { /* ignore */ } continue; }
+    if (table.startsWith('#ref:')) {
+      try { const r = JSON.parse(json); (out.refs[table.slice(5)] = out.refs[table.slice(5)] || []).push({ id: r.id || id, key: r.key || '' }); } catch (_) { /* ignore */ }
+      continue;
+    }
     if (!BACKUP_TABLES.some((t) => t.name === table)) continue;
     let rec;
     try { rec = JSON.parse(json); } catch (_) { continue; }
@@ -107,19 +141,39 @@ export function countBackup(parsed) {
 // mode "merge": create missing, update the rest; nothing is deleted.
 // mode "mirror": like merge, and records missing from the file are deleted
 //   (only tables marked mirror, i.e. menu, categories, recipes, stock list).
-// mode "missing": only create what is missing (safe automatic restore).
-export async function restoreBackup(pb, parsed, { tables, mode = 'merge', onProgress } = {}) {
-  const idMap = {}; // table -> { oldId: newId }
+// mode "missing": only create what is missing.
+// idMap (table -> { oldId: newId }) can be shared between several restores,
+// e.g. a kitchen file and a stock file restored one after the other.
+export async function restoreBackup(pb, parsed, { tables, mode = 'merge', onProgress, idMap = {} } = {}) {
   const summary = {};
   const opts = { $autoCancel: false, requestKey: null };
   const mapId = (table, id) => (id ? (idMap[table]?.[id] ?? id) : id);
+
+  // Link old ids to the records now in the database for tables this restore
+  // only points to: listed as "#ref:" rows, or in the file but not restored.
+  const linkOnly = { ...(parsed.refs || {}) };
+  for (const [name, list] of Object.entries(parsed.tables || {})) {
+    if (tables && !tables.includes(name)) linkOnly[name] = list.map((r) => ({ id: r.id, key: tableDef(name)?.key ? tableDef(name).key(r) || '' : '' }));
+  }
+  for (const [name, list] of Object.entries(linkOnly)) {
+    let existing;
+    try { existing = await pb.collection(name).getFullList(opts); } catch (_) { continue; }
+    const t = tableDef(name);
+    const ids = new Set(existing.map((r) => r.id));
+    const byKey = new Map(existing.filter((r) => t?.key && t.key(r)).map((r) => [norm(t.key(r)), r.id]));
+    idMap[name] = idMap[name] || {};
+    for (const r of list) {
+      if (ids.has(r.id)) idMap[name][r.id] = r.id;
+      else if (r.key && byKey.has(norm(r.key))) idMap[name][r.id] = byKey.get(norm(r.key));
+    }
+  }
 
   for (const t of BACKUP_TABLES) {
     const list = parsed.tables[t.name];
     if (!list || (tables && !tables.includes(t.name))) continue;
     const s = { created: 0, updated: 0, kept: 0, deleted: 0, failed: 0, errors: [] };
     summary[t.name] = s;
-    idMap[t.name] = {};
+    idMap[t.name] = idMap[t.name] || {};
     let existing;
     try { existing = await pb.collection(t.name).getFullList(opts); }
     catch (err) { s.failed = list.length; s.errors.push(err?.message || 'no access'); continue; }
@@ -128,7 +182,23 @@ export async function restoreBackup(pb, parsed, { tables, mode = 'merge', onProg
     const byKey = new Map(existing.filter((r) => keyOf(r)).map((r) => [keyOf(r), r]));
     const touched = new Set();
 
-    for (const src of list) {
+    // A table that points to itself (locations inside locations): parents first.
+    const selfRef = Object.entries(t.refs || {}).find(([, target]) => target === t.name)?.[0];
+    let ordered = list;
+    if (selfRef) {
+      const inFile = new Set(list.map((r) => r.id));
+      const placed = new Set();
+      ordered = [];
+      let rest = list;
+      while (rest.length) {
+        const ready = rest.filter((r) => !r[selfRef] || !inFile.has(r[selfRef]) || placed.has(r[selfRef]));
+        if (!ready.length) { ordered.push(...rest); break; } // a loop: keep file order
+        ready.forEach((r) => { ordered.push(r); placed.add(r.id); });
+        rest = rest.filter((r) => !placed.has(r.id));
+      }
+    }
+
+    for (const src of ordered) {
       const rec = { ...src };
       for (const f of t.skip || []) delete rec[f];
       for (const f of SYSTEM) delete rec[f];
@@ -148,6 +218,9 @@ export async function restoreBackup(pb, parsed, { tables, mode = 'merge', onProg
           touched.add(match.id);
           if (mode === 'missing') { s.kept += 1; continue; }
           const { id, ...body } = rec; void id;
+          // Nothing changed: leave it alone (also avoids locked records,
+          // such as a request the stock manager is already working on).
+          if (Object.entries(body).every(([k, v]) => same(v, match[k]))) { s.kept += 1; continue; }
           await pb.collection(t.name).update(match.id, body, opts);
           s.updated += 1;
         } else {

@@ -756,5 +756,9 @@ html.staff-app body:has([role="dialog"], [role="alertdialog"]) .app-raise { disp
 /* Side panels in the staff app start below the phone's status bar. */
 html.staff-app [role="dialog"].fixed.inset-y-0:not(.receipts-sheet) {
   padding-top: calc(var(--app-top) + 0.5rem);
-  padding-bottom: var(--app-bottom);
+  padding-bottom: calc(var(--app-bottom) + 1.5rem);
+}
+/* Their close button moves down with them, out from under the status bar. */
+html.staff-app [role="dialog"].fixed.inset-y-0:not(.receipts-sheet) > button.absolute {
+  top: calc(var(--app-top) + 1rem);
 }

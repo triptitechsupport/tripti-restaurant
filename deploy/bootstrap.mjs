@@ -84,16 +84,25 @@ export async function restoreSeedBackups(pb, dir = join(dirname(fileURLToPath(im
     catch (err) { console.error(`Seed backup ${f} skipped:`, err?.message || err); }
   }
   backups.sort((a, b) => String(a.parsed.meta?.savedAt || '').localeCompare(String(b.parsed.meta?.savedAt || '')));
-  let newest = '';
+  // Newest restored file per area, so a device only restores its own backup
+  // when that is newer than the seed file for the same area.
+  const newest = {};
+  const later = (field, at) => { if (at && (!newest[field] || at > newest[field])) newest[field] = at; };
+  const idMap = {}; // shared, so the stock file can link to dishes from the kitchen file
   for (const {f, parsed} of backups) {
-    const summary = await restoreBackup(pb, parsed, {mode: 'mirror'});
+    const summary = await restoreBackup(pb, parsed, {mode: 'mirror', idMap});
     console.log(`Seed backup ${f} restored:`, Object.entries(summary).map(([t, s]) => `${t} +${s.created} ~${s.updated} -${s.deleted}${s.failed ? ` !${s.failed}` : ''}`).join(', '));
-    if (parsed.meta?.savedAt > newest) newest = parsed.meta.savedAt;
+    const at = parsed.meta?.savedAt;
+    const role = parsed.meta?.role;
+    if (role === 'stock') later('stockBackupAt', at);
+    else if (role === 'kitchen_manager') later('kitchenBackupAt', at);
+    else if (role === 'admin') { later('kitchenBackupAt', at); later('stockBackupAt', at); }
+    else later('seedBackupAt', at);
   }
-  if (newest) {
+  if (Object.keys(newest).length) {
     try {
       const info = (await pb.collection('instance_info').getList(1, 1)).items[0];
-      if (info) await pb.collection('instance_info').update(info.id, {seedBackupAt: newest});
+      if (info) await pb.collection('instance_info').update(info.id, newest);
     } catch (err) { console.error('instance_info not updated:', err?.message || err); }
   }
 }

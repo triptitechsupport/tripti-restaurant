@@ -157,6 +157,13 @@ function startOfTodayFilter() {
   return pbDateFilter(d);
 }
 
+// An ended order takes no more tickets: the table has to be freed first.
+function assertOrderTakesTickets(parent) {
+  if (parent && parent.endedAt) {
+    throw new Error(`Order ${parent.orderId || ''} for table ${parent.tableNumber || ''} has been ended. Free the table before sending a new ticket.`);
+  }
+}
+
 // A waiter's bill request is open until the server marks the order fully
 // paid (billReadyAt) after it was requested. PocketBase dates compare as text.
 const billPending = (p) => Boolean(p && p.billRequestedAt && (!p.billReadyAt || p.billReadyAt < p.billRequestedAt));
@@ -765,10 +772,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       // Waiter active list = current day only. A fresh list starts each day;
       // historical KOTs are retained for Admin (AdminKotsView) but are not
       // surfaced in the Waiter active view.
+      // Unfinished orders from an earlier day stay on the list until they are
+      // freed, so their bill can still be taken and the table is not shown free.
       const since = startOfTodayFilter();
       const res = await pb.collection('kitchen_orders').getList(1, 100, {
         sort: '-created',
-        filter: `created >= "${since}"`,
+        filter: `created >= "${since}" || (parentOrder.freed != true && parentOrder.orderStatus = "open")`,
         expand: 'parentOrder',
         $autoCancel: false,
       });
@@ -797,11 +806,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const fetchWaiterOrders = useCallback(async () => {
     try {
       // Current day only — the Waiter active list resets each day. Closed
-      // (historical) billing parents remain available to Admin.
+      // (historical) billing parents remain available to Admin. An order from
+      // an earlier day that was never freed stays until it is: the table is
+      // still taken and its bill still open.
       const since = startOfTodayFilter();
       const res = await pb.collection('waiter_orders').getList(1, 100, {
         sort: '-created',
-        filter: `created >= "${since}"`,
+        filter: `created >= "${since}" || (freed != true && orderStatus = "open")`,
         $autoCancel: false,
       });
       setWaiterOrders(res.items);
@@ -2136,6 +2147,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           });
           if (open.items && open.items.length > 0) parent = open.items[0];
         } catch (_) { /* ignore — fall through to create */ }
+        assertOrderTakesTickets(parent);
       }
       if (!parent) {
         try {
@@ -2568,6 +2580,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           });
           if (open.items && open.items.length > 0) parent = open.items[0];
         } catch (_) { /* ignore — fall through to create */ }
+        assertOrderTakesTickets(parent);
       }
       if (!parent) {
         try {
@@ -2720,7 +2733,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       if (onPlaced) onPlaced();
     } catch (err) {
       console.error('Failed to place order:', err);
-      toast.error('Failed to place order');
+      const serverMsg = (err && err.response && err.response.message) || (err && err.message) || '';
+      toast.error(serverMsg ? `Failed to place order: ${serverMsg}` : 'Failed to place order');
     } finally {
       setSubmitting(false);
     }
