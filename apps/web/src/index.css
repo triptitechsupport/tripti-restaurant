@@ -516,3 +516,249 @@
     animation: none;
   }
 }
+/* Tripti Staff Android app: keep content clear of the phone's status and
+   navigation bars (the app sets --safe-area-inset-*), and colour both bars
+   in Tripti burgundy. */
+html.staff-app {
+  --app-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+html.staff-app body {
+  padding-top: var(--app-top);
+  padding-bottom: var(--app-bottom);
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.staff-app body::before,
+html.staff-app body::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  background: hsl(var(--primary));
+  z-index: 2147483647;
+  pointer-events: none;
+}
+html.staff-app body::before { top: 0; height: var(--app-top); }
+html.staff-app body::after { bottom: 0; height: var(--app-bottom); }
+html.staff-app .sticky-header {
+  top: var(--app-top);
+}
+
+/* ---- Tripti Staff app: look and feel of a phone app ---- */
+html.staff-app body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html.staff-app input,
+html.staff-app textarea,
+html.staff-app [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+html.staff-app img { -webkit-user-drag: none; }
+html.staff-app ::-webkit-scrollbar { width: 0; height: 0; }
+html.staff-app button:not(:disabled):active,
+html.staff-app [role="tab"]:active,
+html.staff-app a:active {
+  scale: 0.97;
+}
+html.staff-app button,
+html.staff-app [role="tab"] { transition-property: color, background-color, border-color, box-shadow, opacity, scale; }
+html.staff-app .app-hide { display: none !important; }
+html.staff-app .app-page { animation: app-page-in 0.2s ease-out; }
+@keyframes app-page-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* Top bars stay under the phone's status bar. */
+html.staff-app .app-bar {
+  top: var(--app-top);
+  min-height: 56px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.18);
+}
+html.staff-app .app-bar { gap: 6px !important; }
+html.staff-app .app-bar > div:last-child { gap: 5px !important; }
+html.staff-app .app-bar button {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: 40px;
+  padding: 0 9px !important;
+  border-radius: 12px;
+  box-shadow: none !important;
+}
+html.staff-app .app-bar button:not([class*="bg-destructive"]) {
+  background: hsl(var(--primary-foreground) / 0.12) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border: 1px solid hsl(var(--primary-foreground) / 0.18) !important;
+}
+html.staff-app .app-bar .app-lang svg { display: none; }
+html.staff-app .sticky-header { --nav-height-mobile: 56px; }
+html.staff-app .sticky-header.indian-decorative-border::after { display: none; }
+.app-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 12px;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary-foreground) / 0.12);
+  border: 1px solid hsl(var(--primary-foreground) / 0.2);
+}
+
+/* Order screen tabs become the app's bottom navigation. */
+html.staff-app .app-bottom-tabs {
+  position: fixed !important;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto !important;
+  margin: 0 !important;
+  padding: 6px 10px calc(6px + var(--app-bottom)) !important;
+  z-index: 60;
+  background: hsl(var(--card)) !important;
+  border-top: 1px solid hsl(var(--border));
+  border-bottom: 0 !important;
+  box-shadow: 0 -4px 18px rgb(0 0 0 / 0.08);
+}
+html.staff-app .app-bottom-tabs [role="tablist"] {
+  height: auto;
+  padding: 0;
+  gap: 6px;
+  background: transparent;
+}
+html.staff-app .app-bottom-tabs [role="tab"] {
+  position: relative;
+  flex-direction: column;
+  gap: 2px;
+  height: 54px;
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 16px;
+  color: hsl(var(--muted-foreground));
+  box-shadow: none !important;
+}
+html.staff-app .app-bottom-tabs [role="tab"] svg { margin: 0 !important; height: 22px; width: 22px; }
+html.staff-app .app-bottom-tabs [role="tab"] > span {
+  position: absolute;
+  top: 4px;
+  left: calc(50% + 6px);
+  margin: 0 !important;
+}
+html.staff-app .app-bottom-tabs [role="tab"][data-state="active"] {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1) !important;
+}
+html.staff-app body:has(.app-bottom-tabs) { padding-bottom: calc(var(--app-bottom) + 72px); }
+/* Dialogs and sheets use the whole screen: hide the tabs while one is open. */
+html.staff-app body:has([role="dialog"], [role="alertdialog"]) .app-bottom-tabs { display: none; }
+
+/* Floating buttons clear the phone's navigation bar and the bottom tabs. */
+html.staff-app .app-raise { bottom: calc(var(--app-bottom) + 16px) !important; }
+html.staff-app .app-raise-panel { bottom: calc(var(--app-bottom) + 88px) !important; }
+html.staff-app body:has(.app-bottom-tabs) .app-raise { bottom: calc(var(--app-bottom) + 80px) !important; }
+html.staff-app body:has(.app-bottom-tabs) .app-raise-panel { bottom: calc(var(--app-bottom) + 152px) !important; }
+
+/* Toasts sit above the bottom tabs too. */
+html.staff-app body:has(.app-bottom-tabs) [data-sonner-toaster][data-y-position="bottom"] { --offset: calc(var(--app-bottom) + 84px) !important; --offset-bottom: calc(var(--app-bottom) + 84px) !important; --mobile-offset-bottom: calc(var(--app-bottom) + 84px) !important; }
+html.staff-app [data-sonner-toaster][data-y-position="top"] { --offset: calc(var(--app-top) + 12px) !important; --offset-top: calc(var(--app-top) + 12px) !important; --mobile-offset-top: calc(var(--app-top) + 12px) !important; }
+
+/* Pull down to refresh. */
+.app-ptr {
+  position: fixed;
+  top: calc(var(--app-top, 0px) + 8px);
+  left: 50%;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  width: 40px;
+  border-radius: 9999px;
+  background: hsl(var(--card));
+  color: hsl(var(--primary));
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.2);
+  transform: translate(-50%, -48px);
+  opacity: 0;
+  pointer-events: none;
+}
+.app-ptr.ready { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.app-ptr.spin svg { animation: spin 0.7s linear infinite; }
+
+/* Sign-in screen */
+html.staff-app .app-login { min-height: calc(100vh - var(--app-top) - var(--app-bottom)); }
+
+/* Bottom action sheet ("more" menu) clears the phone's navigation bar. */
+.app-action-sheet { padding-bottom: var(--app-bottom, 0px); max-height: 85vh; overflow-y: auto; }
+html.staff-app .app-bar .app-icon-btn { height: 40px; min-width: 40px; justify-content: center; }
+/* The chat button floats over the page: leave room under the last card. */
+html.staff-app .app-raise { right: 16px !important; height: 52px !important; width: 52px !important; }
+html.staff-app body:has(.app-raise) main { padding-bottom: 84px; }
+/* Section switchers become one row of swipeable chips. */
+.app-chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0 -16px 16px;
+  padding: 2px 16px 4px;
+  scrollbar-width: none;
+}
+.app-chip-row > button:not([class*="bg-primary"]) {
+  background: hsl(var(--card));
+}
+.app-chip-row > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-radius: 9999px !important;
+  padding: 8px 14px !important;
+  border: 2px solid hsl(var(--border));
+}
+.app-chip-row > button[class*="bg-primary"] { border-color: hsl(var(--primary)); }
+/* The chat button hides while a sheet or dialog is open. */
+html.staff-app body:has([role="dialog"], [role="alertdialog"]) .app-raise { display: none; }
+/* On phones, dialogs open as bottom sheets, like a native app. */
+@media (max-width: 640px) {
+  html.staff-app .app-dialog {
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100vh - var(--app-top) - 24px) !important;
+    overflow-y: auto;
+    border-radius: 24px 24px 0 0 !important;
+    border-width: 0 !important;
+    padding-top: 28px !important;
+    padding-bottom: calc(var(--app-bottom) + 20px) !important;
+    --tw-translate-x: 0 !important;
+    --tw-translate-y: 0 !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 40% !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 40% !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+  }
+  html.staff-app .app-dialog::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 40px;
+    height: 5px;
+    margin-left: -20px;
+    border-radius: 9999px;
+    background: hsl(var(--muted-foreground) / 0.25);
+  }
+}
+/* Side panels in the staff app start below the phone's status bar. */
+html.staff-app [role="dialog"].fixed.inset-y-0:not(.receipts-sheet) {
+  padding-top: calc(var(--app-top) + 0.5rem);
+  padding-bottom: calc(var(--app-bottom) + 1.5rem);
+}
+/* Their close button moves down with them, out from under the status bar. */
+html.staff-app [role="dialog"].fixed.inset-y-0:not(.receipts-sheet) > button.absolute {
+  top: calc(var(--app-top) + 1rem);
+}

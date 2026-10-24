@@ -53,8 +53,13 @@ onRecordDelete((e) => {
   e.next();
 }, 'waiter_orders');
 
+// Each hook below runs the save in a transaction. e.app is put back after
+// the save: otherwise the realtime event is checked against the closed
+// transaction and only superusers receive it (the kitchen and waiter
+// screens would miss live updates).
 onRecordCreate((e) => {
-  e.app.runInTransaction(app => {
+  const outer = e.app;
+  outer.runInTransaction(app => {
   e.app = app;
   const parent = e.record.getString('parentOrder');
   if (parent && e.app.findRecordById('waiter_orders', parent).getBool('fiscalLocked'))
@@ -65,12 +70,13 @@ onRecordCreate((e) => {
     try { item.vat_Rate = e.app.findRecordById('menu_items', item.id).getString('vat_Rate'); } catch (_) {}
   });
   e.record.set('items', items);
-  e.next();
+  try { e.next(); } finally { e.app = outer; }
   });
 }, 'kitchen_orders');
 
 onRecordUpdate((e) => {
-  e.app.runInTransaction(app => {
+  const outer = e.app;
+  outer.runInTransaction(app => {
   e.app = app;
   const old = e.record.original();
   const parentIds = [old.getString('parentOrder'), e.record.getString('parentOrder')];
@@ -86,16 +92,17 @@ onRecordUpdate((e) => {
         (old.getString('status') === 'cancelled') !== (e.record.getString('status') === 'cancelled'))
       throw new BadRequestError('Receipt already finalized. Use a fiscal cancellation instead of changing billable items.');
   }
-  e.next();
+  try { e.next(); } finally { e.app = outer; }
   });
 }, 'kitchen_orders');
 
 onRecordDelete((e) => {
-  e.app.runInTransaction(app => {
+  const outer = e.app;
+  outer.runInTransaction(app => {
   e.app = app;
   const parent = e.record.getString('parentOrder');
   if (parent && e.app.findRecordById('waiter_orders', parent).getBool('fiscalLocked'))
     throw new BadRequestError('Items belonging to a fiscal receipt must be retained.');
-  e.next();
+  try { e.next(); } finally { e.app = outer; }
   });
 }, 'kitchen_orders');

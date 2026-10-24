@@ -639,7 +639,7 @@ export default function HomePage() {
                                   {d.alg.map((a) => (
                                     <span key={a} className="al" title={ALG[a] ? ALG[a][lang === 'de' ? 0 : 1] : ''}>{a}</span>
                                   ))}
-                                  {canOrder && (
+                                  {canOrder && !(d.raw && d.raw.pickupBlocked) && (
                                     <button className={`add${q ? ' on' : ''}`} type="button" onClick={() => add(d)}>
                                       {q ? `${tx.added}${q > 1 ? ` (${q})` : ''}` : tx.add}
                                     </button>

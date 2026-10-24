@@ -12,9 +12,13 @@ import {
 } from '@/components/ui/dialog';
 import {
   ChefHat, LogOut, Clock, CheckCircle2, Flame, RefreshCw, Settings, Volume2, VolumeX, Bell, Calendar, User, Layers, Printer, ArrowLeft,
+  ClipboardList, UtensilsCrossed, BookOpen, PackageSearch,
+  DatabaseBackup,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import StaffChat from '@/components/StaffChat.jsx';
+import StaffPickupButton from '@/components/pickup/StaffPickupButton.jsx';
+import SoldOutButton from '@/components/staff/SoldOutButton.jsx';
 import KdsQuickMessage from '@/components/KdsQuickMessage.jsx';
 import { resolveOrderId, resolveBaseOrderId, printKOT } from '@/lib/kotPrint.js';
 import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
@@ -30,6 +34,13 @@ import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
+import { loginPath, isStaffApp } from '@/lib/staffApp.js';
+import AppLangToggle from '@/components/AppLangToggle.jsx';
+import AppMoreMenu from '@/components/AppMoreMenu.jsx';
+import MenuManager from '@/components/MenuManager.jsx';
+import RecipeManager from '@/components/kitchen/RecipeManager.jsx';
+import StockRequests, { useWeeklyRequestDue } from '@/components/kitchen/StockRequests.jsx';
+import DataBackup, { useAutoBackup } from '@/components/kitchen/DataBackup.jsx';
 
 const ACTIVE_STATUSES = ['pending', 'preparing', 'ready'];
 const SETTINGS_KEY = 'kds_settings_v1';
@@ -450,8 +461,8 @@ function OrderQueue({ groups, now, selectedKey, onSelect, groupMap }) {
             `}
             aria-pressed={isSelected}
           >
-            <div className="flex items-center justify-between gap-2 min-w-0">
-              <span className="text-base font-mono font-bold text-primary break-all notranslate" translate="no">{baseOrderId}</span>
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 min-w-0">
+              <span className="text-base font-mono font-bold text-primary whitespace-nowrap notranslate" translate="no">{baseOrderId}</span>
               <span className={`flex items-center gap-1 font-mono text-sm font-bold shrink-0 ${timerColor}`}>
                 <Clock className="h-3.5 w-3.5" />
                 <span className="notranslate" translate="no">{elapsedLabel(elapsedMs)}</span>
@@ -477,7 +488,7 @@ function OrderQueue({ groups, now, selectedKey, onSelect, groupMap }) {
 }
 
 export default function KdsDashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [now, setNow] = useState(Date.now());
@@ -485,6 +496,11 @@ export default function KdsDashboard() {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Kitchen manager sections: tickets, menu, recipes, weekly stock requests.
+  const [view, setViewState] = useState(() => {
+    try { return sessionStorage.getItem('kds_view') || 'tickets'; } catch (_) { return 'tickets'; }
+  });
+  const setView = (v) => { setViewState(v); try { sessionStorage.setItem('kds_view', v); } catch (_) { /* ignore */ } };
   const [reprintTarget, setReprintTarget] = useState(null);
   const [reprintBusy, setReprintBusy] = useState(false);
   // table_groups + table_group_members — the source of truth for Shared
@@ -504,7 +520,39 @@ export default function KdsDashboard() {
   const isAdmin = pbDefault.authStore.isValid && adminAuthModel?.collectionName === 'admin_users';
   const authed = isKds || isAdmin;
   const pb = isKds ? kdsPb : pbDefault;
+  const isManager = isKds && kdsAuthModel?.role === 'kitchen_manager';
   const authModel = isKds ? kdsAuthModel : adminAuthModel;
+  const canManage = isManager || (isAdmin && !isKds);
+  const requestDue = useWeeklyRequestDue(pb, authed && canManage);
+  const backupRole = isAdmin && !isKds ? 'admin' : 'kitchen_manager';
+  const autoBackup = useAutoBackup(pb, backupRole, authed && canManage);
+  const sections = [
+    { key: 'tickets', icon: ClipboardList, label: language === 'en' ? 'Tickets' : 'Bons', count: orders.length },
+    canManage && { key: 'menu', icon: UtensilsCrossed, label: language === 'en' ? 'Menu' : 'Speisekarte' },
+    { key: 'recipes', icon: BookOpen, label: language === 'en' ? 'Recipes' : 'Rezepte' },
+    canManage && { key: 'requests', icon: PackageSearch, label: language === 'en' ? 'Stock requests' : 'Lageranforderung', dot: requestDue },
+    canManage && { key: 'backup', icon: DatabaseBackup, label: language === 'en' ? 'Backup' : 'Sicherung' },
+  ].filter(Boolean);
+  const currentView = sections.some((x) => x.key === view) ? view : 'tickets';
+  const viewRef = useRef(currentView);
+  viewRef.current = currentView;
+  // Tell the kitchen manager when the stock manager works on a request
+  // (the Stock requests screen shows its own messages when open).
+  useEffect(() => {
+    if (!canManage) return undefined;
+    let alive = true; let unsub = null;
+    pb.collection('stock_requests').subscribe('*', (e) => {
+      if (viewRef.current === 'requests' || e.action !== 'update') return;
+      const st = e.record?.status;
+      const msg = {
+        in_progress: language === 'en' ? 'The stock manager is preparing your weekly request' : 'Das Lager bereitet die Wochenanforderung vor',
+        partial: language === 'en' ? 'Part of your weekly request was given out' : 'Die Wochenanforderung wurde teilweise ausgegeben',
+        fulfilled: language === 'en' ? 'Your weekly stock request is done' : 'Die Wochenanforderung ist erledigt',
+      }[st];
+      if (msg) toast(msg, { icon: '📦', action: { label: language === 'en' ? 'Open' : 'Öffnen', onClick: () => setView('requests') } });
+    }).then((fn) => { if (alive) unsub = fn; else fn(); }).catch(() => {});
+    return () => { alive = false; if (unsub) unsub(); };
+  }, [canManage, pb, language]); // eslint-disable-line react-hooks/exhaustive-deps
   const chatName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Kitchen';
   // Restaurant-wide printing master switch — same single print_settings
   // record the Admin Panel and Waiter (OrderPlacement) read. KDS print /
@@ -572,7 +620,7 @@ export default function KdsDashboard() {
 
   useEffect(() => {
     if (!authed) {
-      navigate('/kds-login', { replace: true });
+      navigate(loginPath('/kds-login'), { replace: true });
       return;
     }
     fetchOrders();
@@ -777,10 +825,10 @@ export default function KdsDashboard() {
     }
     try { pb.collection('kitchen_orders').unsubscribe('*'); } catch (_) { /* ignore */ }
     pb.authStore.clear();
-    navigate('/kds-login', { replace: true });
+    navigate(loginPath('/kds-login'), { replace: true });
     setTimeout(() => {
-      if (window.location.pathname !== '/kds-login') {
-        window.location.assign('/kds-login');
+      if (window.location.pathname !== loginPath('/kds-login')) {
+        window.location.assign(loginPath('/kds-login'));
       }
     }, 120);
   };
@@ -790,11 +838,35 @@ export default function KdsDashboard() {
       <Helmet>
         <title>{t('kds_title')} - Tripti Genusswelt</title>
       </Helmet>
-      <div className="min-h-screen bg-background overflow-x-hidden">
-        <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shadow-md">
+      <div className="min-h-screen bg-background overflow-x-clip">
+        {isStaffApp ? (
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 py-2.5 flex items-center justify-between gap-2 shadow-md">
+          <div className="min-w-0 leading-tight">
+            <h1 className="text-base font-bold truncate">{isManager ? t('kds_managerTitle') : t('kds_title')}</h1>
+            <p className="text-xs truncate">
+              <span className="opacity-80">{orders.length} {t('kds_active')}</span>
+              {delayedCount > 0 && <span className="ml-1.5 rounded-full bg-destructive px-1.5 py-px font-bold animate-pulse">{delayedCount} {t('kds_delayed')}</span>}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <StaffPickupButton client={pb} role="kds" manager={isManager} sound={settings.soundEnabled} />
+            {isManager && <SoldOutButton client={pb} />}
+            <AppMoreMenu
+              title={isManager ? t('kds_managerTitle') : t('kds_title')}
+              items={[
+                isAdmin && { icon: ArrowLeft, label: 'Admin dashboard', onClick: () => navigate('/admin-dashboard') },
+                { icon: settings.soundEnabled ? Volume2 : VolumeX, label: t('kds_soundAlerts'), sub: settings.soundEnabled ? (language === 'en' ? 'On' : 'Ein') : (language === 'en' ? 'Off' : 'Aus'), onClick: () => setSettings((s) => ({ ...s, soundEnabled: !s.soundEnabled })), keepOpen: true },
+                { icon: RefreshCw, label: t('kds_refresh'), onClick: fetchOrders },
+                { icon: LogOut, label: t('logout'), onClick: logout, danger: true },
+              ]}
+            />
+          </div>
+        </header>
+        ) : (
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <ChefHat className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
-            <h1 className="text-base sm:text-xl font-serif font-bold whitespace-nowrap">{t('kds_title')}</h1>
+            <h1 className="text-base sm:text-xl font-serif font-bold whitespace-nowrap">{isManager ? t('kds_managerTitle') : t('kds_title')}</h1>
             <Badge className="bg-secondary text-secondary-foreground shrink-0">{orders.length} {t('kds_active')}</Badge>
             {delayedCount > 0 ? (
               <Badge className="bg-destructive text-destructive-foreground animate-pulse shrink-0">{delayedCount} {t('kds_delayed')}</Badge>
@@ -807,21 +879,42 @@ export default function KdsDashboard() {
                 <span className="hidden sm:inline ml-1">Admin</span>
               </Button>
             )}
+            <StaffPickupButton client={pb} role="kds" manager={isManager} sound={settings.soundEnabled} />
+            {isManager && <SoldOutButton client={pb} />}
             {settings.soundEnabled ? <Volume2 className="h-4 w-4 opacity-80 shrink-0" /> : <VolumeX className="h-4 w-4 opacity-60 shrink-0" />}
+            <AppLangToggle />
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={() => setSettingsOpen(true)} aria-label={t('kds_settings')}>
               <Settings className="h-4 w-4" />
             </Button>
             <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={fetchOrders} aria-label={t('kds_refresh')}>
               <RefreshCw className="h-4 w-4" />
             </Button>
-            <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={logout}>
+            <Button variant="secondary" size="sm" className="touch-target px-2 sm:px-3" onClick={logout} aria-label={t('logout')}>
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline ml-1">{t('logout')}</span>
             </Button>
           </div>
         </header>
+        )}
 
         <main className="p-3 sm:p-4">
+          {authed && (
+            <nav className="app-chip-row flex gap-2 overflow-x-auto pb-3 mb-1" aria-label={language === 'en' ? 'Kitchen sections' : 'Küchenbereiche'}>
+              {sections.map(({ key, icon: Icon, label, count, dot }) => (
+                <button key={key} type="button" onClick={() => setView(key)} aria-current={currentView === key ? 'page' : undefined}
+                  className={`shrink-0 flex items-center gap-1.5 h-10 px-4 rounded-full text-sm font-bold border-2 transition-colors ${currentView === key ? 'bg-primary text-primary-foreground border-primary' : 'bg-card border-border hover:bg-muted'}`}>
+                  <Icon className="h-4 w-4" />{label}
+                  {count > 0 && <span className={`ml-0.5 rounded-full px-1.5 text-[11px] ${currentView === key ? 'bg-primary-foreground/20' : 'bg-secondary text-secondary-foreground'}`}>{count}</span>}
+                  {dot && <span className="h-2.5 w-2.5 rounded-full bg-amber-500" aria-label={language === 'en' ? 'Next week not sent yet' : 'Nächste Woche noch nicht gesendet'} />}
+                </button>
+              ))}
+            </nav>
+          )}
+          {currentView === 'menu' && canManage && <MenuManager client={pb} />}
+          {currentView === 'recipes' && <RecipeManager client={pb} canEdit={canManage} userName={chatName} />}
+          {currentView === 'backup' && canManage && <DataBackup client={pb} role={backupRole} auto={autoBackup} />}
+          {currentView === 'requests' && canManage && <StockRequests client={pb} mode="kitchen" user={{ id: authModel?.id, name: chatName, role: isAdmin && !isKds ? 'admin' : 'kitchen_manager' }} />}
+          {currentView === 'tickets' && (<>
           {!printAllowed && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-2.5">
               <Printer className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -878,6 +971,7 @@ export default function KdsDashboard() {
               </section>
             </div>
           )}
+          </>)}
         </main>
       </div>
 

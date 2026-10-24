@@ -2,20 +2,18 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import {
   ChefHat, RefreshCw, Loader2, Filter, XCircle, Table2, User, Calendar, Layers,
-  Eye, StickyNote, Trash2, ShieldAlert, Lock,
+  Eye, StickyNote,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import pb from '@/lib/pocketbaseClient.js';
-import apiServerClient from '@/lib/apiServerClient.js';
 import { toast } from 'sonner';
 import { resolveOrderId, resolveBaseOrderId } from '@/lib/kotPrint.js';
 import CsvImportExport from '@/components/CsvImportExport.jsx';
@@ -147,58 +145,6 @@ export default function AdminKotsView() {
   // Detail dialog — full ordered-item breakdown for a single KOT.
   const [detailKot, setDetailKot] = useState(null);
 
-  // Admin-only "Reset complete data" — password-protected, server-side
-  // enforced via POST /hcgi/api/reset-data. Clears KOTs (kitchen_orders)
-  // and customer online orders only; bills/payments (waiter_orders), logs
-  // (analysis history), menu, accounts, settings, and audit history are
-  // retained. Waiter/KDS/unauthenticated users cannot reach the deletion
-  // step (the route checks the admin JWT + admin_users lookup + password).
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetPassword, setResetPassword] = useState('');
-  const [resetConfirm, setResetConfirm] = useState(false);
-  const [resetBusy, setResetBusy] = useState(false);
-  const [resetError, setResetError] = useState('');
-
-  const handleResetData = async () => {
-    setResetError('');
-    if (!resetPassword) {
-      setResetError('Enter your admin password to confirm.');
-      return;
-    }
-    if (!resetConfirm) {
-      setResetError('You must acknowledge the reset scope to continue.');
-      return;
-    }
-    setResetBusy(true);
-    try {
-      const token = pb.authStore.token;
-      const response = await apiServerClient.fetch('/reset-data', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ password: resetPassword, confirm: 'RESET' }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setResetError(data.error || 'Reset failed.');
-        return;
-      }
-      toast.success(
-        `Reset complete: ${data.deleted?.kots ?? 0} KOT(s) and ${data.deleted?.orders ?? 0} order(s) cleared. Bills, payments, and analysis history retained.`,
-      );
-      setResetOpen(false);
-      setResetPassword('');
-      setResetConfirm(false);
-      fetchKots(true);
-    } catch (err) {
-      console.error('[AdminKotsView] reset failed', err);
-      setResetError('Network error — reset could not be completed.');
-    } finally {
-      setResetBusy(false);
-    }
-  };
 
   // Ticking clock so elapsed time + delayed state recalculate live.
   useEffect(() => {
@@ -328,18 +274,10 @@ export default function AdminKotsView() {
                 const sort = sortOrder === 'asc' ? 'created' : '-created';
                 const all = await pb.collection(COLLECTION).getFullList({ sort, expand: 'parentOrder', $autoCancel: false });
                 // Export respects the selected date range so Admin can
-                // extract a specific period within the 40-day window.
+                // extract a specific period (records are kept 8 years).
                 return all.filter((k) => inDateRange(k, dateFrom, dateTo));
               }}
             />
-            <Button
-              onClick={() => { setResetError(''); setResetOpen(true); }}
-              variant="outline"
-              className="h-10 w-full sm:w-auto border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <ShieldAlert className="h-4 w-4 mr-2" />
-              Reset Data
-            </Button>
           </div>
         </div>
 
@@ -709,89 +647,6 @@ export default function AdminKotsView() {
           </DialogContent>
         </Dialog>
 
-        {/* Admin-only reset — password-protected, server-side enforced.
-            Clears KOTs + customer orders; retains bills/payments, analysis
-            history, menu, accounts, settings, and audit history. */}
-        <Dialog open={resetOpen} onOpenChange={(open) => { if (!resetBusy) setResetOpen(open); }}>
-          <DialogContent className="modal-mobile-safe max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-destructive">
-                <ShieldAlert className="h-5 w-5" /> Reset Complete Data
-              </DialogTitle>
-              <DialogDescription>
-                Permanently clears all Kitchen Order Tickets (KOTs) and customer online orders.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 py-1">
-              <div className="rounded-lg border-2 border-destructive/40 bg-destructive/10 px-3 py-3 space-y-2">
-                <p className="text-xs font-bold uppercase tracking-wide text-destructive flex items-center gap-1.5">
-                  <Trash2 className="h-3.5 w-3.5" /> Will be deleted
-                </p>
-                <ul className="text-xs text-foreground list-disc pl-5 space-y-0.5">
-                  <li>All KOTs (kitchen_orders) — including today's active tickets</li>
-                  <li>All customer online orders (orders)</li>
-                </ul>
-                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700 flex items-center gap-1.5 pt-1">
-                  <Lock className="h-3.5 w-3.5" /> Will be kept
-                </p>
-                <ul className="text-xs text-foreground list-disc pl-5 space-y-0.5">
-                  <li>Bills &amp; payment totals (waiter_orders)</li>
-                  <li>Analysis / audit history (logs)</li>
-                  <li>Menu, accounts, settings, stock, reservations, feedback</li>
-                </ul>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="reset-password" className="text-xs font-bold text-muted-foreground">
-                  Admin Password
-                </Label>
-                <Input
-                  id="reset-password"
-                  type="password"
-                  value={resetPassword}
-                  onChange={(e) => setResetPassword(e.target.value)}
-                  placeholder="Enter your admin password"
-                  className="h-10"
-                  autoComplete="current-password"
-                  disabled={resetBusy}
-                />
-              </div>
-
-              <label className="flex items-start gap-2 cursor-pointer">
-                <Checkbox
-                  checked={resetConfirm}
-                  onCheckedChange={(v) => setResetConfirm(!!v)}
-                  disabled={resetBusy}
-                  className="mt-0.5"
-                />
-                <span className="text-xs text-muted-foreground">
-                  I understand this permanently deletes all KOTs and customer orders and cannot be undone. Bills, payments, and analysis history are retained.
-                </span>
-              </label>
-
-              {resetError && (
-                <p className="text-sm text-destructive font-medium bg-destructive/10 border border-destructive/30 rounded-md px-3 py-2">
-                  {resetError}
-                </p>
-              )}
-            </div>
-
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetBusy}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleResetData}
-                disabled={resetBusy || !resetPassword || !resetConfirm}
-              >
-                {resetBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
-                Reset Data
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </>
   );

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { waiterPb } from '@/lib/staffClients.js';
+import StaffPickupButton from '@/components/pickup/StaffPickupButton.jsx';
+import CashierReceiptsButton from '@/components/staff/CashierReceiptsButton.jsx';
 import pbDefault from '@/lib/pocketbaseClient.js';
 import { Button } from '@/components/ui/button';
 import { ConciergeBell, LogOut, Zap, Clock, LogIn, ArrowLeft, HelpCircle } from 'lucide-react';
@@ -16,9 +18,11 @@ import {
   formatDuration,
 } from '@/utils/timesheetService.js';
 import { toast } from 'sonner';
+import { loginPath, isStaffApp } from '@/lib/staffApp.js';
+import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 
 export default function WaiterDashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   // Authorization: a real waiter (waiter_users on the waiter auth store) OR
   // an authenticated admin (admin_users on the default auth store). Admins
@@ -32,6 +36,7 @@ export default function WaiterDashboard() {
   const isAdmin = pbDefault.authStore.isValid && adminAuthModel?.collectionName === 'admin_users';
   const authed = isWaiter || isAdmin;
   const pb = isWaiter ? waiterPb : pbDefault;
+  const isCashier = isWaiter && waiterAuthModel?.role === 'cashier';
   const authModel = isWaiter ? waiterAuthModel : adminAuthModel;
   const displayName = authModel?.displayName || authModel?.username || authModel?.name || authModel?.email || 'Waiter';
   const waiterId = authModel?.id;
@@ -43,7 +48,7 @@ export default function WaiterDashboard() {
 
   useEffect(() => {
     if (!authed) {
-      navigate('/waiter-login', { replace: true });
+      navigate(loginPath('/waiter-login'), { replace: true });
       return;
     }
     // Sync active timesheet state on mount.
@@ -138,13 +143,13 @@ export default function WaiterDashboard() {
     pb.authStore.clear();
 
     // In-app redirect.
-    navigate('/waiter-login', { replace: true });
+    navigate(loginPath('/waiter-login'), { replace: true });
 
     // Safety net: if a still-mounted subscriber intercepts the navigate(),
     // force a hard redirect to the login page.
     setTimeout(() => {
-      if (window.location.pathname !== '/waiter-login') {
-        window.location.assign('/waiter-login');
+      if (window.location.pathname !== loginPath('/waiter-login')) {
+        window.location.assign(loginPath('/waiter-login'));
       }
     }, 120);
   };
@@ -171,14 +176,42 @@ export default function WaiterDashboard() {
         <title>Waiter Dashboard - Tripti Genusswelt</title>
       </Helmet>
       <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
-            <ConciergeBell className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
-            <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{t('waiter_station')}</h1>
+            <ConciergeBell className="app-hide h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            {isStaffApp ? (
+              <div className="min-w-0 leading-tight">
+                <h1 className="text-base font-bold truncate">{isCashier ? (language === 'en' ? 'Cashier' : 'Kassierer') : (language === 'en' ? 'Waiter' : 'Kellner')}</h1>
+                <p className="text-xs opacity-80 truncate" aria-label={`Signed in as ${displayName}`}>
+                  {displayName}{activeTimesheet ? ` · ${t('waiter_shift')} ${formatDuration(elapsedMin)}` : ''}
+                </p>
+              </div>
+            ) : (<>
+            <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{isCashier ? t('cashier_station') : t('waiter_station')}</h1>
             <span className="text-sm sm:text-base opacity-90 truncate min-w-0 font-medium" title={displayName} aria-label={`Signed in as ${displayName}`}>
               {displayName}
             </span>
+            </>)}
           </div>
+          {isStaffApp ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <StaffPickupButton client={pb} role="waiter" days={0} />
+              {isCashier && <CashierReceiptsButton client={pb} />}
+              <ContactKitchenButton pbClient={pb} displayName={displayName} />
+              <AppMoreMenu
+                title={displayName}
+                subtitle={activeTimesheet ? `${t('waiter_shift')} ${formatDuration(elapsedMin)}` : t('waiter_notClockedIn')}
+                items={[
+                  isAdmin && { icon: ArrowLeft, label: 'Admin dashboard', onClick: () => navigate('/admin-dashboard') },
+                  activeTimesheet
+                    ? { icon: Clock, label: t('waiter_clockOut'), sub: `${t('waiter_shift')} ${formatDuration(elapsedMin)}`, onClick: handleManualClockOut, disabled: timesheetLoading }
+                    : { icon: LogIn, label: t('waiter_clockIn'), sub: t('waiter_notClockedIn'), onClick: handleManualClockIn, disabled: timesheetLoading },
+                  { icon: HelpCircle, label: language === 'en' ? 'Help' : 'Hilfe', onClick: () => navigate('/waiter-help') },
+                  { icon: LogOut, label: t('logout'), onClick: logout, danger: true },
+                ]}
+              />
+            </div>
+          ) : (
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
               <Button
@@ -229,6 +262,8 @@ export default function WaiterDashboard() {
                 <span className="hidden lg:inline">{t('waiter_clockIn')}</span>
               </Button>
             )}
+            <StaffPickupButton client={pb} role="waiter" days={0} />
+            {isCashier && <CashierReceiptsButton client={pb} />}
             <ContactKitchenButton pbClient={pb} displayName={displayName} />
             <Button
               variant="secondary"
@@ -245,7 +280,7 @@ export default function WaiterDashboard() {
               variant="secondary"
               size="sm"
               onClick={handleWaiterMode}
-              className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90"
+              className="app-hide h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90"
               aria-label={t('waiter_mode')}
               title={t('waiter_mode')}
             >
@@ -263,6 +298,7 @@ export default function WaiterDashboard() {
               <span className="hidden sm:inline">{t('logout')}</span>
             </Button>
           </div>
+          )}
         </header>
 
         <main className="p-4 max-w-6xl mx-auto">
@@ -271,6 +307,7 @@ export default function WaiterDashboard() {
             pbClient={pb}
             placedBy={displayName}
             placedByRole="waiter"
+            cashier={isCashier || (!isWaiter && isAdmin)}
           />
         </main>
       </div>

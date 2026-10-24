@@ -11,6 +11,7 @@ import { BodyLimit } from './constants/common.js';
 import {billing} from './services/billingRuntime.js';
 import {fiscalConfig} from './services/fiskalyClient.js';
 import {fiscalReadiness} from './services/fiscalReadiness.js';
+import {startPickupScheduler} from './services/pickup.js';
 
 const app = express();
 const startupFiscalConfig = fiscalConfig();
@@ -21,6 +22,8 @@ const fiscalRetryTimer = setInterval(() => {
   void billing.drain().catch(error => logger.error('[RKSV queue]', error.message));
 }, 30000);
 fiscalRetryTimer.unref();
+// Sends pickup pre-orders to the kitchen when their preparation should start.
+startPickupScheduler();
 
 app.set('trust proxy', true);
 

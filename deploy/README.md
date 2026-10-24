@@ -41,11 +41,18 @@ all seeded non-superuser auth accounts. The three usable logins are:
 | Admin | `DEMO_ADMIN_EMAIL` value | `DEMO_ADMIN_PASSWORD` |
 | Waiter | `waiter001` | `DEMO_WAITER_PASSWORD` |
 | Kitchen | `kds001` | `DEMO_KDS_PASSWORD` |
+| Kitchen manager | `manager001` | `DEMO_KITCHEN_MANAGER_PASSWORD`, else `DEMO_KDS_PASSWORD` |
+| Cashier | `cashier001` | `DEMO_CASHIER_PASSWORD`, else `DEMO_WAITER_PASSWORD` |
+| Stock manager | `stock001` | `DEMO_STOCK_PASSWORD`, else `DEMO_KDS_PASSWORD` |
 
 Other seeded accounts receive unknown random passwords. The three configured
 logins are checked before the public listener opens. This only happens for a fresh
 database; passwords edited in the UI remain until the ephemeral disk resets.
 The superuser account is separate from Admin UI login.
+
+On a fresh database the setup also switches online ordering on, so the test
+site takes pickup orders right after each deploy. Set `DEMO_ORDERING=off` to
+keep it off.
 
 ## Verification
 

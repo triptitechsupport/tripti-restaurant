@@ -1,6 +1,9 @@
 import PocketBase from 'pocketbase';
 import {randomBytes} from 'node:crypto';
-import {access, writeFile} from 'node:fs/promises';
+import {access, readdir, readFile, writeFile} from 'node:fs/promises';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {parseBackupCsv, restoreBackup} from '../apps/web/src/lib/kitchenBackup.js';
 import {pathToFileURL} from 'node:url';
 
 // Render demo only: run against its fresh, private database before opening nginx.
@@ -34,8 +37,74 @@ if (!configured) {
   ]) {
     await new PocketBase(url).collection(collection).authWithPassword(identity, password);
   }
+  // Fixed staff logins for the other roles, so they work again after every
+  // deploy (the database starts fresh). Their passwords come from Render
+  // Environment; without their own variable they reuse the waiter/kitchen one.
+  const staff = [
+    ['kds_users', 'manager001', 'kitchen_manager', 'Kitchen Manager', 'triptikitchen.local', process.env.DEMO_KITCHEN_MANAGER_PASSWORD || process.env.DEMO_KDS_PASSWORD],
+    ['waiter_users', 'cashier001', 'cashier', 'Cashier', 'triptiwaiter.local', process.env.DEMO_CASHIER_PASSWORD || process.env.DEMO_WAITER_PASSWORD],
+    ['stock_users', 'stock001', '', 'Stock Manager', 'triptistock.local', process.env.DEMO_STOCK_PASSWORD || process.env.DEMO_KDS_PASSWORD],
+  ];
+  for (const [collection, username, role, displayName, domain, password] of staff) {
+    if (!password) continue;
+    try {
+      const data = {username, displayName, email: `${username}@${domain}`, emailVisibility: false, password, passwordConfirm: password, ...(role ? {role} : {})};
+      const existing = await pb.collection(collection).getFirstListItem(`username = "${username}"`).catch(() => null);
+      if (existing) await pb.collection(collection).update(existing.id, data);
+      else await pb.collection(collection).create({...data, verified: true});
+      await new PocketBase(url).collection(collection).authWithPassword(username, password);
+      console.log(`Demo login ${username} ready.`);
+    } catch (err) {
+      console.error(`Demo login ${username} could not be set up:`, err?.message || err);
+    }
+  }
+  // Restore the backup files kept in deploy/seed (CSV from the staff apps'
+  // Backup screen), so menu, recipes and stock come back after every deploy.
+  await restoreSeedBackups(pb);
+  // The demo database is new after every deploy and its seed data has online
+  // ordering switched off. Switch it on so the test site can take orders
+  // straight away (set DEMO_ORDERING=off to keep it off).
+  if (process.env.DEMO_ORDERING !== 'off') {
+    for (const record of await pb.collection('order_settings').getFullList()) {
+      await pb.collection('order_settings').update(record.id, {isOrderingEnabled: true});
+    }
+    console.log('Demo online ordering switched on.');
+  }
   await writeFile(marker, 'Seeded passwords replaced before public startup.\n', {mode: 0o600});
   console.log('Demo login configuration completed.');
 }
 }
+// deploy/seed/*.csv, oldest first, each restored in "mirror" mode.
+export async function restoreSeedBackups(pb, dir = join(dirname(fileURLToPath(import.meta.url)), 'seed')) {
+  let files = [];
+  try { files = (await readdir(dir)).filter((f) => f.toLowerCase().endsWith('.csv')); } catch { return; }
+  const backups = [];
+  for (const f of files) {
+    try { backups.push({f, parsed: parseBackupCsv(await readFile(join(dir, f), 'utf8'))}); }
+    catch (err) { console.error(`Seed backup ${f} skipped:`, err?.message || err); }
+  }
+  backups.sort((a, b) => String(a.parsed.meta?.savedAt || '').localeCompare(String(b.parsed.meta?.savedAt || '')));
+  // Newest restored file per area, so a device only restores its own backup
+  // when that is newer than the seed file for the same area.
+  const newest = {};
+  const later = (field, at) => { if (at && (!newest[field] || at > newest[field])) newest[field] = at; };
+  const idMap = {}; // shared, so the stock file can link to dishes from the kitchen file
+  for (const {f, parsed} of backups) {
+    const summary = await restoreBackup(pb, parsed, {mode: 'mirror', idMap});
+    console.log(`Seed backup ${f} restored:`, Object.entries(summary).map(([t, s]) => `${t} +${s.created} ~${s.updated} -${s.deleted}${s.failed ? ` !${s.failed}` : ''}`).join(', '));
+    const at = parsed.meta?.savedAt;
+    const role = parsed.meta?.role;
+    if (role === 'stock') later('stockBackupAt', at);
+    else if (role === 'kitchen_manager') later('kitchenBackupAt', at);
+    else if (role === 'admin') { later('kitchenBackupAt', at); later('stockBackupAt', at); }
+    else later('seedBackupAt', at);
+  }
+  if (Object.keys(newest).length) {
+    try {
+      const info = (await pb.collection('instance_info').getList(1, 1)).items[0];
+      if (info) await pb.collection('instance_info').update(info.id, newest);
+    } catch (err) { console.error('instance_info not updated:', err?.message || err); }
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await bootstrap();

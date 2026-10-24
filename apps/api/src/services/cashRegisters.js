@@ -80,15 +80,36 @@ export function createCashRegisters({db, remote = fiskaly, config = fiscalConfig
     for (const other of await list()) if (other.isDefault && other.id !== id) await records().update(other.id, {isDefault: false});
     return records().update(id, {isDefault: true});
   }
-  async function resolve(id) {
+  async function resolve(id, {restore = false} = {}) {
     if (id) return get(id);
     const rows = await list();
     const row = rows.find(r => r.isDefault) || rows.find(r => r.fiskalyCashRegisterId === config().registerId);
-    if (!row) throw new FiscalError('Add and set up a cash register in RKSV Diagnostics first.', 409);
-    return get(row.id);
+    if (row) return get(row.id);
+    const restored = restore ? await restoreConfigured() : null;
+    if (!restored) throw new FiscalError('Add and set up a cash register in RKSV Diagnostics first.', 409);
+    return get(restored.id);
+  }
+  // The register named in the server settings (FISKALY_CASH_REGISTER_ID) lives
+  // at fiskaly, but the local list can be empty (for example after the test
+  // server's database was reset). Re-add it automatically when billing needs
+  // it: an existing register is only read back; in TEST a missing one is set
+  // up with the same idempotent steps as the RKSV Diagnostics button.
+  async function restoreConfigured() {
+    const cfg = config();
+    if (!uuid.test(cfg.registerId || '') || !uuid.test(cfg.scuId || '') || cfg.registerId === cfg.scuId) return null;
+    const row = await add({name: 'Kasse 1', registerId: cfg.registerId});
+    let ready = null;
+    try { ready = await refresh(row.id); }
+    catch (e) { if (cfg.environment !== 'TEST') throw e; }
+    if ((!ready || !registerUsable(ready)) && cfg.environment === 'TEST') {
+      try { ready = await setup(row.id); }
+      catch (e) { throw new FiscalError(`The cash register could not be set up automatically: ${e.message}`, e.status || 409, e.retryable, e.outageEligible); }
+    }
+    if (!ready || !registerUsable(ready)) return null;
+    return records().update(row.id, {isDefault: true});
   }
   async function forBilling(id) {
-    let row = await resolve(id);
+    let row = await resolve(id, {restore: true});
     try { row = await refresh(row.id); }
     catch (e) {
       // A verified register remains pinned during connectivity outages; queue/outage handling still works.

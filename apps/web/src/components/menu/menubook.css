@@ -174,3 +174,15 @@
 /* paper card with a gold double frame (contact and reservation pages) */
 .tg-paper{background:#fbf3e1;border:1.5px solid #c8902e;border-radius:6px;box-shadow:0 0 0 6px #fbf3e1,0 0 0 7px rgba(200,144,46,.5),0 30px 60px -40px rgba(74,8,20,.6)}
 @media (max-width:560px){.tg-home .page-cover .cm{width:64px;opacity:.7}.tg-home .page-cover .pc-in{padding-left:28px;padding-right:28px}}
+
+/* long categories continue on the next page */
+.tg-book .bk-measure{position:fixed;left:-20000px;top:0;visibility:hidden;pointer-events:none;z-index:-1}
+.tg-book .bk-measure [data-part]{display:flow-root}
+.tg-book .cat-head.cat-cont{margin:6px 0 14px}
+.tg-book .cat-head.cat-cont h3{font-size:clamp(1.05rem,2.2vw,1.3rem)}
+.tg-book .pg-more{all:unset;display:inline;white-space:nowrap;margin-left:.6em;font-family:var(--f-serif);font-style:italic;letter-spacing:0;text-transform:none;font-size:.92rem;color:var(--red);cursor:default}
+.tg-book button.pg-more{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.tg-book button.pg-more:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.tg-book .cat-head img,.tg-book .pg-mark{height:auto}
+.tg-book .pg-body > .fit{display:flow-root}
+@media (max-width:640px) and (max-height:700px){.tg-book .toc-how{display:none}}

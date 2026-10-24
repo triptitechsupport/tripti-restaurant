@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/contexts/AdminAuthContext.jsx';
+import OrderingHint from '@/components/menu/OrderingHint.jsx';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { useCart } from '@/hooks/useCart.jsx';
 import PdfMenuDisplay from '@/components/PdfMenuDisplay.jsx';
@@ -131,7 +133,11 @@ export default function MenuPage() {
   const tx = TX[lang];
   const [searchParams, setSearchParams] = useSearchParams();
   const { cartItems, addToCart, updateQuantity } = useCart();
-  const orderMode = searchParams.get('order') === '1' && isOrderingEnabled;
+  const { isAdminAuthenticated } = useAuth();
+  // Guests can add dishes whenever online ordering is on; ?order=1 only
+  // switches the page into ordering layout (no PDF, book closed).
+  const canOrder = !!isOrderingEnabled && !isAdminAuthenticated;
+  const orderMode = searchParams.get('order') === '1' && canOrder;
   const listView = searchParams.get('view') === 'list';
 
   const [pdfSettings, setPdfSettings] = useState(null);
@@ -283,7 +289,7 @@ export default function MenuPage() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5c3-1.5 6.5-1.5 10 1 3.5-2.5 7-2.5 10-1v14c-3-1.5-6.5-1.5-10 1-3.5-2.5-7-2.5-10-1z" /><path d="M12 6v14" /></svg>
           <span>{tx.book}</span>
         </button>
-        {orderMode && cartCount > 0 ? (
+        {canOrder && cartCount > 0 ? (
           <Link className="btn btn-line" to="/cart">{tx.cart} ({cartCount})</Link>
         ) : (
           <Link className="btn btn-line" to="/table-reservation">{tx.reserve}</Link>
@@ -291,7 +297,8 @@ export default function MenuPage() {
       </PageCover>
 
       <div className="wrap menu-body">
-        {orderMode && (
+        <OrderingHint />
+        {canOrder && (
           <div className="order-note">
             <span>{tx.order} <small>{tx.orderHint}</small></span>
             {cartCount > 0 && <Link className="btn btn-maroon" style={{ padding: '.7em 1.2em' }} to="/cart">{tx.cart} ({cartCount})</Link>}
@@ -358,7 +365,7 @@ export default function MenuPage() {
                     </div>
                     <ul className="items">
                       {g.its.map((d) => (
-                        <DishRow key={d.id} d={d} lang={lang} canOrder={orderMode} qty={qtyOf(d.id)} onAdd={onAdd} onLess={onLess} image={dishImage(d)} />
+                        <DishRow key={d.id} d={d} lang={lang} canOrder={canOrder} qty={qtyOf(d.id)} onAdd={onAdd} onLess={onLess} image={dishImage(d)} />
                       ))}
                     </ul>
                   </section>

@@ -3,6 +3,7 @@
 // (which supports digits) via JsBarcode onto a canvas/SVG, and provide print
 // helpers for location, lot, and leftover labels on 80mm thermal / A4 layouts.
 import JsBarcode from 'jsbarcode';
+import { nativePrint } from '@/lib/staffApp.js';
 
 /**
  * Validate a numeric-only barcode. Empty is allowed (optional field).
@@ -257,7 +258,7 @@ export function printLabels(labels, { title = 'Barcode' } = {}) {
     const done = () => {
       try {
         iframe.contentWindow.focus();
-        iframe.contentWindow.print();
+        if (!nativePrint(iframe.contentWindow)) iframe.contentWindow.print();
       } catch (_) { /* ignore */ }
       setTimeout(() => {
         try { document.body.removeChild(iframe); } catch (_) { /* ignore */ }

@@ -211,17 +211,17 @@ export default function AdminTranslationsEditor() {
               </div>
             ) : (
               <div className="divide-y">
-                <div className="grid grid-cols-12 gap-4 p-4 bg-muted/30 font-semibold text-sm text-muted-foreground">
-                  <div className="col-span-3">Translation Key</div>
-                  <div className="col-span-4">English (EN)</div>
-                  <div className="col-span-4">German (DE)</div>
-                  <div className="col-span-1 text-right">Action</div>
+                <div className="hidden sm:grid grid-cols-12 gap-4 p-4 bg-muted/30 font-semibold text-sm text-muted-foreground">
+                  <div className="sm:col-span-3">Translation Key</div>
+                  <div className="sm:col-span-4">English (EN)</div>
+                  <div className="sm:col-span-4">German (DE)</div>
+                  <div className="sm:col-span-1 text-right">Action</div>
                 </div>
                 
                 <div className="max-h-[600px] overflow-y-auto">
                   {filteredUITranslations.map((item) => (
-                    <div key={item.key} className="grid grid-cols-12 gap-4 p-4 items-start hover:bg-muted/10 transition-colors">
-                      <div className="col-span-3">
+                    <div key={item.key} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4 p-4 items-start hover:bg-muted/10 transition-colors">
+                      <div className="sm:col-span-3">
                         {item.isNew ? (
                           <Input 
                             value={item.key} 
@@ -235,28 +235,30 @@ export default function AdminTranslationsEditor() {
                           </span>
                         )}
                       </div>
-                      <div className="col-span-4">
+                      <div className="sm:col-span-4">
+                        <span className="sm:hidden block text-xs font-semibold text-muted-foreground mb-1">English (EN)</span>
                         <Input 
                           value={item.englishText} 
                           onChange={(e) => handleUITextChange(item.key, 'englishText', e.target.value)}
                           className="h-9"
                         />
                       </div>
-                      <div className="col-span-4">
+                      <div className="sm:col-span-4">
+                        <span className="sm:hidden block text-xs font-semibold text-muted-foreground mb-1">German (DE)</span>
                         <Input 
                           value={item.germanText} 
                           onChange={(e) => handleUITextChange(item.key, 'germanText', e.target.value)}
                           className="h-9"
                         />
                       </div>
-                      <div className="col-span-1 text-right">
+                      <div className="sm:col-span-1 sm:text-right">
                         <Button 
                           size="sm" 
                           onClick={() => handleSaveUI(item)}
                           disabled={savingKey === item.key}
                           className="h-9 w-full"
                         >
-                          {savingKey === item.key ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          {savingKey === item.key ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Save className="h-4 w-4" /><span className="sm:hidden ml-2">Save</span></>}
                         </Button>
                       </div>
                     </div>
@@ -292,21 +294,22 @@ export default function AdminTranslationsEditor() {
               </div>
             ) : (
               <div className="divide-y">
-                <div className="grid grid-cols-12 gap-4 p-4 bg-muted/30 font-semibold text-sm text-muted-foreground">
-                  <div className="col-span-4">Dish Info (EN)</div>
-                  <div className="col-span-3">German Name (nameDE)</div>
-                  <div className="col-span-4">German Description (descriptionDE)</div>
-                  <div className="col-span-1 text-right">Action</div>
+                <div className="hidden sm:grid grid-cols-12 gap-4 p-4 bg-muted/30 font-semibold text-sm text-muted-foreground">
+                  <div className="sm:col-span-4">Dish Info (EN)</div>
+                  <div className="sm:col-span-3">German Name (nameDE)</div>
+                  <div className="sm:col-span-4">German Description (descriptionDE)</div>
+                  <div className="sm:col-span-1 text-right">Action</div>
                 </div>
                 
                 <div className="max-h-[600px] overflow-y-auto">
                   {filteredMenuItems.map((item) => (
-                    <div key={item.id} className="grid grid-cols-12 gap-4 p-4 items-start hover:bg-muted/10 transition-colors">
-                      <div className="col-span-4 flex flex-col gap-1">
+                    <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-4 p-4 items-start hover:bg-muted/10 transition-colors">
+                      <div className="sm:col-span-4 flex flex-col gap-1">
                         <span className="font-medium text-foreground">{item.name}</span>
                         <span className="text-xs text-muted-foreground bg-muted w-max px-1.5 py-0.5 rounded">{item.category}</span>
                       </div>
-                      <div className="col-span-3">
+                      <div className="sm:col-span-3">
+                        <span className="sm:hidden block text-xs font-semibold text-muted-foreground mb-1">German name</span>
                         <Input 
                           value={item.nameDE} 
                           onChange={(e) => handleMenuTextChange(item.id, 'nameDE', e.target.value)}
@@ -314,7 +317,8 @@ export default function AdminTranslationsEditor() {
                           className="h-9"
                         />
                       </div>
-                      <div className="col-span-4">
+                      <div className="sm:col-span-4">
+                        <span className="sm:hidden block text-xs font-semibold text-muted-foreground mb-1">German description</span>
                         <Input 
                           value={item.descriptionDE} 
                           onChange={(e) => handleMenuTextChange(item.id, 'descriptionDE', e.target.value)}
@@ -322,14 +326,14 @@ export default function AdminTranslationsEditor() {
                           className="h-9"
                         />
                       </div>
-                      <div className="col-span-1 text-right">
+                      <div className="sm:col-span-1 sm:text-right">
                         <Button 
                           size="sm" 
                           onClick={() => handleSaveMenu(item)}
                           disabled={savingMenuId === item.id}
                           className="h-9 w-full"
                         >
-                          {savingMenuId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          {savingMenuId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Save className="h-4 w-4" /><span className="sm:hidden ml-2">Save</span></>}
                         </Button>
                       </div>
                     </div>

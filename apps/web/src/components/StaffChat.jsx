@@ -333,7 +333,7 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-[80] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
+        className="app-raise fixed bottom-6 right-6 z-[80] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
         aria-label="Staff chat"
       >
         {open ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
@@ -393,7 +393,7 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
 
       {/* Active / outgoing call bar */}
       {call.callState !== 'idle' && !call.incoming && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 z-[90] w-[92vw] max-w-sm bg-primary text-primary-foreground rounded-2xl shadow-2xl p-4 flex items-center gap-3">
+        <div className="app-raise-panel fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 z-[90] w-[92vw] max-w-sm bg-primary text-primary-foreground rounded-2xl shadow-2xl p-4 flex items-center gap-3">
           <span className="h-11 w-11 rounded-full bg-white/20 flex items-center justify-center shrink-0">
             <PhoneCall className="h-5 w-5" />
           </span>
@@ -430,7 +430,7 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-24 right-6 z-[80] w-[92vw] max-w-sm h-[70vh] max-h-[560px] bg-card border-2 border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="app-raise-panel fixed bottom-24 right-6 z-[80] w-[92vw] max-w-sm h-[70vh] max-h-[560px] bg-card border-2 border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 bg-primary text-primary-foreground">
             <div className="flex items-center gap-2 font-semibold">
               <MessageCircle className="h-5 w-5" /> Staff Chat

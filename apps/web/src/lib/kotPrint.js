@@ -2,6 +2,7 @@
 // Used by Waiter & Admin order placement / order views. NOT by KDS.
 
 import pb from '@/lib/pocketbaseClient.js';
+import { printHtmlInFrame } from '@/lib/printFrame.js';
 
 function escapeHtml(str) {
   return String(str == null ? '' : str)
@@ -389,32 +390,7 @@ export async function printKOT(order, options = {}) {
   try {
     await refreshCategoryPrintOrder();
     const categoryMap = await resolveCategoryMap(order && order.items);
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(buildKOTHtml(order, categoryMap, options));
-    doc.close();
-    const done = () => {
-      try {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      } catch (_) { /* ignore */ }
-      setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch (_) { /* ignore */ }
-      }, 2000);
-    };
-    if (iframe.contentWindow.document.readyState === 'complete') {
-      setTimeout(done, 200);
-    } else {
-      iframe.onload = () => setTimeout(done, 200);
-    }
+    printHtmlInFrame(buildKOTHtml(order, categoryMap, options), 'KOT');
     return true;
   } catch (err) {
     console.error('KOT print failed:', err);

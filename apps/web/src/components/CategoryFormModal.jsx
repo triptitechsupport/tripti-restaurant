@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import pb from '@/lib/pocketbaseClient.js';
+import defaultPb from '@/lib/pocketbaseClient.js';
 import MobileFormField from '@/components/MobileFormField.jsx';
 
-export default function CategoryFormModal({ isOpen, onClose, onSuccess, editingCategory }) {
+export default function CategoryFormModal({ isOpen, onClose, onSuccess, editingCategory, client }) {
+  // The kitchen manager uses their own login (client); the admin the default one.
+  const pb = client || defaultPb;
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',

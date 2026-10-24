@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { LogOut } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { stockPb as pb } from '@/lib/staffClients.js';
 import pbDefault from '@/lib/pocketbaseClient.js';
@@ -8,7 +9,8 @@ import pbDefault from '@/lib/pocketbaseClient.js';
 // Minimal header for stock-authenticated pages only — mirrors the
 // WaiterHeader / KdsHeader pattern: logo (left) + EN/DE language switcher
 // (right). Public-site nav is intentionally omitted.
-export default function StockHeader() {
+// home/subtitle let the staff sign-in and auditor pages reuse this header.
+export default function StockHeader({ home, subtitle = 'Stock & Waste', onLogout }) {
   const navigate = useNavigate();
   const { language, setLanguage } = useLanguage();
   const [logoUrl, setLogoUrl] = useState(null);
@@ -30,6 +32,7 @@ export default function StockHeader() {
   }, []);
 
   const handleLogoClick = () => {
+    if (home) { navigate(home); return; }
     const sModel = pb.authStore.model || pb.authStore.record;
     const aModel = pbDefault.authStore.model || pbDefault.authStore.record;
     const isStock = pb.authStore.isValid && sModel?.collectionName === 'stock_users';
@@ -55,7 +58,7 @@ export default function StockHeader() {
             type="button"
             onClick={handleLogoClick}
             className="flex items-center gap-3 md:gap-4 group min-w-0"
-            aria-label="Tripti Genusswelt — go to Stock Dashboard"
+            aria-label={home ? "Tripti Genusswelt" : "Tripti Genusswelt — go to Stock Dashboard"}
           >
             {logoUrl ? (
               <motion.div
@@ -79,12 +82,19 @@ export default function StockHeader() {
                   Tripti Genusswelt
                 </span>
                 <span className="text-[10px] md:text-xs font-semibold uppercase tracking-[0.2em] text-primary-foreground/90">
-                  Stock & Waste
+                  {subtitle}
                 </span>
               </motion.div>
             )}
           </button>
 
+          <div className="flex items-center gap-2 shrink-0">
+          {onLogout && (
+            <button type="button" onClick={onLogout} aria-label={language === 'en' ? 'Log out' : 'Abmelden'}
+              className="flex items-center gap-1.5 h-9 px-3 rounded-lg bg-primary-foreground/10 border border-primary-foreground/20 text-primary-foreground text-xs font-bold hover:text-secondary">
+              <LogOut className="h-4 w-4" /><span className="hidden sm:inline">{language === 'en' ? 'Log out' : 'Abmelden'}</span>
+            </button>
+          )}
           <div className="flex items-center bg-primary-foreground/10 rounded-lg p-1 border border-primary-foreground/20 shrink-0">
             <button
               type="button"
@@ -100,6 +110,7 @@ export default function StockHeader() {
             >
               DE
             </button>
+          </div>
           </div>
         </div>
       </nav>
