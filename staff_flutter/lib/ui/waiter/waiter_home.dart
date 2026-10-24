@@ -16,6 +16,7 @@ import '../common/team_chat.dart';
 import '../cashier/receipts_page.dart';
 import 'active_page.dart';
 import 'tables_page.dart';
+import '../common/assistant.dart';
 
 /// Gives the waiter screens the live data and the order actions.
 class StoreScope extends InheritedNotifier<LiveStore> {
@@ -171,6 +172,17 @@ class _WaiterHomeState extends State<WaiterHome> {
                   style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: null, fontWeight: FontWeight.w400)),
             ]),
             actions: [
+              AssistantButton(onScreen: (screen) {
+                final keys = cashier ? const ['tables', 'bills', 'receipts', 'tickets'] : const ['tables', 'tickets'];
+                final i = keys.indexOf(screen);
+                if (screen == 'pickups') {
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(title: Text(tr(context, 'Pickups', 'Abholungen'))), body: const PickupsPage())));
+                } else if (screen == 'chat') {
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TeamChatPage(role: 'waiter')));
+                } else if (i >= 0) {
+                  setState(() => _tab = i);
+                }
+              }),
               IconButton(
                 icon: const Icon(Icons.shopping_bag_outlined),
                 tooltip: tr(context, 'Pickups', 'Abholungen'),

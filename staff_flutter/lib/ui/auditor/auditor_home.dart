@@ -9,6 +9,7 @@ import '../../core/scope.dart';
 import '../cashier/receipts_page.dart';
 import '../common/widgets.dart';
 import '../home.dart';
+import '../common/assistant.dart';
 
 /// Auditor: payments and signed receipts, view only, plus the DEP7 export.
 class AuditorHome extends StatefulWidget {
@@ -66,6 +67,7 @@ class _AuditorHomeState extends State<AuditorHome> {
           Text('${session.displayName} · ${tr(context, 'view only', 'nur Ansicht')}', style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w400)),
         ]),
         actions: [
+          AssistantButton(onScreen: (_) {}),
           _busy
               ? const Padding(padding: EdgeInsets.all(14), child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
               : IconButton(icon: const Icon(Icons.download), tooltip: tr(context, 'DEP7 export', 'DEP7-Export'), onPressed: _dep7),

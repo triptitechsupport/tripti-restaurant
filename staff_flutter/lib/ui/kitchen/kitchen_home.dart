@@ -18,6 +18,7 @@ import '../home.dart';
 import 'recipes_page.dart';
 import 'sold_out_page.dart';
 import 'stock_requests_page.dart';
+import '../common/assistant.dart';
 
 const _active = ['pending', 'preparing', 'ready'];
 const _delay = Duration(minutes: 5);
@@ -184,6 +185,15 @@ class _KitchenHomeState extends State<KitchenHome> {
           Text(session.displayName, style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w400)),
         ]),
         actions: [
+          AssistantButton(onScreen: (screen) {
+            const keys = ['tickets', 'preorders', 'recipes', 'soldout', 'stock'];
+            final i = keys.indexOf(screen);
+            if (screen == 'chat') {
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TeamChatPage(role: 'kds')));
+            } else if (i >= 0 && (i < 3 || manager)) {
+              setState(() => _tab = i);
+            }
+          }),
           IconButton(
             icon: Icon(_sound ? Icons.volume_up : Icons.volume_off),
             tooltip: tr(context, 'Sound', 'Ton'),

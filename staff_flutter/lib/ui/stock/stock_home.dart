@@ -10,6 +10,7 @@ import 'history_page.dart';
 import 'inventory_page.dart';
 import 'issue_page.dart';
 import 'waste_page.dart';
+import '../common/assistant.dart';
 
 /// Stock manager: stock list, kitchen requests, goods in, give out, waste.
 class StockHome extends StatefulWidget {
@@ -55,6 +56,15 @@ class _StockHomeState extends State<StockHome> {
           Text(session.displayName, style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w400)),
         ]),
         actions: [
+          AssistantButton(onScreen: (screen) {
+            const keys = ['stock', 'requests', 'goodsin', 'giveout', 'waste'];
+            final i = keys.indexOf(screen);
+            if (screen == 'history') {
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StockHistoryPage()));
+            } else if (i >= 0) {
+              setState(() => _tab = i);
+            }
+          }),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: tr(context, 'History', 'Verlauf'),
