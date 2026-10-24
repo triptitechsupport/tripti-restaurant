@@ -26,7 +26,12 @@ class AssistantButton extends StatelessWidget {
       );
 }
 
-List<String> _suggestions(BuildContext context, StaffRole? role) {
+List<String> _suggestions(BuildContext context, StaffRole? role) => [
+      ..._roleSuggestions(context, role),
+      tr(context, 'I want to report a problem or an idea', 'Ich möchte ein Problem oder eine Idee melden'),
+    ];
+
+List<String> _roleSuggestions(BuildContext context, StaffRole? role) {
   switch (role) {
     case StaffRole.waiter:
       return [
@@ -185,8 +190,8 @@ class _AssistantPageState extends State<AssistantPage> {
               PageIntro(
                 Icons.auto_awesome,
                 tr(context, 'Ask me anything about the app', 'Frag mich alles zur App'),
-                tr(context, 'Which button to press, how something works, or what is happening right now (tables, tickets, stock). Tap the microphone to speak. I only read; I never change anything.',
-                    'Welcher Knopf, wie etwas geht, oder was gerade los ist (Tische, Tickets, Lager). Tippe aufs Mikrofon zum Sprechen. Ich lese nur und ändere nie etwas.'),
+                tr(context, 'Which button to press, how something works, or what is happening right now (tables, tickets, stock). Tell me about problems or ideas and I pass them on to the admin. Tap the microphone to speak. I never change orders, payments or stock.',
+                    'Welcher Knopf, wie etwas geht, oder was gerade los ist (Tische, Tickets, Lager). Erzähl mir von Problemen oder Ideen, ich gebe sie an den Admin weiter. Tippe aufs Mikrofon zum Sprechen. Ich ändere nie Bestellungen, Zahlungen oder Lager.'),
               ),
               const SizedBox(height: 12),
               Text(tr(context, 'Try:', 'Zum Beispiel:'), style: const TextStyle(fontWeight: FontWeight.w700, color: TriptiColors.ink)),

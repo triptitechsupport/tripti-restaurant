@@ -7,8 +7,10 @@ import logger from '../utils/logger.js';
 import { guideFor, ROLE_NAMES, SCREENS } from '../services/assistantGuide.js';
 
 // Staff assistant: answers "how do I ..." questions and questions about live
-// data. Read-only: every data tool reads with the staff member's own sign-in,
-// so PocketBase rules decide what each role may see. Nothing is changed here.
+// data. Every data tool reads with the staff member's own sign-in, so
+// PocketBase rules decide what each role may see. The only thing it writes is
+// staff feedback (problems and ideas), which the admin turns into an
+// improvement report (/feedback routes below).
 const router = express.Router();
 
 const MODEL = process.env.ASSISTANT_MODEL || 'claude-opus-5-5';
@@ -100,6 +102,22 @@ const TOOLS = [
     input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
   {
+    name: 'record_feedback',
+    description: 'Save a problem, idea, missing feature or confusing part of the app for the admin\'s improvement report. Use it once you know what happened (screen, what they did, what went wrong or what they want, how often, how much it hurts their work). One entry per separate issue. Write summary and details in English, whatever language the staff member uses.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['problem', 'idea', 'missing', 'confusing'], description: 'problem = something goes wrong; idea = an improvement wish; missing = the app cannot do what they need; confusing = they could not find or understand how to do something.' },
+        area: { type: 'string', description: 'Screen or part of the work, e.g. "Bills / payment", "Kitchen tickets", "Goods in".' },
+        summary: { type: 'string', description: 'One clear sentence, max 200 characters.' },
+        details: { type: 'string', description: 'What they did, what happened, what they expected, how often, any table/ticket/item names, and their own suggestion.' },
+        impact: { type: 'string', enum: ['low', 'medium', 'high'], description: 'high = blocks work or money/guests affected; medium = slows them down; low = small annoyance.' },
+      },
+      required: ['kind', 'area', 'summary', 'details', 'impact'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'open_screen',
     description: 'Open a screen of the staff app for the user, when they want to go there or it is the place to do what they asked. Only screens listed for their role in the system prompt.',
     input_schema: { type: 'object', properties: { screen: { type: 'string' } }, required: ['screen'], additionalProperties: false },
@@ -116,10 +134,11 @@ const ROLE_TOOLS = {
   auditor: ['payments_today'],
   admin: ['open_tables', 'kitchen_tickets', 'menu', 'pickup_orders', 'stock_items', 'stock_requests', 'payments_today'],
 };
-const toolsFor = (role) => TOOLS.filter((t) => t.name === 'open_screen' ? (SCREENS[role] || []).length > 0 : (ROLE_TOOLS[role] || []).includes(t.name));
+const EVERY_ROLE = ['record_feedback'];
+const toolsFor = (role) => TOOLS.filter((t) => t.name === 'open_screen' ? (SCREENS[role] || []).length > 0 : EVERY_ROLE.includes(t.name) || (ROLE_TOOLS[role] || []).includes(t.name));
 
 async function runTool(staff, name, input, out) {
-  if (name !== 'open_screen' && !(ROLE_TOOLS[staff.role] || []).includes(name)) return { error: 'Not allowed for this role.' };
+  if (name !== 'open_screen' && !EVERY_ROLE.includes(name) && !(ROLE_TOOLS[staff.role] || []).includes(name)) return { error: 'Not allowed for this role.' };
   const pb = staff.pb;
   const table = input.table ? String(input.table).trim() : '';
   switch (name) {
@@ -191,6 +210,21 @@ async function runTool(staff, name, input, out) {
       const total = list.reduce((s, p) => s + Number(p.amount || 0), 0);
       return { count: list.length, total: Math.round(total * 100) / 100, payments: list.map((p) => ({ table: p.tableNumber, order: p.orderId, amount: p.amount, time: time(p.created) })) };
     }
+    case 'record_feedback': {
+      const clip = (v, n) => String(v || '').trim().slice(0, n);
+      const summary = clip(input.summary, 300);
+      if (!summary) return { error: 'A summary is needed.' };
+      const kind = ['problem', 'idea', 'missing', 'confusing'].includes(input.kind) ? input.kind : 'problem';
+      const impact = ['low', 'medium', 'high'].includes(input.impact) ? input.impact : 'medium';
+      if ((out.saved || 0) >= 3) return { error: 'Already saved 3 entries in this answer.' };
+      await adminPb.collection('staff_feedback').create({
+        kind, impact, summary, status: 'new',
+        area: clip(input.area, 120), details: clip(input.details, 4000),
+        role: staff.role, staffName: clip(staff.name, 120), staffId: staff.id,
+      });
+      out.saved = (out.saved || 0) + 1;
+      return { ok: true, saved: 'It is in the admin\'s improvement list now.' };
+    }
     case 'open_screen': {
       const screen = String(input.screen || '');
       if (!(SCREENS[staff.role] || []).includes(screen)) return { error: `No screen "${screen}" for this role.` };
@@ -212,6 +246,13 @@ How to answer:
 - For "how do I" questions, give the exact buttons to press, using the names below, and open the right screen with open_screen when that helps.
 - For questions about live data (tables, tickets, stock, menu, pickups, payments), call the tools; never guess numbers. Say when something is empty.
 - You can only read. You cannot send orders, take payments, change stock or press buttons. If asked to do something, explain the steps and open the screen.
+
+Problems and ideas (collect them for the admin):
+- When someone has a problem with the app or the work, first try to help: explain the rule or the steps.
+- Then make it a useful report. If you don't know yet, ask at most two short questions at a time: which screen, what they did, what happened versus what they expected, how often, and how much it slows them down. Don't interrogate; if they are busy, save what you have.
+- Save it with record_feedback, then tell them in one sentence that it is noted for the admin.
+- Also save it, without extra questions, when they wish for something the app can't do (kind missing), when they share an idea (kind idea), or when they clearly struggled to find how to do something (kind confusing).
+- Don't save plain questions you answered well, and never save passwords or guests' personal details.
 - You only have tools for data this role may see. If asked about other data, say politely that this role can't see it and who can.
 - If you don't know, say so and suggest asking the manager.
 
@@ -288,6 +329,99 @@ router.post('/chat', limit, signIn, async (req, res) => {
     }
     logger.error(`[assistant] ${err.message}`);
     return res.status(500).json({ message: 'The assistant could not answer. Please try again.' });
+  }
+});
+
+// ---------- staff feedback for the admin ----------
+const adminOnly = (req, res, next) => (req.staff?.role === 'admin' ? next() : res.status(403).json({ message: 'Only the admin can see staff feedback.' }));
+const feedbackLimit = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, validate: { trustProxy: false } });
+const KIND = { problem: 'Problem', idea: 'Idea', missing: 'Missing feature', confusing: 'Hard to find / confusing' };
+const viennaDateTime = (iso) => new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', dateStyle: 'short', timeStyle: 'short' }).format(new Date(String(iso).replace(' ', 'T')));
+
+async function loadFeedback({ days, includeDone }) {
+  const d = Math.min(Math.max(Number(days) || 30, 1), 366);
+  const since = new Date(Date.now() - d * 86400000).toISOString().replace('T', ' ');
+  const filter = adminPb.filter(includeDone ? 'created >= {:s}' : 'created >= {:s} && status != "done" && status != "dismissed"', { s: since });
+  const list = await adminPb.collection('staff_feedback').getFullList({ filter, sort: '-created' });
+  return { days: d, list };
+}
+
+router.get('/feedback', feedbackLimit, signIn, adminOnly, async (req, res) => {
+  try {
+    const { list } = await loadFeedback({ days: req.query.days, includeDone: req.query.all === '1' });
+    return res.json({ items: list.map((f) => ({ id: f.id, kind: f.kind, role: f.role, staffName: f.staffName, area: f.area, summary: f.summary, details: f.details, impact: f.impact, status: f.status || 'new', adminNote: f.adminNote, created: f.created })) });
+  } catch (err) {
+    logger.error(`[assistant] feedback list: ${err.message}`);
+    return res.status(500).json({ message: 'Could not load staff feedback.' });
+  }
+});
+
+router.patch('/feedback/:id', feedbackLimit, signIn, adminOnly, async (req, res) => {
+  const data = {};
+  if (['new', 'planned', 'done', 'dismissed'].includes(req.body?.status)) data.status = req.body.status;
+  if (typeof req.body?.adminNote === 'string') data.adminNote = req.body.adminNote.slice(0, 1000);
+  if (!Object.keys(data).length) return res.status(400).json({ message: 'Nothing to change.' });
+  try {
+    await adminPb.collection('staff_feedback').update(String(req.params.id), data);
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(err?.status === 404 ? 404 : 500).json({ message: 'Could not update this entry.' });
+  }
+});
+
+// Every entry, word for word, so nothing gets lost in the summary.
+function feedbackListText(list) {
+  return list.map((f, i) => [
+    `${i + 1}. [${KIND[f.kind] || f.kind}, impact ${f.impact || '-'}, ${f.status || 'new'}] ${f.summary}`,
+    `   From: ${f.staffName || '?'} (${ROLE_NAMES[f.role] || f.role || '?'}), ${viennaDateTime(f.created)}. Area: ${f.area || '-'}`,
+    f.details ? `   Details: ${String(f.details).replace(/\s+/g, ' ')}` : '',
+    f.adminNote ? `   Admin note: ${f.adminNote}` : '',
+  ].filter(Boolean).join('\n')).join('\n\n');
+}
+
+const REPORT_PROMPT = `You write the improvement report for the admin of Tripti Genusswelt (Indian restaurant, Villach, Austria) from feedback the staff gave the assistant in the Tripti Staff app.
+Write plain text (no markdown symbols like #, ** or tables), ready to print or paste into an email. Sections, with the titles in capitals:
+SUMMARY: 3-5 sentences: how much feedback, from which roles, the main themes.
+TOP PRIORITIES: the most important issues first (high impact and repeated ones). Merge entries about the same issue and say how many staff/times. For each: what the problem is, who it affects, and a concrete suggested fix in the app or in how the team works.
+BY ROLE: for each role that gave feedback, 1-4 short points.
+QUICK WINS: small changes that would help soon.
+IDEAS FOR LATER: bigger wishes.
+Only use what the feedback says; don't invent issues or numbers. Refer to entries by their number like (#3, #7).`;
+
+router.post('/feedback/report', feedbackLimit, signIn, adminOnly, async (req, res) => {
+  const lang = req.body?.lang === 'de' ? 'de' : 'en';
+  try {
+    const { days, list } = await loadFeedback({ days: req.body?.days, includeDone: !!req.body?.includeDone });
+    const now = viennaDateTime(new Date().toISOString());
+    const de = lang === 'de';
+    const head = de
+      ? `TRIPTI MITARBEITER-APP - VERBESSERUNGSBERICHT\nErstellt ${now} aus dem Mitarbeiter-Feedback der letzten ${days} Tage (${list.length} Einträge).\n`
+      : `TRIPTI STAFF APP - IMPROVEMENT REPORT\nCreated ${now} from staff feedback of the last ${days} days (${list.length} entries).\n`;
+    if (!list.length) return res.json({ text: `${head}\n${de ? 'Kein offenes Feedback in diesem Zeitraum.' : 'No open feedback in this period.'}\n`, entries: 0 });
+    const listing = feedbackListText([...list].reverse());
+    let analysis = '';
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        const msg = await anthropic().beta.messages.stream({
+          model: MODEL,
+          max_tokens: 12000,
+          output_config: { effort: 'medium' },
+          betas: ['server-side-fallback-2026-07-01'],
+          fallbacks: 'default',
+          system: REPORT_PROMPT,
+          messages: [{ role: 'user', content: `Write the report in ${lang === 'de' ? 'German' : 'English'}.\n\nFeedback entries:\n\n${listing}` }],
+        }).finalMessage();
+        if (msg.stop_reason !== 'refusal') analysis = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+      } catch (err) {
+        logger.error(`[assistant] feedback report: ${err.message}`);
+      }
+    }
+    const note = analysis ? '' : de ? '\n(Die Zusammenfassung konnte gerade nicht erstellt werden; alle Einträge stehen unten.)\n' : '\n(The written summary could not be created right now; all entries are listed below.)\n';
+    const text = `${head}${note}\n${analysis ? `${analysis}\n\n` : ''}${de ? 'ALLE FEEDBACK-EINTRÄGE (Originaltext)' : 'ALL FEEDBACK ENTRIES'}\n\n${listing}\n`;
+    return res.json({ text, entries: list.length, summarized: !!analysis });
+  } catch (err) {
+    logger.error(`[assistant] feedback report: ${err.message}`);
+    return res.status(500).json({ message: 'Could not create the report.' });
   }
 });
 

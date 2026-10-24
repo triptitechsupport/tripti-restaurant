@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote, ShieldCheck, Smartphone, Activity } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote, ShieldCheck, Smartphone, Activity, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
@@ -33,6 +33,7 @@ import AdminStockManagement from '@/components/AdminStockManagement.jsx';
 import StockAlertsPanel from '@/components/StockAlertsPanel.jsx';
 import AdminKotPrintOrder from '@/components/AdminKotPrintOrder.jsx';
 import AdminAnalysisView from '@/components/AdminAnalysisView.jsx';
+import AdminStaffFeedback from '@/components/AdminStaffFeedback.jsx';
 import MenuManager from '@/components/MenuManager.jsx';
 import SettlementBillingView from '@/components/SettlementBillingView.jsx';
 import StaffAppDownload from '@/components/StaffAppDownload.jsx';
@@ -418,6 +419,7 @@ export default function AdminBookingDashboard() {
   const renderLiveSection = () => <div className="p-2"><LiveOverview /></div>;
   const renderKotPrintOrderSection = () => <AdminKotPrintOrder />;
   const renderAnalysisSection = () => <AdminAnalysisView />;
+  const renderStaffFeedbackSection = () => <AdminStaffFeedback />;
 
   return (
     <>
@@ -734,6 +736,13 @@ export default function AdminBookingDashboard() {
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderAnalysisSection()}</AccordionContent>
               </AccordionItem>
+
+              <AccordionItem value="staff-feedback" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Sparkles className="w-5 h-5 mr-4 text-primary"/> {language === 'en' ? 'Staff feedback' : 'Mitarbeiter-Feedback'}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderStaffFeedbackSection()}</AccordionContent>
+              </AccordionItem>
             </Accordion>
           ) : (
             <>
@@ -801,6 +810,9 @@ export default function AdminBookingDashboard() {
                 <button onClick={() => setActiveTab('analysis')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <BarChart3 className="h-4 w-4 mr-2" /> {language === 'en' ? 'Analysis' : 'Analyse'}
                 </button>
+                <button onClick={() => setActiveTab('staff-feedback')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'staff-feedback' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Sparkles className="h-4 w-4 mr-2" /> {language === 'en' ? 'Staff feedback' : 'Mitarbeiter-Feedback'}
+                </button>
               </div>
 
               <div className="bg-card border-2 border-border rounded-3xl p-2 shadow-xl min-h-[600px] animate-in fade-in duration-300">
@@ -825,6 +837,7 @@ export default function AdminBookingDashboard() {
                 {activeTab === 'live' && renderLiveSection()}
                 {activeTab === 'staff-app' && renderStaffAppSection()}
                 {activeTab === 'analysis' && renderAnalysisSection()}
+                {activeTab === 'staff-feedback' && renderStaffFeedbackSection()}
               </div>
             </>
           )}
