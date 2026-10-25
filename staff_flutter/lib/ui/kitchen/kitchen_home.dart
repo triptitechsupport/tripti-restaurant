@@ -19,6 +19,7 @@ import 'recipes_page.dart';
 import 'sold_out_page.dart';
 import 'stock_requests_page.dart';
 import '../common/assistant.dart';
+import '../common/calls.dart';
 
 const _active = ['pending', 'preparing', 'ready'];
 const _delay = Duration(minutes: 5);
@@ -185,6 +186,7 @@ class _KitchenHomeState extends State<KitchenHome> {
           Text(session.displayName, style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w400)),
         ]),
         actions: [
+          const CallButton(),
           AssistantButton(onScreen: (screen) {
             const keys = ['tickets', 'preorders', 'recipes', 'soldout', 'stock'];
             final i = keys.indexOf(screen);

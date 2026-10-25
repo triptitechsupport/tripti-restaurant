@@ -8,6 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 
 // Voice calls on every staff page: call one person, pick several people,
 // or ring whole roles (all waiters, kitchen, admin, everyone...).
+const ROLE_ONE = { waiter: ['Waiter', 'Kellner'], cashier: ['Cashier', 'Kassierer'], kitchen_manager: ['Kitchen manager', 'Küchenleitung'], auditor: ['Auditor', 'Prüfer'] };
 const ROLE_ORDER = ['admin', 'waiter', 'cashier', 'kitchen', 'kitchen_manager', 'stock', 'auditor'];
 
 function fmt(sec) {
@@ -199,7 +200,7 @@ export default function StaffCalls() {
             <div>
               <div className="text-xl font-bold">{snap.incoming.createdByName}</div>
               <div className="text-sm text-muted-foreground">
-                {roleName(snap.incoming.createdByRole)}
+                {(ROLE_ONE[snap.incoming.createdByRole] || [roleName(snap.incoming.createdByRole)])[de ? 1 : 0] || roleName(snap.incoming.createdByRole)}
                 {(snap.incoming.targets || []).length > 1 || (snap.incoming.targets || []).some((t) => t.type === 'role') ? ` · ${tr('Group call', 'Gruppenanruf')}: ${snap.incoming.title}` : ''}
               </div>
             </div>

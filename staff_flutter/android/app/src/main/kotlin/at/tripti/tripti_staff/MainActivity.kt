@@ -15,21 +15,41 @@ class MainActivity : FlutterActivity() {
     private var pendingListen: MethodChannel.Result? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var ringtone: android.media.Ringtone? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         // Plays the phone's notification sound for new tickets and messages.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tripti/sound").setMethodCallHandler { call, result ->
-            if (call.method == "notify") {
-                try {
-                    val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                    RingtoneManager.getRingtone(applicationContext, uri)?.play()
-                    result.success(true)
-                } catch (e: Exception) {
-                    result.success(false)
+            when (call.method) {
+                "notify" -> {
+                    try {
+                        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                        RingtoneManager.getRingtone(applicationContext, uri)?.play()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
                 }
-            } else {
-                result.notImplemented()
+                // Incoming staff call: the phone's ringtone until answered.
+                "ring" -> {
+                    try {
+                        ringtone?.stop()
+                        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                        ringtone = RingtoneManager.getRingtone(applicationContext, uri)
+                        if (android.os.Build.VERSION.SDK_INT >= 28) ringtone?.isLooping = true
+                        ringtone?.play()
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "stopRing" -> {
+                    ringtone?.stop()
+                    ringtone = null
+                    result.success(true)
+                }
+                else -> result.notImplemented()
             }
         }
         // Voice for the assistant: the phone's own speech input and read-aloud.
@@ -96,6 +116,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        ringtone?.stop()
         tts?.shutdown()
         super.onDestroy()
     }

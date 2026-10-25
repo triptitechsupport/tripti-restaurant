@@ -24,7 +24,7 @@ router.get('/staff', limit, signIn, async (req, res) => {
       for (const r of list) {
         if (r.active === false || r.isActive === false) continue;
         if (r.id === req.staff.id) continue;
-        people.push({ id: r.id, name: r.displayName || r.username || (col === 'admin_users' ? 'Admin' : r.email) || col, role: roleOf(col, r) });
+        people.push({ id: r.id, name: r.displayName || r.username || (r.email ? String(r.email).split('@')[0] : '') || (col === 'admin_users' ? 'Admin' : col), role: roleOf(col, r) });
       }
     }
     return res.json({ me: { id: req.staff.id, name: req.staff.name, role: req.staff.role }, people });

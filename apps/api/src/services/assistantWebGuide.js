@@ -21,6 +21,7 @@ const COMMON = `
 - Restaurant: Tripti Genusswelt, Villach (Austria). Indian food. Staff speak German and English.
 - Each role has its own page and sign-in: Waiter Station (/waiter-dashboard, waiters and cashiers), Kitchen Display (/kds-dashboard, kitchen and kitchen manager), Stock Station (/stock-dashboard), Auditor (/auditor-dashboard), Admin Dashboard (/admin). EN / DE in the header switches the language.
 - Staff chat: the round speech-bubble button at the bottom right. The assistant (this chat) is the gold sparkle button at the bottom left. It answers questions; staff press the buttons themselves. Staff can also tell it about problems and ideas: it notes them for the admin's improvement report (Admin Dashboard -> Staff feedback).
+- Green phone button at the bottom left (next to the assistant) = Call: "One person" or "Group" (pick people and/or whole roles such as Everyone, Waiters, Kitchen, Admin). The phone icon in the staff chat calls the open conversation. Incoming calls show Answer / Decline; the green call bar has mute and hang up. The browser asks once for the microphone.
 - There is also the Android staff app "Tripti Staff" with the same functions; this guide is about the website.
 
 # Restaurant rules the server enforces (these are current; if the help text below disagrees, these win)

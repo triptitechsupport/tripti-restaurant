@@ -17,6 +17,7 @@ import '../cashier/receipts_page.dart';
 import 'active_page.dart';
 import 'tables_page.dart';
 import '../common/assistant.dart';
+import '../common/calls.dart';
 
 /// Gives the waiter screens the live data and the order actions.
 class StoreScope extends InheritedNotifier<LiveStore> {
@@ -172,6 +173,7 @@ class _WaiterHomeState extends State<WaiterHome> {
                   style: const TextStyle(fontSize: 12, color: Colors.white70, fontFamily: null, fontWeight: FontWeight.w400)),
             ]),
             actions: [
+              const CallButton(),
               AssistantButton(onScreen: (screen) {
                 final keys = cashier ? const ['tables', 'bills', 'receipts', 'tickets'] : const ['tables', 'tickets'];
                 final i = keys.indexOf(screen);

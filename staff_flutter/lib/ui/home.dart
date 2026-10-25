@@ -4,6 +4,7 @@ import '../core/scope.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import 'auditor/auditor_home.dart';
+import 'common/calls.dart';
 import 'kitchen/kitchen_home.dart';
 import 'stock/stock_home.dart';
 import 'waiter/waiter_home.dart';
@@ -102,6 +103,7 @@ class ComingSoon extends StatelessWidget {
     final session = AppScope.of(context);
     return Scaffold(
       appBar: AppBar(title: Text(roleName(context, session.role)), actions: [
+        const CallButton(),
         IconButton(icon: const Icon(Icons.more_vert), onPressed: () => showMoreSheet(context)),
       ]),
       body: Center(

@@ -11,6 +11,7 @@ import 'inventory_page.dart';
 import 'issue_page.dart';
 import 'waste_page.dart';
 import '../common/assistant.dart';
+import '../common/calls.dart';
 
 /// Stock manager: stock list, kitchen requests, goods in, give out, waste.
 class StockHome extends StatefulWidget {
@@ -56,6 +57,7 @@ class _StockHomeState extends State<StockHome> {
           Text(session.displayName, style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w400)),
         ]),
         actions: [
+          const CallButton(),
           AssistantButton(onScreen: (screen) {
             const keys = ['stock', 'requests', 'goodsin', 'giveout', 'waste'];
             final i = keys.indexOf(screen);

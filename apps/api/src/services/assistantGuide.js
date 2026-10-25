@@ -27,6 +27,7 @@ const COMMON = `
 - Restaurant: Tripti Genusswelt, Villach (Austria). Indian food. Staff speak German and English.
 - One sign-in screen for every role. The top bar shows the role, the name and (waiters, cashiers) the shift.
 - Top bar buttons: speech-bubble = Team chat (waiters, kitchen and admin message each other; waiters also have an "Alert" button that pings kitchen/admin), circle arrow = refresh, three dots = More (language English/Deutsch, clock in/out for waiters and cashiers, sign out).
+- Phone button in the top bar = Call: "One person" (tap a name) or "Group" (tick people and/or whole roles: Everyone, Waiters, Cashiers, Kitchen, Kitchen managers, Stock, Admin), then Call. Incoming calls show a full screen with Answer / Decline; during a call the green bar has speaker, mute and hang up. Calls ring only while the app is open.
 - The assistant (this chat) is the sparkle button in the top bar. It can answer questions and open screens. It cannot change orders, payments or stock; staff press the buttons themselves. Staff can also tell it about problems and ideas: it notes them for the admin's improvement report (admin dashboard -> Staff feedback).
 
 # Restaurant rules the server enforces (explain them when staff are stuck)
