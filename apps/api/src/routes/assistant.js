@@ -33,7 +33,7 @@ const limit = rateLimit({
   validate: { trustProxy: false },
 });
 
-function roleOf(collection, record) {
+export function roleOf(collection, record) {
   const r = record.role || '';
   if (collection === 'admin_users') return 'admin';
   if (collection === 'waiter_users') return r === 'cashier' ? 'cashier' : 'waiter';
@@ -42,7 +42,7 @@ function roleOf(collection, record) {
   return 'auditor';
 }
 
-async function signIn(req, res, next) {
+export async function signIn(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return res.status(401).json({ message: 'Staff sign-in required.' });
   for (const name of COLLECTIONS) {

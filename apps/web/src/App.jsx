@@ -53,6 +53,7 @@ const StockHelpPage = lazy(() => import('@/pages/StockHelpPage.jsx'));
 const SubscriptionsPage = lazy(() => import('@/pages/SubscriptionsPage.jsx'));
 import WhatsAppButton from '@/components/WhatsAppButton.jsx';
 import StaffAssistant from '@/components/StaffAssistant.jsx';
+import StaffCalls from '@/components/StaffCalls.jsx';
 import GlobalReservationNotifications from '@/components/GlobalReservationNotifications.jsx';
 import { LOGIN_PATH, MANAGE_PATH } from '@/config/subscriptionRoutes.js';
 import { isStaffApp } from '@/lib/staffApp.js';
@@ -263,6 +264,7 @@ function App() {
                       <ConnectionMonitor />
                       <Layout />
                       <StaffAssistant />
+                      <StaffCalls />
                       {!isStaffApp && <WhatsAppButton />}
                     </>
                   }

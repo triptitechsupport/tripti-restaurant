@@ -2,30 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Sparkles, X, Mic, Send, Volume2, VolumeX, Trash2, Loader2 } from 'lucide-react';
 import apiServerClient from '@/lib/apiServerClient.js';
-import pb from '@/lib/pocketbaseClient.js';
-import { kdsPb, waiterPb, stockPb, auditorPb } from '@/lib/staffClients.js';
+import { signedInClient, ALL_STAFF_CLIENTS } from '@/lib/staffSession.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 
 // The staff assistant on the website's staff and admin pages (the Android
 // staff app has its own). It asks the server (/api/assistant/chat) with the
 // signed-in person's own login, so it only sees what that role may see.
-
-const PAGES = [
-  { match: (p) => p.startsWith('/waiter'), client: waiterPb },
-  { match: (p) => p.startsWith('/kds'), client: kdsPb },
-  { match: (p) => p.startsWith('/stock'), client: stockPb },
-  { match: (p) => p.startsWith('/auditor'), client: auditorPb },
-  { match: (p) => p === '/admin' || p.startsWith('/admin-dashboard') || p.startsWith('/admin-booking') || p.startsWith('/admin/') || p === '/admin-help', client: null },
-];
-
-function signedInClient(pathname) {
-  const page = PAGES.find((x) => x.match(pathname));
-  if (!page) return null;
-  if (page.client?.authStore.isValid) return page.client;
-  // An admin may open the staff pages with the admin login.
-  const admin = pb.authStore.isValid && (pb.authStore.record || pb.authStore.model)?.collectionName === 'admin_users';
-  return admin ? pb : null;
-}
 
 const SUGGEST = {
   waiter_users: [['Which of my tickets are ready?', 'Welche meiner Tickets sind fertig?'], ['How do I combine two tables?', 'Wie kombiniere ich zwei Tische?'], ['Why can\'t I ask for the bill?', 'Warum kann ich die Rechnung nicht anfordern?']],
@@ -71,8 +53,7 @@ export default function StaffAssistant() {
 
   // Show/hide when someone signs in or out on this page.
   useEffect(() => {
-    const clients = [pb, waiterPb, kdsPb, stockPb, auditorPb];
-    const offs = clients.map((c) => c.authStore.onChange(() => setTick((t) => t + 1)));
+    const offs = ALL_STAFF_CLIENTS.map((c) => c.authStore.onChange(() => setTick((t) => t + 1)));
     return () => offs.forEach((off) => off());
   }, []);
 
