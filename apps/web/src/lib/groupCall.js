@@ -5,7 +5,10 @@
 // joining at the same moment still connect exactly once.
 // The Android app (staff_flutter/lib/core/calls.dart) speaks the same protocol.
 
+// Fallback when the server's /calls/ice list can't be loaded. Without a TURN
+// relay from the server, calls only work when both devices can reach each other.
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+const AUDIO_WAIT_MS = 15000;
 const RING_MS = 45000;
 
 function waitForIce(pc) {
@@ -13,7 +16,7 @@ function waitForIce(pc) {
     if (pc.iceGatheringState === 'complete') return resolve();
     const done = () => { if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', done); resolve(); } };
     pc.addEventListener('icegatheringstatechange', done);
-    setTimeout(resolve, 2500);
+    setTimeout(resolve, 4000);
   });
 }
 
@@ -50,8 +53,11 @@ export function targetsMe(room, me) {
 }
 
 export class GroupCall {
-  constructor({ pb, me, onChange }) {
+  constructor({ pb, me, onChange, loadIce }) {
     this.pb = pb;
+    this.loadIce = loadIce || null;
+    this.ice = null;
+    this.relay = false;
     this.me = me;
     this.onChange = onChange || (() => {});
     this.state = 'idle'; // idle | incoming | in-call
@@ -77,6 +83,9 @@ export class GroupCall {
       incoming: this.incoming,
       members: this.members,
       connected: [...this.peers.entries()].filter(([, p]) => p.pc.connectionState === 'connected').map(([id]) => id),
+      // Joined people whose audio did not get through (network blocks it).
+      noAudio: this.members.filter((m) => m.userId !== this.me.id && m.state === 'joined' && this.audioFailed(m.userId)).map((m) => m.userId),
+      relay: this.relay,
       muted: this.muted,
       error: this.error,
       startedAt: this.startedAt,
@@ -109,6 +118,29 @@ export class GroupCall {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
   }
 
+  audioFailed(userId) {
+    const p = this.peers.get(userId);
+    if (p) return p.pc.connectionState === 'failed' || (p.pc.connectionState !== 'connected' && Date.now() - p.since > AUDIO_WAIT_MS);
+    const m = this.members.find((x) => x.userId === userId);
+    const at = m?.joinedAt || 0;
+    return at > 0 && Date.now() - at > AUDIO_WAIT_MS;
+  }
+
+  async prepareIce() {
+    if (this.ice) return this.ice;
+    try {
+      const d = this.loadIce ? await this.loadIce() : null;
+      if (d && Array.isArray(d.iceServers) && d.iceServers.length) {
+        this.ice = d.iceServers;
+        this.relay = !!d.relay;
+        return this.ice;
+      }
+    } catch (err) {
+      console.warn('[calls] ice servers', err);
+    }
+    return ICE;
+  }
+
   async getMic() {
     if (this.stream) return this.stream;
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -129,6 +161,7 @@ export class GroupCall {
       this.error = this.micError(err);
       return this.emit();
     }
+    await this.prepareIce();
     const opts = { $autoCancel: false };
     try {
       this.room = await this.pb.collection('call_rooms').create({ createdById: this.me.id, createdByName: this.me.name, createdByRole: this.me.role, title: title || '', targets, status: 'ringing' }, opts);
@@ -171,6 +204,7 @@ export class GroupCall {
       this.state = 'idle';
       return this.emit();
     }
+    await this.prepareIce();
     const opts = { $autoCancel: false };
     try {
       const fresh = await this.pb.collection('call_rooms').getOne(room.id, opts);
@@ -180,7 +214,8 @@ export class GroupCall {
       this.state = 'in-call';
       await this.saveMyState('joined');
       if (fresh.status !== 'active') await this.pb.collection('call_rooms').update(fresh.id, { status: 'active' }, opts).catch(() => {});
-      this.members = await this.pb.collection('call_members').getFullList({ filter: this.pb.filter('room = {:r}', { r: fresh.id }), ...opts });
+      const rows = await this.pb.collection('call_members').getFullList({ filter: this.pb.filter('room = {:r}', { r: fresh.id }), ...opts });
+      this.members = rows.map((m) => ({ ...m, joinedAt: m.state === 'joined' ? Date.now() : 0 }));
       this.startedAt = Date.now();
       for (const m of this.members) if (m.state === 'joined') await this.ensurePeer(m.userId);
     } catch {
@@ -222,6 +257,7 @@ export class GroupCall {
     this.members = [];
     this.startedAt = null;
     this.muted = false;
+    this.ice = null;
     this.emit();
     if (!room) return;
     const opts = { $autoCancel: false };
@@ -245,7 +281,7 @@ export class GroupCall {
   }
 
   newPeer(userId) {
-    const pc = new RTCPeerConnection({ iceServers: ICE });
+    const pc = new RTCPeerConnection({ iceServers: this.ice || ICE });
     const audio = document.createElement('audio');
     audio.autoplay = true;
     audio.playsInline = true;
@@ -257,7 +293,9 @@ export class GroupCall {
       this.emit();
     };
     this.stream?.getTracks().forEach((t) => pc.addTrack(t, this.stream));
-    const peer = { pc, audio };
+    const peer = { pc, audio, since: Date.now() };
+    // Re-check the audio state once the waiting time is over.
+    peer.check = setTimeout(() => this.emit(), AUDIO_WAIT_MS + 200);
     this.peers.set(userId, peer);
     return peer;
   }
@@ -265,6 +303,7 @@ export class GroupCall {
   closePeer(userId) {
     const p = this.peers.get(userId);
     if (!p) return;
+    clearTimeout(p.check);
     try { p.pc.close(); } catch { /* ignore */ }
     p.audio.srcObject = null;
     p.audio.remove();
@@ -305,7 +344,10 @@ export class GroupCall {
     }
     if (!this.room || m.room !== this.room.id) return;
     const i = this.members.findIndex((x) => x.userId === m.userId);
-    if (i >= 0) this.members[i] = m; else this.members.push(m);
+    const prev = i >= 0 ? this.members[i] : null;
+    const row = { ...m, joinedAt: m.state === 'joined' ? (prev?.state === 'joined' && prev.joinedAt) || Date.now() : 0 };
+    if (i >= 0) this.members[i] = row; else this.members.push(row);
+    if (m.state === 'joined' && m.userId !== this.me.id) setTimeout(() => this.emit(), AUDIO_WAIT_MS + 200);
     if (m.userId !== this.me.id) {
       if (m.state === 'joined') {
         this.clearRing();

@@ -16,10 +16,14 @@ import 'session.dart';
 /// call_signals (WebRTC offer/answer). One connection per pair; of each
 /// pair the smaller user id sends the offer.
 
+/// Fallback when the server's /calls/ice list can't be loaded. Without a
+/// TURN relay from the server, audio only works when both phones can reach
+/// each other directly.
 const _ice = [
   {'urls': 'stun:stun.l.google.com:19302'},
   {'urls': 'stun:stun1.l.google.com:19302'},
 ];
+const _audioWait = Duration(seconds: 15);
 const _ringFor = Duration(seconds: 45);
 const _sound = MethodChannel('tripti/sound');
 
@@ -78,11 +82,13 @@ Future<List<StaffPerson>> loadCallableStaff(String token) async {
 }
 
 class CallMember {
-  CallMember(this.userId, this.name, this.role, this.state);
+  CallMember(this.userId, this.name, this.role, this.state)
+    : joinedAt = state == 'joined' ? DateTime.now() : null;
   final String userId;
   final String name;
   final String role;
   String state;
+  DateTime? joinedAt;
 }
 
 enum CallState { idle, incoming, inCall }
@@ -90,7 +96,10 @@ enum CallState { idle, incoming, inCall }
 class _Peer {
   _Peer(this.pc);
   final RTCPeerConnection pc;
+  final DateTime since = DateTime.now();
   bool connected = false;
+  bool failed = false;
+  Timer? check;
 }
 
 class CallEngine extends ChangeNotifier {
@@ -121,7 +130,54 @@ class CallEngine extends ChangeNotifier {
   bool _ringing = false;
   bool _disposed = false;
 
+  List<Map<String, dynamic>>? _iceServers;
+
+  /// True when the server gave a TURN relay (audio works on any network).
+  bool relay = false;
+
   bool isConnected(String userId) => _peers[userId]?.connected ?? false;
+
+  /// A joined person whose audio did not get through (network blocks it).
+  bool noAudio(String userId) {
+    final p = _peers[userId];
+    final now = DateTime.now();
+    if (p != null) {
+      return p.failed || (!p.connected && now.difference(p.since) > _audioWait);
+    }
+    final m = members.where((x) => x.userId == userId).firstOrNull;
+    final at = m?.state == 'joined' ? m?.joinedAt : null;
+    return at != null && now.difference(at) > _audioWait;
+  }
+
+  bool get anyConnected => _peers.values.any((p) => p.connected);
+  bool get anyNoAudio =>
+      others.any((m) => m.state == 'joined' && noAudio(m.userId));
+
+  Future<void> _prepareIce() async {
+    if (_iceServers != null) return;
+    try {
+      final r = await http
+          .get(
+            Uri.parse('${AppConfig.apiUrl}/calls/ice'),
+            headers: {
+              'Authorization': 'Bearer ${pb.authStore.token}',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+      if (r.statusCode >= 300) return;
+      final d = jsonDecode(utf8.decode(r.bodyBytes));
+      final list = d is Map ? d['iceServers'] : null;
+      if (list is List && list.isNotEmpty) {
+        _iceServers = [
+          for (final x in list)
+            if (x is Map) Map<String, dynamic>.from(x),
+        ];
+        relay = d['relay'] == true;
+      }
+    } catch (_) {}
+  }
+
   List<CallMember> get others =>
       members.where((m) => m.userId != myId).toList();
   bool get anyoneJoined => others.any((m) => m.state == 'joined');
@@ -230,6 +286,7 @@ class CallEngine extends ChangeNotifier {
       _emit();
       return;
     }
+    await _prepareIce();
     try {
       room = await pb
           .collection('call_rooms')
@@ -303,6 +360,7 @@ class CallEngine extends ChangeNotifier {
       _emit();
       return;
     }
+    await _prepareIce();
     try {
       final fresh = await pb.collection('call_rooms').getOne(r.id);
       if (fresh.getStringValue('status') == 'ended') throw Exception('ended');
@@ -410,6 +468,7 @@ class CallEngine extends ChangeNotifier {
     members.clear();
     startedAt = null;
     muted = false;
+    _iceServers = null;
     _emit();
     if (r == null) return;
     try {
@@ -448,19 +507,23 @@ class CallEngine extends ChangeNotifier {
 
   Future<_Peer> _newPeer(String userId) async {
     final pc = await createPeerConnection({
-      'iceServers': _ice,
+      'iceServers': _iceServers ?? _ice,
       'sdpSemantics': 'unified-plan',
     });
     final peer = _Peer(pc);
     pc.onConnectionState = (s) {
       peer.connected =
           s == RTCPeerConnectionState.RTCPeerConnectionStateConnected;
+      peer.failed = s == RTCPeerConnectionState.RTCPeerConnectionStateFailed;
       if (peer.connected) {
         _clearRing();
         startedAt ??= DateTime.now();
+        // Android picks the audio route when the sound starts; set it again.
+        _applySpeaker();
       }
       _emit();
     };
+    peer.check = Timer(_audioWait + const Duration(milliseconds: 200), _emit);
     final s = _stream;
     if (s != null) {
       for (final t in s.getTracks()) {
@@ -474,6 +537,7 @@ class CallEngine extends ChangeNotifier {
   Future<void> _closePeer(String userId) async {
     final p = _peers.remove(userId);
     if (p == null) return;
+    p.check?.cancel();
     try {
       await p.pc.close();
     } catch (_) {}
@@ -492,7 +556,7 @@ class CallEngine extends ChangeNotifier {
       }
     };
     await done.future.timeout(
-      const Duration(milliseconds: 2500),
+      const Duration(milliseconds: 4000),
       onTimeout: () {},
     );
   }
@@ -563,7 +627,11 @@ class CallEngine extends ChangeNotifier {
     if (room == null || roomId != room!.id) return;
     final i = members.indexWhere((x) => x.userId == uid);
     if (i >= 0) {
+      final was = members[i].state;
       members[i].state = st;
+      if (st == 'joined' && was != 'joined') {
+        members[i].joinedAt = DateTime.now();
+      }
     } else {
       members.add(
         CallMember(uid, m.getStringValue('name'), m.getStringValue('role'), st),
@@ -573,6 +641,7 @@ class CallEngine extends ChangeNotifier {
       if (st == 'joined') {
         _clearRing();
         startedAt ??= DateTime.now();
+        Timer(_audioWait + const Duration(milliseconds: 200), _emit);
         await _ensurePeer(uid);
       } else {
         await _closePeer(uid);

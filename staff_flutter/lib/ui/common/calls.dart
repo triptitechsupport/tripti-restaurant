@@ -334,9 +334,17 @@ class _InCallBarState extends State<_InCallBar> {
                         ),
                       ),
                       Text(
-                        c.anyoneJoined
+                        !c.anyoneJoined
+                            ? tr(context, 'Ringing…', 'Klingelt…')
+                            : c.anyConnected
                             ? '${tr(context, 'Connected', 'Verbunden')} · $time'
-                            : tr(context, 'Ringing…', 'Klingelt…'),
+                            : c.anyNoAudio
+                            ? tr(context, 'No sound', 'Kein Ton')
+                            : tr(
+                                context,
+                                'Connecting audio…',
+                                'Ton wird verbunden…',
+                              ),
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 12,
@@ -365,6 +373,24 @@ class _InCallBarState extends State<_InCallBar> {
                 ),
               ],
             ),
+            if (c.anyNoAudio) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  tr(
+                    context,
+                    'The network blocks the sound for this call. Try the same Wi-Fi on both phones, or ask the admin to set up the call relay (TURN).',
+                    'Das Netzwerk blockiert den Ton. Beide Geräte ins selbe WLAN, oder den Admin bitten, den Anruf-Relay (TURN) einzurichten.',
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+            ],
             if (others.isNotEmpty) ...[
               const SizedBox(height: 8),
               Wrap(
@@ -381,6 +407,8 @@ class _InCallBarState extends State<_InCallBar> {
                         color: m.state == 'joined'
                             ? (c.isConnected(m.userId)
                                   ? Colors.white
+                                  : c.noAudio(m.userId)
+                                  ? Colors.amber.shade200
                                   : Colors.white60)
                             : Colors.black26,
                         borderRadius: BorderRadius.circular(20),

@@ -45,7 +45,12 @@ export default function StaffCalls() {
   // One call engine per signed-in person.
   useEffect(() => {
     if (!key) return undefined;
-    const g = new GroupCall({ pb: client, me, onChange: setSnap });
+    const loadIce = async () => {
+      const res = await apiServerClient.fetch('/calls/ice', { headers: { Authorization: `Bearer ${client.authStore.token}` } });
+      if (!res.ok) throw new Error(`ice ${res.status}`);
+      return res.json();
+    };
+    const g = new GroupCall({ pb: client, me, onChange: setSnap, loadIce });
     engine.current = g;
     g.start().catch((err) => console.error('[calls] start', err));
     setSnap(g.snapshot());
@@ -219,7 +224,11 @@ export default function StaffCalls() {
             <div className="flex-1 min-w-0">
               <div className="font-bold truncate">{roomTitle || tr('Call', 'Anruf')}</div>
               <div className="text-xs text-white/80">
-                {joined.length ? `${tr('Connected', 'Verbunden')} · ${fmt(Math.max(0, Math.floor((now - (snap.startedAt || now)) / 1000)))}` : tr('Ringing…', 'Klingelt…')}
+                {!joined.length
+                  ? tr('Ringing…', 'Klingelt…')
+                  : snap.connected.length
+                    ? `${tr('Connected', 'Verbunden')} · ${fmt(Math.max(0, Math.floor((now - (snap.startedAt || now)) / 1000)))}`
+                    : snap.noAudio.length ? tr('No sound', 'Kein Ton') : tr('Connecting audio…', 'Ton wird verbunden…')}
               </div>
             </div>
             <button type="button" onClick={() => g?.toggleMute()} className="h-11 w-11 rounded-full bg-white/15 flex items-center justify-center" aria-label={snap.muted ? tr('Unmute', 'Ton an') : tr('Mute', 'Stumm')}>
@@ -229,10 +238,15 @@ export default function StaffCalls() {
               <PhoneOff className="h-5 w-5" />
             </button>
           </div>
+          {snap.noAudio.length > 0 && (
+            <div className="text-xs bg-black/25 rounded-lg px-2 py-1.5">
+              {tr('The network blocks the sound for this call. Try the same Wi-Fi on both phones, or ask the admin to set up the call relay (TURN).', 'Das Netzwerk blockiert den Ton. Beide Geräte ins selbe WLAN, oder den Admin bitten, den Anruf-Relay (TURN) einzurichten.')}
+            </div>
+          )}
           {others.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {others.map((m) => (
-                <span key={m.userId} className={`text-xs px-2 py-0.5 rounded-full ${m.state === 'joined' ? (snap.connected.includes(m.userId) ? 'bg-white text-emerald-800' : 'bg-white/60 text-emerald-900') : 'bg-black/20 line-through'}`}>
+                <span key={m.userId} className={`text-xs px-2 py-0.5 rounded-full ${m.state === 'joined' ? (snap.connected.includes(m.userId) ? 'bg-white text-emerald-800' : snap.noAudio.includes(m.userId) ? 'bg-amber-200 text-amber-900' : 'bg-white/60 text-emerald-900') : 'bg-black/20 line-through'}`}>
                   {m.name}{m.state === 'declined' ? ` (${tr('declined', 'abgelehnt')})` : m.state === 'left' ? ` (${tr('left', 'aufgelegt')})` : ''}
                 </span>
               ))}
