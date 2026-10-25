@@ -15,6 +15,11 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    # Pushes to two branches at once (android-app and pickup-orders) both
+    # publish to the same download link; run them one after another.
+    concurrency:
+      group: staff-flutter-apk-publish
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: staff_flutter
