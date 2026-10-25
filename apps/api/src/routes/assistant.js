@@ -5,6 +5,7 @@ import PocketBase from 'pocketbase';
 import adminPb from '../utils/pocketbaseClient.js';
 import logger from '../utils/logger.js';
 import { guideFor, ROLE_NAMES, SCREENS } from '../services/assistantGuide.js';
+import { webGuideFor } from '../services/assistantWebGuide.js';
 
 // Staff assistant: answers "how do I ..." questions and questions about live
 // data. Every data tool reads with the staff member's own sign-in, so
@@ -135,7 +136,7 @@ const ROLE_TOOLS = {
   admin: ['open_tables', 'kitchen_tickets', 'menu', 'pickup_orders', 'stock_items', 'stock_requests', 'payments_today'],
 };
 const EVERY_ROLE = ['record_feedback'];
-const toolsFor = (role) => TOOLS.filter((t) => t.name === 'open_screen' ? (SCREENS[role] || []).length > 0 : EVERY_ROLE.includes(t.name) || (ROLE_TOOLS[role] || []).includes(t.name));
+const toolsFor = (role, web) => TOOLS.filter((t) => t.name === 'open_screen' ? !web && (SCREENS[role] || []).length > 0 : EVERY_ROLE.includes(t.name) || (ROLE_TOOLS[role] || []).includes(t.name));
 
 async function runTool(staff, name, input, out) {
   if (name !== 'open_screen' && !EVERY_ROLE.includes(name) && !(ROLE_TOOLS[staff.role] || []).includes(name)) return { error: 'Not allowed for this role.' };
@@ -227,6 +228,7 @@ async function runTool(staff, name, input, out) {
     }
     case 'open_screen': {
       const screen = String(input.screen || '');
+      if (out.web) return { error: 'Not available on the website.' };
       if (!(SCREENS[staff.role] || []).includes(screen)) return { error: `No screen "${screen}" for this role.` };
       out.screen = screen;
       return { ok: true };
@@ -236,16 +238,20 @@ async function runTool(staff, name, input, out) {
   }
 }
 
-function systemPrompt(staff, lang) {
+// The long part (rules + guide) depends only on role, language and app, so
+// it is cached; the signed-in person comes in a second, small block.
+function systemPrompt(staff, lang, web) {
   const screens = (SCREENS[staff.role] || []).join(', ') || 'none';
-  return `You are the help assistant inside the Tripti Staff app of Tripti Genusswelt, an Indian restaurant in Villach, Austria. You help staff who are busy and often on their feet: answer short and clear, in plain words, like a helpful colleague.
+  const rules = `You are the help assistant ${web ? 'on the staff pages of the Tripti website' : 'inside the Tripti Staff app'} of Tripti Genusswelt, an Indian restaurant in Villach, Austria. You help staff who are busy and often on their feet: answer short and clear, in plain words, like a helpful colleague.
 
 How to answer:
 - Reply in the language the staff member writes or speaks (German or English). Their app language is ${lang === 'de' ? 'German' : 'English'}.
 - Keep answers to 1-4 short sentences or a short list. Your answer may be read aloud, so avoid tables, markdown headings and long lists.
-- For "how do I" questions, give the exact buttons to press, using the names below, and open the right screen with open_screen when that helps.
+- For "how do I" questions, give the exact buttons to press, using the names below${web ? '' : ', and open the right screen with open_screen when that helps'}.
 - For questions about live data (tables, tickets, stock, menu, pickups, payments), call the tools; never guess numbers. Say when something is empty.
-- You can only read. You cannot send orders, take payments, change stock or press buttons. If asked to do something, explain the steps and open the screen.
+- You can only read. You cannot send orders, take payments, change stock or press buttons. If asked to do something, explain the steps${web ? '' : ' and open the screen'}.
+- You only have tools for data this role may see. If asked about other data, say politely that this role can't see it and who can.
+- If you don't know, say so and suggest asking the manager.
 
 Problems and ideas (collect them for the admin):
 - When someone has a problem with the app or the work, first try to help: explain the rule or the steps.
@@ -253,13 +259,14 @@ Problems and ideas (collect them for the admin):
 - Save it with record_feedback, then tell them in one sentence that it is noted for the admin.
 - Also save it, without extra questions, when they wish for something the app can't do (kind missing), when they share an idea (kind idea), or when they clearly struggled to find how to do something (kind confusing).
 - Don't save plain questions you answered well, and never save passwords or guests' personal details.
-- You only have tools for data this role may see. If asked about other data, say politely that this role can't see it and who can.
-- If you don't know, say so and suggest asking the manager.
 
-Signed-in staff member: ${staff.name}, role: ${ROLE_NAMES[staff.role] || staff.role}.
-Screens open_screen can open for this role: ${screens}.
-
-${guideFor(staff.role)}`;
+Role: ${ROLE_NAMES[staff.role] || staff.role}.
+${web ? '' : `Screens open_screen can open for this role: ${screens}.\n`}
+${web ? webGuideFor(staff.role) : guideFor(staff.role)}`;
+  return [
+    { type: 'text', text: rules, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: `Signed-in staff member: ${staff.name}, role: ${ROLE_NAMES[staff.role] || staff.role}${web ? ', using the website' : ', using the Android app'}.` },
+  ];
 }
 
 router.post('/chat', limit, signIn, async (req, res) => {
@@ -276,8 +283,9 @@ router.post('/chat', limit, signIn, async (req, res) => {
   if (!messages.length || messages[messages.length - 1].role !== 'user') return res.status(400).json({ message: 'Ask a question.' });
 
   const staff = req.staff;
-  const out = {};
-  const system = systemPrompt(staff, lang);
+  const web = body.app === 'web';
+  const out = { web };
+  const system = systemPrompt(staff, lang, web);
   try {
     let reply = '';
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -287,8 +295,8 @@ router.post('/chat', limit, signIn, async (req, res) => {
         output_config: { effort: EFFORT },
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',
-        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-        tools: toolsFor(staff.role),
+        system,
+        tools: toolsFor(staff.role, web),
         messages,
       });
       if (response.stop_reason === 'refusal') {
@@ -315,7 +323,7 @@ router.post('/chat', limit, signIn, async (req, res) => {
       messages.push({ role: 'user', content: results });
     }
     if (!reply) reply = lang === 'de' ? 'Das hat zu lange gedauert. Bitte frag noch einmal kürzer.' : 'That took too long. Please ask again in fewer words.';
-    logger.info(`[assistant] ${staff.role} ${staff.name}: ${messages.length} msgs${out.screen ? `, open ${out.screen}` : ''}`);
+    logger.info(`[assistant] ${web ? 'web ' : ''}${staff.role} ${staff.name}: ${messages.length} msgs${out.screen ? `, open ${out.screen}` : ''}`);
     return res.json({ reply, screen: out.screen || null });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) return res.status(429).json({ message: 'The assistant is busy. Please try again in a moment.' });
