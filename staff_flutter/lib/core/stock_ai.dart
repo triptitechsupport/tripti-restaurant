@@ -72,3 +72,21 @@ Future<Map<String, dynamic>> readBill({required String token, required List<int>
 /// Books the checked bill: new items, lots, quantities and history.
 Future<Map<String, dynamic>> bookBill({required String token, required Map<String, dynamic> bill, required List<Map<String, dynamic>> lines, bool force = false}) =>
     _post('/stock-ai/bill/book', token, {...bill, 'lines': lines, 'force': force}, timeout: const Duration(minutes: 2));
+
+/// Supplier product list search -> {suppliers, total, items}.
+Future<Map<String, dynamic>> searchCatalog({required String token, required String q, int limit = 60}) async {
+  final r = await http
+      .get(Uri.parse('${AppConfig.apiUrl}/stock-ai/catalog?limit=$limit&q=${Uri.encodeQueryComponent(q)}'), headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'})
+      .timeout(const Duration(seconds: 20));
+  dynamic d;
+  try {
+    d = jsonDecode(utf8.decode(r.bodyBytes));
+  } catch (_) {
+    d = null;
+  }
+  if (r.statusCode >= 300 || d is! Map) throw StockAiError(d is Map && d['message'] != null ? '${d['message']}' : 'Error ${r.statusCode}');
+  return Map<String, dynamic>.from(d);
+}
+
+/// Adds picked catalogue products as stock items -> {created, results}.
+Future<Map<String, dynamic>> addFromCatalog({required String token, required List<Map<String, dynamic>> items}) => _post('/stock-ai/catalog/add', token, {'items': items});

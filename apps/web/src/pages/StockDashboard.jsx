@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import StockLocations from '@/components/StockLocations.jsx';
 import StockLots from '@/components/StockLots.jsx';
 import StockGoodsIn from '@/components/StockGoodsIn.jsx';
+import StockCatalog from '@/components/StockCatalog.jsx';
 import StockIssue from '@/components/StockIssue.jsx';
 import StockBarcodes from '@/components/StockBarcodes.jsx';
 import StockAlertsPanel from '@/components/StockAlertsPanel.jsx';
@@ -952,7 +953,10 @@ export default function StockDashboard() {
                     {t('stock_lowStockOnly')}
                   </label>
                 </div>
-                <Button onClick={openAddItem} className="h-11 shadow-md shrink-0"><Plus className="h-4 w-4 mr-2" /> {t('stock_addItem')}</Button>
+                <div className="flex gap-2 shrink-0">
+                  <StockCatalog pb={pb} onAdded={fetchItems} />
+                  <Button onClick={openAddItem} className="h-11 shadow-md shrink-0"><Plus className="h-4 w-4 mr-2" /> {t('stock_addItem')}</Button>
+                </div>
               </div>
 
               {/* CSV export / import for stock items — bulk management */}

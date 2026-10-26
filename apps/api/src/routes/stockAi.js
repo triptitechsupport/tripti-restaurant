@@ -3,7 +3,9 @@ import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import logger from '../utils/logger.js';
 import { signIn } from './assistant.js';
+import crypto from 'node:crypto';
 import { BILL_SCHEMA, BILL_PROMPT, matchBill, bookBill, findDuplicate, BillError } from '../services/supplierBill.js';
+import { catalogs, searchCatalog, findArticle } from '../services/supplierCatalog.js';
 
 // Stock helpers for the staff app:
 // - POST /recognize  photo of a product (mode "item") or of a supplier bill /
@@ -11,6 +13,8 @@ import { BILL_SCHEMA, BILL_PROMPT, matchBill, bookBill, findDuplicate, BillError
 //   items already in the store. Claude reads the photo.
 // - GET /barcode/:code  product name and pack size for a shop barcode
 //   (EAN/UPC) from the free Open Food Facts database.
+// - GET /catalog, POST /catalog/add  supplier product lists (AEKSHEA): search
+//   them and add the products you buy as stock items.
 const router = express.Router();
 
 const MODEL = process.env.STOCK_AI_MODEL || process.env.ASSISTANT_MODEL || 'claude-opus-5-5';
@@ -264,6 +268,81 @@ router.get('/barcode/:code', limit, signIn, stockRole, async (req, res) => {
   if (offCache.size > 500) offCache.clear();
   offCache.set(code, out);
   return res.json(out);
+});
+
+// Supplier product lists shipped with the app (src/data/catalog).
+const catLimit = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many searches. Please wait a moment.' }, validate: { trustProxy: false } });
+const normName = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '');
+const articleList = (item) => String(item.supplierArticles || '').split(',').map((s) => s.trim()).filter(Boolean);
+
+router.get('/catalog', catLimit, signIn, stockRole, async (req, res) => {
+  const q = String(req.query.q || '').slice(0, 100);
+  const lim = Math.min(Math.max(Number(req.query.limit) || 40, 1), 100);
+  const found = searchCatalog(q, { supplier: String(req.query.supplier || ''), limit: lim });
+  // Mark products that are already a stock item (by article number).
+  const items = await storeItems(req.staff);
+  const byArticle = new Map();
+  for (const it of items) for (const a of articleList(it)) byArticle.set(a, it);
+  return res.json({
+    suppliers: catalogs().map((c) => ({ supplier: c.supplier, count: c.count, source: c.source })),
+    total: found.total,
+    items: found.items.map((e) => {
+      const it = byArticle.get(e.articleNo);
+      return { ...e, stockItemId: it?.id || null, stockItemName: it?.name || null };
+    }),
+  });
+});
+
+router.post('/catalog/add', catLimit, signIn, stockRole, async (req, res) => {
+  const want = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 100);
+  if (!want.length) return res.status(400).json({ message: 'Pick at least one product.' });
+  const pb = req.staff.pb;
+  try {
+    const all = await pb.collection('stock_items').getFullList({ batch: 500 });
+    const byName = new Map(all.map((i) => [normName(i.name), i]));
+    const byArticle = new Map();
+    for (const it of all) for (const a of articleList(it)) byArticle.set(a, it);
+    const nowIso = new Date().toISOString();
+    const out = [];
+    for (const w of want) {
+      const e = findArticle(w.supplier, w.articleNo);
+      if (!e) { out.push({ articleNo: w.articleNo, status: 'unknown' }); continue; }
+      if (byArticle.has(e.articleNo)) { const it = byArticle.get(e.articleNo); out.push({ articleNo: e.articleNo, status: 'exists', itemId: it.id, name: it.name }); continue; }
+      const name = String(w.name || e.name).trim().slice(0, 200) || e.name;
+      const same = byName.get(normName(name));
+      if (same) {
+        // Same product in another pack size: remember this article number too.
+        const list = [...articleList(same), e.articleNo].join(',').slice(0, 500);
+        const it = await pb.collection('stock_items').update(same.id, { supplierArticles: list, ...(!same.supplier ? { supplier: e.supplier } : {}) });
+        byArticle.set(e.articleNo, it);
+        out.push({ articleNo: e.articleNo, status: 'linked', itemId: it.id, name: it.name });
+        continue;
+      }
+      const it = await pb.collection('stock_items').create({
+        name,
+        category: String(w.category || '').slice(0, 100),
+        unit: String(w.unit || e.unit || 'pcs').slice(0, 50),
+        quantity: 0,
+        minStock: Math.max(Number(w.minStock) || 0, 0),
+        barcode: String(Date.now()).slice(-8) + String(crypto.randomInt(0, 10000)).padStart(4, '0'),
+        perishable: !!w.perishable,
+        preparedAt: nowIso,
+        supplier: e.supplier,
+        supplierArticles: e.articleNo,
+        notes: `${e.supplier} ${e.articleNo}: ${e.text}${e.carton ? `\nCarton: ${e.carton}` : ''}`.slice(0, 1000),
+      });
+      await pb.collection('stock_adjustments').create({ stockItem: it.id, itemName: it.name, adjustmentType: 'initial', delta: 0, previousQty: 0, newQty: 0, reason: `Added from ${e.supplier} catalogue`, adjustedBy: req.staff.name, adjustedById: req.staff.id, adjustedByRole: req.staff.role });
+      byName.set(normName(it.name), it);
+      byArticle.set(e.articleNo, it);
+      out.push({ articleNo: e.articleNo, status: 'created', itemId: it.id, name: it.name });
+    }
+    const created = out.filter((o) => o.status === 'created').length;
+    logger.info(`[stock-ai] catalogue: ${created} created, ${out.length - created} other, by ${req.staff.role} ${req.staff.name}`);
+    return res.json({ created, results: out });
+  } catch (err) {
+    logger.error(`[stock-ai] catalogue add: ${err.message} ${JSON.stringify(err.response?.data || {})}`);
+    return res.status(500).json({ message: `Could not add: ${err.response?.message || err.message}` });
+  }
 });
 
 export default router;

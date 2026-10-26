@@ -11,6 +11,7 @@ import '../../core/theme.dart';
 import '../common/widgets.dart';
 import '../../core/stock_ai.dart';
 import 'common.dart';
+import 'catalog_page.dart';
 import 'scan.dart';
 
 /// The stock list: search, low-stock filter, counts, adjust and edit.
@@ -150,6 +151,16 @@ class _InventoryPageState extends State<InventoryPage> {
           const Spacer(),
           FilledButton.icon(onPressed: () => _edit(), icon: const Icon(Icons.add), label: Text(tr(context, 'New item', 'Neuer Artikel'))),
         ]),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+          onPressed: () async {
+            final added = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CatalogPage()));
+            if (added == true) _load();
+          },
+          icon: const Icon(Icons.menu_book_outlined),
+          label: Text(tr(context, 'Supplier catalogue (AEKSHEA)', 'Lieferanten-Katalog (AEKSHEA)')),
+        ),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: OutlinedButton.icon(onPressed: _scan, icon: const Icon(Icons.qr_code_scanner), label: Text(tr(context, 'Scan barcode', 'Barcode scannen')))),
