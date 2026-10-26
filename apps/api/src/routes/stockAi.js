@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import logger from '../utils/logger.js';
 import { signIn } from './assistant.js';
+import { BILL_SCHEMA, BILL_PROMPT, matchBill, bookBill, findDuplicate, BillError } from '../services/supplierBill.js';
 
 // Stock helpers for the staff app:
 // - POST /recognize  photo of a product (mode "item") or of a supplier bill /
@@ -91,7 +92,7 @@ const DELIVERY_SCHEMA = {
 async function storeItems(staff) {
   try {
     const list = await staff.pb.collection('stock_items').getFullList({ batch: 500, sort: 'name' });
-    return list.map((r) => ({ id: r.id, name: r.name, unit: r.unit || '', category: r.category || '', barcode: r.barcode || '' }));
+    return list.map((r) => ({ id: r.id, name: r.name, unit: r.unit || '', category: r.category || '', barcode: r.barcode || '', perishable: !!r.perishable, supplierArticles: r.supplierArticles || '' }));
   } catch (err) {
     logger.warn(`[stock-ai] items: ${err.message}`);
     return [];
@@ -154,6 +155,83 @@ Existing categories: ${categories.join(', ') || '(none yet)'}`;
     if (err instanceof Anthropic.AuthenticationError) return res.status(503).json({ message: 'Photo recognition is not set up correctly (API key).' });
     logger.error(`[stock-ai] ${err.status || ''} ${err.message}`);
     return res.status(502).json({ message: lang === 'de' ? 'Das Foto konnte nicht gelesen werden. Bitte noch einmal versuchen.' : 'The photo could not be read. Please try again.' });
+  }
+});
+
+// ---------- supplier bills (PDF or photo) -> goods-in ----------
+const billLimit = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many bills at once. Please wait a moment.' }, validate: { trustProxy: false } });
+const BILL_MEDIA = ['application/pdf', ...MEDIA];
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date());
+
+router.post('/bill/read', billLimit, signIn, stockRole, async (req, res) => {
+  const lang = req.body?.lang === 'de' ? 'de' : 'en';
+  const de = lang === 'de';
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ message: de ? 'Rechnungen lesen ist noch nicht eingerichtet: ANTHROPIC_API_KEY fehlt auf dem Server.' : 'Bill reading is not set up yet: the server has no ANTHROPIC_API_KEY.' });
+  const mediaType = BILL_MEDIA.includes(req.body?.mediaType) ? req.body.mediaType : 'application/pdf';
+  const data = String(req.body?.file || '').replace(/^data:[^,]+,/, '');
+  if (data.length < 100) return res.status(400).json({ message: de ? 'Keine Datei erhalten.' : 'No file received.' });
+  if (data.length > 30_000_000) return res.status(413).json({ message: de ? 'Die Datei ist zu groß (max. ca. 20 MB).' : 'The file is too large (about 20 MB max).' });
+  const items = await storeItems(req.staff);
+  const categories = [...new Set(items.map((i) => i.category).filter(Boolean))];
+  const listing = items.slice(0, 800).map((i) => `${i.id} | ${i.name} | ${i.unit} | ${i.category}${i.supplierArticles ? ` | art. ${i.supplierArticles}` : ''}`).join('\n') || '(none yet)';
+  const system = `You read supplier bills for the stock of Tripti Genusswelt, an Indian restaurant in Villach, Austria. Bills are usually German; products are often Indian. Write itemName, category and note in ${de ? 'German' : 'English'}, but keep Indian product names (Toor Dal, Moong Dal, Sona Masoori...).
+Read only what the document shows; use null for anything not printed. Today is ${today()}.
+
+Items already in stock (id | name | unit | category | supplier article numbers):
+${listing}
+
+Existing categories: ${categories.join(', ') || '(none yet)'}`;
+  const block = mediaType === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } }
+    : { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+  try {
+    const msg = await anthropic().beta.messages.stream({
+      model: MODEL,
+      max_tokens: 32000,
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: BILL_SCHEMA } },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      system,
+      messages: [{ role: 'user', content: [block, { type: 'text', text: BILL_PROMPT }] }],
+    }).finalMessage();
+    let out = null;
+    try {
+      out = JSON.parse(msg.content.filter((b) => b.type === 'text').map((b) => b.text).join(''));
+    } catch { /* handled below */ }
+    if (msg.stop_reason === 'refusal' || msg.stop_reason === 'max_tokens' || !out || !Array.isArray(out.lines)) {
+      logger.warn(`[stock-ai] bill unreadable: ${msg.stop_reason}`);
+      return res.status(422).json({ message: de ? 'Die Rechnung konnte nicht gelesen werden. Bitte als PDF hochladen oder schärfer fotografieren.' : 'The bill could not be read. Please upload the PDF or take a sharper photo.' });
+    }
+    const lines = matchBill(out.lines, items);
+    let duplicate = null;
+    try {
+      const dup = await findDuplicate(req.staff.pb, out.supplier, out.billNumber);
+      if (dup) duplicate = { date: String(dup.created).slice(0, 10), by: dup.receivedBy || '' };
+    } catch { /* ignore */ }
+    const sum = Math.round(lines.reduce((s2, l) => s2 + (l.lineNet || 0), 0) * 100) / 100;
+    logger.info(`[stock-ai] bill ${out.billNumber || '-'} from ${out.supplier || '-'}: ${lines.length} lines, ${lines.filter((l) => l.isNew).length} new, by ${req.staff.role} ${req.staff.name}`);
+    return res.json({
+      bill: { supplier: out.supplier || '', billNumber: out.billNumber || '', billDate: out.billDate || '', totalNet: out.totalNet ?? null, linesNet: sum, note: out.note || '', fileName: String(req.body?.fileName || '').slice(0, 200) },
+      lines,
+      duplicate,
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.RateLimitError) return res.status(429).json({ message: de ? 'Gerade ausgelastet. Bitte gleich noch einmal.' : 'Busy right now. Please try again in a moment.' });
+    if (err instanceof Anthropic.AuthenticationError) return res.status(503).json({ message: 'Bill reading is not set up correctly (API key).' });
+    logger.error(`[stock-ai] bill: ${err.status || ''} ${err.message}`);
+    return res.status(502).json({ message: de ? 'Die Rechnung konnte nicht gelesen werden. Bitte noch einmal versuchen.' : 'The bill could not be read. Please try again.' });
+  }
+});
+
+router.post('/bill/book', billLimit, signIn, stockRole, async (req, res) => {
+  try {
+    const out = await bookBill(req.staff.pb, req.staff, req.body || {});
+    logger.info(`[stock-ai] booked bill ${out.billNumber}: ${out.booked.length} lines, ${out.created} new items, by ${req.staff.role} ${req.staff.name}`);
+    return res.json(out);
+  } catch (err) {
+    if (err instanceof BillError) return res.status(err.status).json({ message: err.message, code: err.code });
+    logger.error(`[stock-ai] book: ${err.status || ''} ${err.message} ${JSON.stringify(err.response?.data || {})}`);
+    return res.status(500).json({ message: `Booking stopped: ${err.response?.message || err.message}. Check Stock history before trying again.` });
   }
 });
 

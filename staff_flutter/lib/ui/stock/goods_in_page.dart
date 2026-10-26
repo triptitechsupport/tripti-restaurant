@@ -1,21 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../core/planning.dart';
 import '../../core/scope.dart';
 import '../../core/stock.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/widgets.dart';
 import 'common.dart';
-import 'inventory_page.dart';
+import 'bill_page.dart';
 import 'scan.dart';
 
 class _InLine {
   Map<String, dynamic>? item;
   final qty = TextEditingController(), cost = TextEditingController(), barcode = TextEditingController();
   DateTime? expiry;
-  /// Line text from a photographed bill that matched no stock item.
-  String billText = '', billUnit = '';
   int key = DateTime.now().microsecondsSinceEpoch;
 }
 
@@ -109,70 +106,10 @@ class _GoodsInPageState extends State<GoodsInPage> {
     }
   }
 
-  /// Photo of the supplier bill / delivery note -> supplier, bill no. and lines.
-  Future<void> _fromBill() async {
-    final r = await photoToStock(context, mode: 'delivery');
-    if (r == null || !mounted) return;
-    String v(dynamic x) => '${x ?? ''}'.trim();
-    final lines = <_InLine>[];
-    var i = 0;
-    for (final raw in (r['lines'] is List ? r['lines'] as List : const [])) {
-      if (raw is! Map) continue;
-      final l = _InLine()..key = DateTime.now().microsecondsSinceEpoch + i++;
-      final id = v(raw['matchId']);
-      l.item = id.isEmpty ? null : _items.where((x) => x['id'] == id).firstOrNull;
-      if (l.item == null) {
-        l.billText = v(raw['description']);
-        l.billUnit = v(raw['unit']);
-      }
-      final q = toDouble(raw['quantity']), p = toDouble(raw['unitPrice']);
-      if (q > 0) l.qty.text = fmtNum(q);
-      if (p > 0) {
-        l.cost.text = '$p';
-      } else if (l.item != null && toDouble(l.item!['unitCost']) > 0) {
-        l.cost.text = '${l.item!['unitCost']}';
-      }
-      final exp = parseDate(v(raw['expiry']));
-      if (exp != null) l.expiry = DateTime(exp.year, exp.month, exp.day, 23, 59);
-      lines.add(l);
-    }
-    if (lines.isEmpty) {
-      toast(context, tr(context, 'No product lines found on the photo.', 'Keine Artikelzeilen auf dem Foto gefunden.'), error: true);
-      return;
-    }
-    final matched = lines.where((l) => l.item != null).length;
-    setState(() {
-      if (v(r['supplier']).isNotEmpty) _supplier.text = v(r['supplier']);
-      if (v(r['billNumber']).isNotEmpty) _bill.text = v(r['billNumber']);
-      if (v(r['note']).isNotEmpty) _notes.text = v(r['note']);
-      // Keep lines already typed in.
-      _lines = [..._lines.where((l) => l.item != null), ...lines];
-    });
-    toast(context, tr(context, '${lines.length} lines read, $matched matched to stock items. Check them before booking.', '${lines.length} Zeilen gelesen, $matched Lagerartikeln zugeordnet. Vor dem Einbuchen prüfen.'));
-  }
-
-  /// A bill line that is not in stock yet: make the item, then use it here.
-  Future<void> _newItemFor(_InLine l) async {
-    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(
-      builder: (_) => StockItemEditor(
-        taken: {for (final i in _items) '${i['barcode'] ?? ''}'},
-        items: _items,
-        photo: {'name': l.billText, if (l.billUnit.isNotEmpty) 'unit': l.billUnit, 'unitPrice': toDouble(l.cost.text.replaceAll(',', '.'))},
-      ),
-    ));
-    if (saved != true || !mounted) return;
-    try {
-      final pb = AppScope.read(context).pb;
-      final newest = await pb.collection('stock_items').getList(perPage: 1, sort: '-created');
-      await _load();
-      if (!mounted || newest.items.isEmpty) return;
-      final id = newest.items.first.id;
-      setState(() {
-        l.item = _items.where((x) => x['id'] == id).firstOrNull;
-        l.billText = '';
-        l.key = DateTime.now().microsecondsSinceEpoch;
-      });
-    } catch (_) {}
+  /// Supplier bill (PDF or photo) -> check -> booked in one tap.
+  Future<void> _upload(bool photo) async {
+    final booked = await uploadSupplierBill(context, photo: photo);
+    if (booked && mounted) _load();
   }
 
   @override
@@ -183,11 +120,22 @@ class _GoodsInPageState extends State<GoodsInPage> {
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
         PageIntro(Icons.local_shipping_outlined, tr(context, 'Goods in', 'Wareneingang'), tr(context, 'Book a delivery into the store. Each line becomes a lot with its own expiry.', 'Lieferung einbuchen. Jede Zeile wird eine Charge mit eigenem Ablaufdatum.')),
         const SizedBox(height: 8),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+          onPressed: () => _upload(false),
+          icon: const Icon(Icons.upload_file),
+          label: Text(tr(context, 'Upload supplier bill (PDF)', 'Lieferantenrechnung hochladen (PDF)')),
+        ),
+        const SizedBox(height: 6),
         OutlinedButton.icon(
           style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-          onPressed: _fromBill,
+          onPressed: () => _upload(true),
           icon: const Icon(Icons.document_scanner_outlined),
-          label: Text(tr(context, 'Read the bill from a photo', 'Rechnung per Foto einlesen')),
+          label: Text(tr(context, 'Photo of a paper bill', 'Papierrechnung fotografieren')),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 4),
+          child: Text(tr(context, 'Or book a delivery by hand:', 'Oder Lieferung von Hand einbuchen:'), style: const TextStyle(fontSize: 12, color: Colors.black54)),
         ),
         const SizedBox(height: 8),
         Row(children: [
@@ -236,14 +184,6 @@ class _GoodsInPageState extends State<GoodsInPage> {
               ),
               if (_lines.length > 1) IconButton(icon: const Icon(Icons.delete_outline, color: TriptiColors.red), onPressed: () => setState(() => _lines.remove(l))),
             ]),
-            if (l.item == null && l.billText.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 4, 0, 4),
-                child: Row(children: [
-                  Expanded(child: Text('${tr(context, 'On the bill', 'Auf der Rechnung')}: ${l.billText} · ${tr(context, 'not in stock yet: pick an item or add it', 'noch nicht im Lager: Artikel wählen oder anlegen')}', style: const TextStyle(fontSize: 12, color: TriptiColors.amber))),
-                  TextButton.icon(onPressed: () => _newItemFor(l), icon: const Icon(Icons.add, size: 18), label: Text(tr(context, 'New item', 'Neuer Artikel'))),
-                ]),
-              ),
             if (l.item != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(4, 4, 0, 8),

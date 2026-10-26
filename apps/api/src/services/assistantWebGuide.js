@@ -64,7 +64,7 @@ ${help('waiter')}`,
   stock: `
 # Stock Station (website), as it looks now
 - Header: Refresh, Help, Logout. Stock Alerts panel at the top (low / out / expiring items; View Inventory).
-- Tabs: Inventory (search, Low stock only, Add Item, Adjust = restock/correct/waste with a reason, Edit, Delete, CSV export/import, print barcode), Kitchen requests (weekly requests from the kitchen manager; give out per line; Shopping list (all open)), Goods-In (supplier, bill no., lines with quantity, unit cost, barcode, expiry, location; Receive Goods), Issue (give stock to a staff ID, oldest expiry first / FIFO), Lots (print lot and leftover labels), Locations (location tree), Barcodes (scan, assign, print labels), Backup, Waste (record wasted items with a reason; waste history), Stock History (every movement).
+- Tabs: Inventory (search, Low stock only, Add Item, Adjust = restock/correct/waste with a reason, Edit, Delete, CSV export/import, print barcode), Kitchen requests (weekly requests from the kitchen manager; give out per line; Shopping list (all open)), Goods-In ("Upload bill": upload the supplier bill PDF or a photo, every line is read and converted to kg / l / pieces, matched to stock items or created new, check and "Book all"; or by hand: supplier, bill no., lines with quantity, unit cost, barcode, expiry, location; Receive Goods), Issue (give stock to a staff ID, oldest expiry first / FIFO), Lots (print lot and leftover labels), Locations (location tree), Barcodes (scan, assign, print labels), Backup, Waste (record wasted items with a reason; waste history), Stock History (every movement).
 
 # Stock Help page (reference)
 ${help('stock')}`,
