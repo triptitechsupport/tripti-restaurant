@@ -8,6 +8,7 @@ import otpRouter from './otp.js';
 import resetDataRouter from './reset-data.js';
 import authMiddleware from '../middleware/auth.js';
 import billingRouter from './billing.js';
+import stockAiRouter from './stockAi.js';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ export default () => {
 	router.get('/health', healthCheck);
 	router.use('/billing', billingRouter);
 	router.use('/stripe', stripeRouter);
+	router.use('/stock-ai', stockAiRouter);
 	router.use('/orders', ordersRouter);
 	router.use('/reservations', authMiddleware, reservationsRouter);
 	router.use('/ecommerce/subscriptions', authMiddleware, subscriptionsRouter);
