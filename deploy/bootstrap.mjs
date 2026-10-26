@@ -6,8 +6,54 @@ import {fileURLToPath} from 'node:url';
 import {parseBackupCsv, restoreBackup} from '../apps/web/src/lib/kitchenBackup.js';
 import {pathToFileURL} from 'node:url';
 
+// Email for order confirmations, reservations and sign-in codes. PocketBase
+// keeps its mail settings in the database, which is new after every deploy,
+// so they are applied from Render Environment on every start:
+// SMTP_HOST, SMTP_PORT (default 587), SMTP_USERNAME, SMTP_PASSWORD,
+// SMTP_TLS (true for port 465), MAIL_SENDER_ADDRESS, MAIL_SENDER_NAME, and
+// APP_URL (site address for links in emails, default RENDER_EXTERNAL_URL).
+export async function configureMail({url = 'http://127.0.0.1:8090', env = process.env} = {}) {
+  const host = String(env.SMTP_HOST || '').trim();
+  const appURL = String(env.APP_URL || env.CORS_ORIGIN || env.RENDER_EXTERNAL_URL || '').trim();
+  if (!host && !appURL) return false;
+  const pb = new PocketBase(url);
+  pb.autoCancellation(false);
+  await pb.collection('_superusers').authWithPassword(env.PB_SUPERUSER_EMAIL, env.PB_SUPERUSER_PASSWORD);
+  const current = await pb.settings.getAll();
+  const meta = {...current.meta};
+  if (appURL) meta.appURL = appURL;
+  const update = {meta};
+  if (host) {
+    const port = Number(env.SMTP_PORT) || 587;
+    const sender = String(env.MAIL_SENDER_ADDRESS || env.SMTP_USERNAME || '').trim();
+    if (!sender.includes('@')) {
+      console.error('Mail not set up: MAIL_SENDER_ADDRESS (or an email SMTP_USERNAME) is missing.');
+    } else {
+      meta.senderAddress = sender;
+      meta.senderName = String(env.MAIL_SENDER_NAME || 'Tripti Genusswelt').trim();
+      update.smtp = {
+        enabled: true,
+        host,
+        port,
+        username: String(env.SMTP_USERNAME || ''),
+        password: String(env.SMTP_PASSWORD || ''),
+        tls: env.SMTP_TLS ? String(env.SMTP_TLS) === 'true' : port === 465,
+        authMethod: 'PLAIN',
+      };
+    }
+  }
+  await pb.settings.update(update);
+  console.log(update.smtp ? `Mail set up: ${update.smtp.host}:${update.smtp.port}, sender ${meta.senderAddress}.` : 'Site address for emails set.');
+  return !!update.smtp;
+}
+
 // Render demo only: run against its fresh, private database before opening nginx.
 export async function bootstrap({url = 'http://127.0.0.1:8090', marker = '/data/.demo-accounts-configured'} = {}) {
+try {
+  await configureMail({url});
+} catch (err) {
+  console.error('Mail settings could not be applied:', err?.message || err);
+}
 let configured = false;
 try { await access(marker); configured = true; } catch { /* New ephemeral database. */ }
 if (!configured) {
