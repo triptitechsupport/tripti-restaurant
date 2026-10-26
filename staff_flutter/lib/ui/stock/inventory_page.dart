@@ -9,7 +9,9 @@ import '../../core/stock.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/widgets.dart';
+import '../../core/stock_ai.dart';
 import 'common.dart';
+import 'scan.dart';
 
 /// The stock list: search, low-stock filter, counts, adjust and edit.
 class InventoryPage extends StatefulWidget {
@@ -60,9 +62,56 @@ class _InventoryPageState extends State<InventoryPage> {
     }
   }
 
-  Future<void> _edit([Map<String, dynamic>? item]) async {
-    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => StockItemEditor(item: item, taken: {for (final i in _items) '${i['barcode'] ?? ''}'})));
+  Future<void> _edit([Map<String, dynamic>? item, String? barcode, Map<String, dynamic>? photo]) async {
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => StockItemEditor(item: item, taken: {for (final i in _items) '${i['barcode'] ?? ''}'}, items: _items, initialBarcode: barcode, photo: photo)));
     if (saved == true) _load();
+  }
+
+  /// Scan a barcode: open the item, or offer to add it.
+  Future<void> _scan() async {
+    final code = await scanBarcode(context);
+    if (code == null || !mounted) return;
+    final found = itemByBarcode(_items, code);
+    if (found != null) {
+      _itemActions(found);
+      return;
+    }
+    final add = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(tr(context, 'Not in stock yet', 'Noch nicht im Lager')),
+        content: Text(tr(context, 'No item has barcode $code. Add it as a new item?', 'Kein Artikel hat den Barcode $code. Als neuen Artikel anlegen?')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr(context, 'Back', 'Zurück'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr(context, 'New item', 'Neuer Artikel'))),
+        ],
+      ),
+    );
+    if (add == true && mounted) _edit(null, code);
+  }
+
+  /// Photo of a product: open the matching item, or a new item filled in.
+  Future<void> _photo() async {
+    final r = await photoToStock(context, mode: 'item');
+    if (r == null || !mounted) return;
+    _edit(null, null, r);
+  }
+
+  /// What to do with a scanned item.
+  Future<void> _itemActions(Map<String, dynamic> it) async {
+    final pick = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(title: Text('${it['name']}', style: const TextStyle(fontWeight: FontWeight.w800)), subtitle: Text('${tr(context, 'In store', 'Im Lager')}: ${qtyText(it)}'), trailing: stockPill(context, it)),
+          ListTile(leading: const Icon(Icons.exposure), title: Text(tr(context, 'Change quantity', 'Menge ändern')), onTap: () => Navigator.pop(ctx, 'adjust')),
+          ListTile(leading: const Icon(Icons.edit_outlined), title: Text(tr(context, 'Edit item', 'Artikel bearbeiten')), onTap: () => Navigator.pop(ctx, 'edit')),
+        ]),
+      ),
+    );
+    if (!mounted) return;
+    if (pick == 'adjust') _adjust(it);
+    if (pick == 'edit') _edit(it);
   }
 
   @override
@@ -88,7 +137,11 @@ class _InventoryPageState extends State<InventoryPage> {
         ]),
         const SizedBox(height: 10),
         TextField(
-          decoration: InputDecoration(hintText: tr(context, 'Search name, category or barcode', 'Name, Kategorie oder Barcode suchen'), prefixIcon: const Icon(Icons.search)),
+          decoration: InputDecoration(
+            hintText: tr(context, 'Search name, category or barcode', 'Name, Kategorie oder Barcode suchen'),
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: tr(context, 'Scan barcode', 'Barcode scannen'), onPressed: _scan),
+          ),
           onChanged: (v) => setState(() => _q = v),
         ),
         const SizedBox(height: 8),
@@ -96,6 +149,12 @@ class _InventoryPageState extends State<InventoryPage> {
           FilterChip(label: Text(tr(context, 'Low and out only', 'Nur knapp und leer')), selected: _lowOnly, onSelected: (v) => setState(() => _lowOnly = v)),
           const Spacer(),
           FilledButton.icon(onPressed: () => _edit(), icon: const Icon(Icons.add), label: Text(tr(context, 'New item', 'Neuer Artikel'))),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(onPressed: _scan, icon: const Icon(Icons.qr_code_scanner), label: Text(tr(context, 'Scan barcode', 'Barcode scannen')))),
+          const SizedBox(width: 8),
+          Expanded(child: OutlinedButton.icon(onPressed: _photo, icon: const Icon(Icons.auto_awesome), label: Text(tr(context, 'Product photo', 'Produktfoto')))),
         ]),
         const SizedBox(height: 6),
         if (shown.isEmpty) EmptyState(Icons.inventory_2_outlined, _items.isEmpty ? tr(context, 'No stock items yet.', 'Noch keine Lagerartikel.') : tr(context, 'Nothing matches.', 'Keine Treffer.')),
@@ -262,9 +321,15 @@ class _InventoryPageState extends State<InventoryPage> {
 
 /// New or existing stock item.
 class StockItemEditor extends StatefulWidget {
-  const StockItemEditor({super.key, this.item, this.taken = const {}});
+  const StockItemEditor({super.key, this.item, this.taken = const {}, this.items = const [], this.initialBarcode, this.photo});
   final Map<String, dynamic>? item;
   final Set<String> taken;
+  /// All stock items, to spot a product that is already in the store.
+  final List<Map<String, dynamic>> items;
+  /// New item: barcode just scanned (looked up online to fill the name).
+  final String? initialBarcode;
+  /// New item: what the photo recognition read.
+  final Map<String, dynamic>? photo;
 
   @override
   State<StockItemEditor> createState() => _StockItemEditorState();
@@ -273,7 +338,8 @@ class StockItemEditor extends StatefulWidget {
 class _StockItemEditorState extends State<StockItemEditor> {
   late final TextEditingController _name, _category, _unit, _qty, _min, _cost, _notes, _barcode;
   DateTime? _expiry;
-  bool _perishable = false, _busy = false;
+  bool _perishable = false, _busy = false, _autoBarcode = false, _reading = false;
+  String _hint = '';
 
   Map<String, dynamic>? get it => widget.item;
 
@@ -287,9 +353,112 @@ class _StockItemEditorState extends State<StockItemEditor> {
     _min = TextEditingController(text: it == null || toDouble(it!['minStock']) == 0 ? '' : fmtNum(toDouble(it!['minStock'])));
     _cost = TextEditingController(text: it == null || toDouble(it!['unitCost']) == 0 ? '' : '${it!['unitCost']}');
     _notes = TextEditingController(text: '${it?['notes'] ?? ''}');
-    _barcode = TextEditingController(text: '${it?['barcode'] ?? ''}'.isEmpty ? newBarcode() : '${it!['barcode']}');
+    _autoBarcode = it == null && widget.initialBarcode == null;
+    _barcode = TextEditingController(text: widget.initialBarcode ?? ('${it?['barcode'] ?? ''}'.isEmpty ? newBarcode() : '${it!['barcode']}'));
     _expiry = parseDate(it?['expiry'])?.toLocal();
     _perishable = it?['perishable'] == true;
+    if (widget.photo != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _applyPhoto(widget.photo!));
+    } else if (widget.initialBarcode != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _lookup(widget.initialBarcode!));
+    }
+  }
+
+  void _addNote(String line) {
+    if (line.isEmpty || _notes.text.contains(line)) return;
+    _notes.text = _notes.text.trim().isEmpty ? line : '${_notes.text.trim()}\n$line';
+  }
+
+  /// Shop barcode -> product name from the online product database.
+  Future<void> _lookup(String code) async {
+    if (_name.text.trim().isNotEmpty) return;
+    final session = AppScope.read(context);
+    setState(() => _reading = true);
+    final p = await lookupBarcode(token: session.pb.authStore.token, code: code, lang: session.de ? 'de' : 'en');
+    if (!mounted) return;
+    setState(() {
+      _reading = false;
+      if (p == null) {
+        _hint = tr(context, 'Barcode not found in the product database. Type the name, or take a photo of the product.', 'Barcode nicht in der Produktdatenbank. Namen eintippen oder Produkt fotografieren.');
+        return;
+      }
+      if (_name.text.trim().isEmpty) _name.text = '${p['name']}';
+      if (_category.text.trim().isEmpty && '${p['category'] ?? ''}'.isNotEmpty) _category.text = '${p['category']}';
+      if ('${p['brand'] ?? ''}'.isNotEmpty) _addNote('${tr(context, 'Brand', 'Marke')}: ${p['brand']}');
+      final size = '${p['quantity'] ?? ''}';
+      _hint = '${tr(context, 'Found by barcode', 'Über Barcode gefunden')}: ${p['name']}${size.isNotEmpty ? ' ($size)' : ''}. ${tr(context, 'Check the unit and the quantity.', 'Einheit und Menge prüfen.')}';
+    });
+  }
+
+  Future<void> _scan() async {
+    final code = await scanBarcode(context);
+    if (code == null || !mounted) return;
+    final other = itemByBarcode(widget.items, code);
+    if (other != null && other['id'] != it?['id']) {
+      toast(context, tr(context, 'This barcode belongs to ${other['name']}.', 'Dieser Barcode gehört zu ${other['name']}.'), error: true);
+      return;
+    }
+    setState(() {
+      _barcode.text = code;
+      _autoBarcode = false;
+    });
+    if (it == null) _lookup(code);
+  }
+
+  Future<void> _photo() async {
+    final r = await photoToStock(context, mode: 'item');
+    if (r != null && mounted) _applyPhoto(r);
+  }
+
+  Future<void> _applyPhoto(Map<String, dynamic> r) async {
+    final matchId = '${r['matchId'] ?? ''}';
+    final code = '${r['scannedBarcode'] ?? r['barcode'] ?? ''}';
+    final byCode = code.isEmpty ? null : itemByBarcode(widget.items, code);
+    final match = byCode ?? (matchId.isEmpty ? null : widget.items.where((i) => i['id'] == matchId).firstOrNull);
+    if (it == null && match != null) {
+      final open = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(tr(context, 'Already in stock', 'Schon im Lager')),
+          content: Text(tr(context, 'This looks like ${match['name']} (${qtyText(match)} in store). Open it instead of making a new item?', 'Das sieht aus wie ${match['name']} (${qtyText(match)} im Lager). Diesen Artikel öffnen statt einen neuen anzulegen?')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(tr(context, 'New item anyway', 'Trotzdem neu'))),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr(context, 'Open it', 'Öffnen'))),
+          ],
+        ),
+      );
+      if (open == true && mounted) {
+        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => StockItemEditor(item: match, taken: widget.taken, items: widget.items)));
+        return;
+      }
+      if (!mounted) return;
+    }
+    setState(() {
+      String v(String k) => '${r[k] ?? ''}'.trim();
+      if (v('name').isNotEmpty && (it == null || _name.text.trim().isEmpty)) _name.text = v('name');
+      if (v('category').isNotEmpty && (it == null || _category.text.trim().isEmpty)) _category.text = v('category');
+      if (v('unit').isNotEmpty && it == null) _unit.text = v('unit');
+      if (code.isNotEmpty && (_autoBarcode || _barcode.text.trim().isEmpty) && itemByBarcode(widget.items, code) == null) {
+        _barcode.text = code;
+        _autoBarcode = false;
+      }
+      if (r['perishable'] == true) _perishable = true;
+      final price = toDouble(r['unitPrice']);
+      if (price > 0 && _cost.text.trim().isEmpty) _cost.text = '$price';
+      final exp = parseDate(v('expiry'));
+      if (exp != null && _expiry == null) _expiry = DateTime(exp.year, exp.month, exp.day, 23, 59);
+      if (v('brand').isNotEmpty) _addNote('${tr(context, 'Brand', 'Marke')}: ${v('brand')}');
+      final storage = {'dry': tr(context, 'dry store', 'Trockenlager'), 'chilled': tr(context, 'fridge', 'Kühlschrank'), 'frozen': tr(context, 'freezer', 'Tiefkühler')}[v('storage')];
+      if (storage != null) _addNote('${tr(context, 'Keep in', 'Lagern im')}: $storage');
+      final allergens = (r['allergens'] is List ? (r['allergens'] as List) : const []).map((e) => '$e').where((e) => e.isNotEmpty).toList();
+      if (allergens.isNotEmpty) _addNote('${tr(context, 'Allergens', 'Allergene')}: ${allergens.join(', ')}');
+      final per = toDouble(r['quantityPerPack']);
+      _hint = [
+        if (per > 0) '${tr(context, 'One pack', 'Eine Packung')} = ${fmtNum(per)} ${_unit.text}.',
+        v('note'),
+        if (v('confidence') == 'low') tr(context, 'Not sure: please check every field.', 'Unsicher: bitte alle Felder prüfen.'),
+      ].where((e) => e.isNotEmpty).join(' ');
+    });
   }
 
   Future<void> _save() async {
@@ -378,6 +547,24 @@ class _StockItemEditorState extends State<StockItemEditor> {
       body: AbsorbPointer(
         absorbing: _busy,
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 32), children: [
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+            onPressed: _photo,
+            icon: const Icon(Icons.auto_awesome),
+            label: Text(it == null ? tr(context, 'Fill in from a photo', 'Mit Foto ausfüllen') : tr(context, 'Check with a photo', 'Mit Foto ergänzen')),
+          ),
+          if (_reading) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator()),
+          if (_hint.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: TriptiColors.gold.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.info_outline, size: 18, color: TriptiColors.ink),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_hint, style: const TextStyle(fontSize: 13))),
+              ]),
+            ),
           TextField(controller: _name, decoration: InputDecoration(labelText: tr(context, 'Name', 'Name'))),
           TextField(controller: _category, decoration: InputDecoration(labelText: tr(context, 'Category', 'Kategorie'))),
           Row(children: [
@@ -397,8 +584,12 @@ class _StockItemEditorState extends State<StockItemEditor> {
           TextField(controller: _min, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: tr(context, 'Minimum stock (warn below)', 'Mindestbestand (Warnung darunter)'))),
           TextField(controller: _cost, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: tr(context, 'Price per unit (€)', 'Preis pro Einheit (€)'))),
           Row(children: [
-            Expanded(child: TextField(controller: _barcode, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr(context, 'Barcode', 'Barcode')))),
-            IconButton(icon: const Icon(Icons.autorenew), tooltip: tr(context, 'New barcode', 'Neuer Barcode'), onPressed: () => setState(() => _barcode.text = newBarcode())),
+            Expanded(child: TextField(controller: _barcode, onChanged: (_) => _autoBarcode = false, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr(context, 'Barcode', 'Barcode')))),
+            IconButton(icon: const Icon(Icons.qr_code_scanner), tooltip: tr(context, 'Scan barcode', 'Barcode scannen'), onPressed: _scan),
+            IconButton(icon: const Icon(Icons.autorenew), tooltip: tr(context, 'New barcode', 'Neuer Barcode'), onPressed: () => setState(() {
+                  _barcode.text = newBarcode();
+                  _autoBarcode = true;
+                })),
           ]),
           SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(tr(context, 'Perishable', 'Verderblich')), value: _perishable, onChanged: (v) => setState(() => _perishable = v)),
           ListTile(

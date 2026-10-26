@@ -6,6 +6,7 @@ import '../../core/stock.dart';
 import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/widgets.dart';
+import 'scan.dart';
 
 /// "In stock" / "Low" / "Out" pill.
 Widget stockPill(BuildContext context, Map<String, dynamic> item) => switch (stockStatus(item)) {
@@ -57,7 +58,26 @@ class StockItemPicker extends StatelessWidget {
         controller: ctl,
         focusNode: focus,
         onChanged: onText,
-        decoration: InputDecoration(labelText: label ?? tr(context, 'Item (name or barcode)', 'Artikel (Name oder Barcode)'), prefixIcon: const Icon(Icons.search)),
+        decoration: InputDecoration(
+          labelText: label ?? tr(context, 'Item (name or barcode)', 'Artikel (Name oder Barcode)'),
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: tr(context, 'Scan barcode', 'Barcode scannen'),
+            onPressed: () async {
+              final code = await scanBarcode(ctx);
+              if (code == null || !ctx.mounted) return;
+              final found = itemByBarcode(items, code);
+              if (found == null) {
+                toast(ctx, tr(ctx, 'No item has barcode $code. Add it under Stock first.', 'Kein Artikel hat den Barcode $code. Zuerst unter Lager anlegen.'), error: true);
+                return;
+              }
+              ctl.text = '${found['name']}';
+              focus.unfocus();
+              onSelected(found);
+            },
+          ),
+        ),
       ),
     );
   }
