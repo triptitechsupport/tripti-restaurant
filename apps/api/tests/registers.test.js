@@ -96,7 +96,9 @@ test('settlement register is pinned through duplicate requests, signing, and can
   const remote = async (path, request) => { paths.push(path); if (!request) throw Object.assign(new FiscalError('Missing',404),{code:'E_RECEIPT_NOT_FOUND'});return {signed:true,qr_code_data:'qr',receipt_number:paths.length,time_signature:1234567890}; };
   const service=createBillingService({db,remote,config:()=>({enabled:true,environment:'TEST',company:{name:'Test',address:'Test',vatId:'ATU12345678'}}),resolveRegister:async id=>registers[id]});
   const a=await service.generateSettlement('s1','CASH','admin','a');
-  const b=await service.generateSettlement('s2','CARD','admin','b');
+  const b=await service.generateSettlement('s2','CARD','admin','b','Priya');
+  assert.equal(b.receiptSnapshot.cashierName,'Priya');
+  assert.equal(a.receiptSnapshot.cashierName,undefined);
   await assert.rejects(service.generateSettlement('s1','CASH','admin','b'),/different cash register/);
   assert.equal((await service.generateSettlement('s1','CASH','admin','a')).id,a.id);
   await service.process(a); await service.process(b);

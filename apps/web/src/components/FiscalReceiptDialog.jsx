@@ -82,6 +82,7 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
           <h3 className="fiscal-title">{title}</h3>
           <section className="fiscal-meta">
             {snapshot.cashRegisterName && <ReceiptRow label="Register">{snapshot.cashRegisterName}</ReceiptRow>}
+            {snapshot.cashierName && <ReceiptRow label="Cashier / Kassier">{snapshot.cashierName}</ReceiptRow>}
             {t.isFallback ? (
               <ReceiptRow label="Local reference">
                 {t.localReference}

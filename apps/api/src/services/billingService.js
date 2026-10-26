@@ -28,7 +28,7 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
       environment: cfg.environment, name: cfg.company.name, vatId: cfg.company.vatId});
   }
   async function listTransactions() { return txs().getFullList({sort: '-created'}); }
-  async function generateSettlement(id, paymentType, userId, selectedRegisterId) {
+  async function generateSettlement(id, paymentType, userId, selectedRegisterId, cashierName = '') {
     assertFiscalReady(config());
     const settlement = await db.collection('payment_settlements').getOne(id);
     const key = `SETTLEMENT:${id}`;
@@ -47,12 +47,13 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
     const cashRegister = resolveRegister ? await resolveRegister(selectedRegisterId) : await register();
     data.receiptSnapshot.cashRegisterName = cashRegister.name;
     data.receiptSnapshot.cashRegisterId = cashRegister.fiskalyCashRegisterId;
+    if (cashierName) data.receiptSnapshot.cashierName = cashierName;
     return db.send('/api/fiscal/prepare', {method: 'POST', body: {transaction: {
       ...data, order: settlement.order, orderId: settlement.orderId, settlement: id, cashRegister: cashRegister.id,
       paymentType, receiptType: 'NORMAL', createdBy: userId, businessReceiptKey: key,
       fiskalyReceiptId: randomUUID(), status: 'pending'}}});
   }
-  async function generate(orderRecordId, paymentType, userId, receiptType = 'NORMAL') {
+  async function generate(orderRecordId, paymentType, userId, receiptType = 'NORMAL', cashierName = '') {
     assertFiscalReady(config());
     if (!['NORMAL', 'TRAINING'].includes(receiptType)) throw new FiscalError('Invalid receipt type.');
     if (receiptType === 'TRAINING' && config().environment !== 'TEST') throw new FiscalError('Training is enabled only in TEST.');
@@ -69,6 +70,7 @@ export function createBillingService({db, remote = fiskaly, config = fiscalConfi
     const menu = await db.collection('menu_items').getFullList();
     const data = buildReceipt(kots, menu, paymentType, order.orderId, config().company, receiptType);
     const cashRegister = resolveRegister ? await resolveRegister() : await register();
+    if (cashierName) data.receiptSnapshot.cashierName = cashierName;
     return db.send('/api/fiscal/prepare', {method: 'POST', body: {
       sourceKots: sourceSnapshot(kots), transaction: {...data, order: order.id, orderId: order.orderId, cashRegister: cashRegister.id,
         paymentType, receiptType, createdBy: userId, businessReceiptKey: key, fiskalyReceiptId: randomUUID(), status: 'pending'}}});

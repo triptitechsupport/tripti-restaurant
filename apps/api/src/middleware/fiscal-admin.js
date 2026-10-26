@@ -14,6 +14,9 @@ const cashierMay = (req) => CASHIER_ROUTES.some(([method, path]) => req.method =
 const AUDITOR_ROUTES = /^\/(settlements|transactions|configuration|day-report|periodic-receipts|registers|status|fon\/status|lifecycle\/receipts|dep7)$/;
 const auditorMay = (req) => req.method === 'GET' && AUDITOR_ROUTES.test(req.path);
 
+// Name printed on receipts as the cashier.
+const nameOf = (r) => String(r.displayName || r.name || r.username || String(r.email || '').split('@')[0] || '').trim().slice(0, 60);
+
 // Validate with PocketBase; decoding a JWT alone does not authenticate a user.
 export default async function fiscalAdmin(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -23,6 +26,7 @@ export default async function fiscalAdmin(req, res, next) {
   try {
     const auth = await client.collection('admin_users').authRefresh();
     req.fiscalAdmin = auth.record.id;
+    req.fiscalUserName = nameOf(auth.record);
     return next();
   } catch { /* maybe a cashier */ }
   if (cashierMay(req)) {
@@ -30,6 +34,7 @@ export default async function fiscalAdmin(req, res, next) {
       const auth = await client.collection('waiter_users').authRefresh();
       if (auth.record.role === 'cashier') {
         req.fiscalAdmin = auth.record.id;
+        req.fiscalUserName = nameOf(auth.record);
         req.fiscalCashier = true;
         return next();
       }

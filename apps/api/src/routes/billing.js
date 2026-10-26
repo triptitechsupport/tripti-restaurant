@@ -64,7 +64,7 @@ router.get('/day-report', handle(async (req, res) => {
 }));
 router.get('/settlements', handle(async (_req,res) => res.json({settlements: await pb.collection('payment_settlements').getFullList({sort: '-created', expand: 'order'})})));
 router.post('/settlements/:id/generate', handle(async (req,res) => {
-  const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.cashRegisterId);
+  const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.cashRegisterId, req.fiscalUserName);
   void billing.drain().catch(error => console.error('[RKSV queue]', error.message));
   res.status(202).json({transaction});
 }));
@@ -81,7 +81,7 @@ for (const [action, fn] of Object.entries({setup: registers.setup, refresh: regi
 }
 router.post('/registers/:id/action/:action', handle(async (req,res) => res.json(await registers.action(req.params.id, req.params.action, req.body))));
 router.post('/orders/:id/generate', handle(async (req,res) => {
-  const transaction = await billing.generate(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.receiptType);
+  const transaction = await billing.generate(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.receiptType, req.fiscalUserName);
   // The durable queue survives browser disconnection and API restart.
   void billing.drain().catch(error => console.error('[RKSV queue]', error.message));
   res.status(202).json({transaction});

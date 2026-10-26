@@ -75,6 +75,7 @@ Future<List<int>> buildReceiptPdf(Map<String, dynamic> t, [PdfPageFormat? format
         pw.Text(title, textAlign: pw.TextAlign.center, style: pw.TextStyle(font: bold, fontSize: 10)),
         rule(),
         if ('${snap['cashRegisterName'] ?? ''}'.isNotEmpty) row('Register', '${snap['cashRegisterName']}'),
+        if ('${snap['cashierName'] ?? ''}'.isNotEmpty) row('Cashier / Kassier', '${snap['cashierName']}'),
         fallback ? row('Local reference', '${t['localReference'] ?? ''}') : row('Receipt No.', '${t['fiskalyReceiptNumber'] ?? ''}', b: true),
         row('Order ID', orderRef),
         row('Date / Time', signed == null ? '—' : _date(signed)),
