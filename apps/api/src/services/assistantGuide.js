@@ -6,7 +6,7 @@ export const SCREENS = {
   waiter: ['tables', 'tickets', 'pickups', 'chat'],
   cashier: ['tables', 'bills', 'receipts', 'tickets', 'pickups', 'chat'],
   kitchen: ['tickets', 'preorders', 'recipes', 'chat'],
-  kitchen_manager: ['tickets', 'preorders', 'recipes', 'soldout', 'stock', 'chat'],
+  kitchen_manager: ['tickets', 'preorders', 'menu', 'stock', 'chat'],
   stock: ['stock', 'requests', 'goodsin', 'giveout', 'waste', 'history'],
   auditor: ['receipts'],
   admin: [],
@@ -66,11 +66,10 @@ const ROLE_GUIDES = {
 - Recipes: read-only recipes with ingredients and method.
 `,
   kitchen_manager: `
-# Kitchen manager screens (bottom bar: Tickets, Pre-orders, Recipes, Sold out, Stock)
+# Kitchen manager screens (bottom bar: Tickets, Pre-orders, Menu, Stock). The kitchen manager has no Recipes screen.
 - Tickets and Pre-orders: like the kitchen (see below), plus the manager may confirm and cancel pickup orders and cancel tickets that were already started.
 - Tickets: boxes Waiting / Cooking / Ready (tap to filter). "Start" -> Cooking, tick dishes or "Ready". Red banner = waiting over 5 minutes.
-- Recipes: boxes (dishes with a recipe, average food cost, dishes above 35%). Tap a dish to write its recipe: portions, ingredients linked to stock items with amounts, method, notes. Cost per portion and food-cost % are calculated from stock prices.
-- Sold out: switch a dish off when it runs out; it disappears from the website and online orders. Switch it on again later.
+- Menu: every dish by category with its price. The switch marks a dish sold out (it disappears from the website and online orders) or available again. "New dish" or the pencil opens the dish form: name English/German, price, VAT, category, descriptions, cooking time for pre-orders, vegetarian, available; then Save. Photos are changed on the website (Menu).
 - Stock: weekly stock requests to the stock manager. "New request": pick the week, "Plan from recipes" (uses last week's sales plus extra %) or "Copy week", add items, then "Send to stock manager". When goods arrive, open the request and confirm receipt, noting anything missing.
 `,
   stock: `

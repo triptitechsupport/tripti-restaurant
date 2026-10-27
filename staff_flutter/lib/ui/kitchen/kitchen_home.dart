@@ -116,7 +116,7 @@ class _KitchenHomeState extends State<KitchenHome> {
       }
       final newOnes = fresh.where((t) => t.status == 'pending' && !_known.contains(t.id)).length;
       if (!first && newOnes > 0) {
-        if (_sound) alertBeep();
+        if (_sound) orderAlert();
         toast(context, tr(context, '$newOnes new ticket(s)', '$newOnes neue(s) Ticket(s)'));
       }
       _known.addAll(fresh.map((t) => t.id));
@@ -179,6 +179,9 @@ class _KitchenHomeState extends State<KitchenHome> {
     final session = AppScope.of(context);
     final manager = session.role == StaffRole.kitchenManager || session.role == StaffRole.admin;
     final delayed = _tickets.where(_delayed).length;
+    final sections = _sections(manager);
+    final tab = _tab.clamp(0, sections.length - 1);
+    final section = sections[tab];
     return Scaffold(
       appBar: AppBar(
         title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -188,11 +191,11 @@ class _KitchenHomeState extends State<KitchenHome> {
         actions: [
           const CallButton(),
           AssistantButton(onScreen: (screen) {
-            const keys = ['tickets', 'preorders', 'recipes', 'soldout', 'stock'];
-            final i = keys.indexOf(screen);
+            final keys = _sections(manager);
+            final i = keys.indexOf(screen == 'soldout' ? 'menu' : screen);
             if (screen == 'chat') {
               Navigator.of(context).push(MaterialPageRoute(builder: (_) => const TeamChatPage(role: 'kds')));
-            } else if (i >= 0 && (i < 3 || manager)) {
+            } else if (i >= 0) {
               setState(() => _tab = i);
             }
           }),
@@ -229,19 +232,19 @@ class _KitchenHomeState extends State<KitchenHome> {
       body: Column(children: [
         if (_error != null)
           Material(color: const Color(0xFFFEF3C7), child: ListTile(dense: true, leading: const Icon(Icons.wifi_off, color: TriptiColors.amber), title: Text(_error!))),
-        if (delayed > 0 && _tab == 0)
+        if (delayed > 0 && tab == 0)
           Material(
             color: const Color(0xFFFEE2E2),
             child: ListTile(dense: true, leading: const Icon(Icons.timer, color: TriptiColors.red), title: Text(tr(context, '$delayed ticket(s) waiting over 5 minutes', '$delayed Ticket(s) warten über 5 Minuten'), style: const TextStyle(color: TriptiColors.red, fontWeight: FontWeight.w700))),
           ),
         Expanded(
-          child: _tab == 1
+          child: section == 'preorders'
               ? PickupsPage(kitchen: true, manager: manager)
-              : _tab == 2
-              ? RecipesPage(canEdit: manager)
-              : _tab == 3 && manager
+              : section == 'recipes'
+              ? const RecipesPage(canEdit: false)
+              : section == 'menu'
               ? const SoldOutPage()
-              : _tab == 4 && manager
+              : section == 'stock'
               ? const StockRequestsPage()
               : !_loaded
                   ? const Center(child: CircularProgressIndicator())
@@ -271,18 +274,21 @@ class _KitchenHomeState extends State<KitchenHome> {
         ),
       ]),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
+        selectedIndex: tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: [
           NavigationDestination(icon: Badge(isLabelVisible: _tickets.isNotEmpty, label: Text('${_tickets.length}'), child: const Icon(Icons.receipt_long)), label: tr(context, 'Tickets', 'Tickets')),
           NavigationDestination(icon: const Icon(Icons.shopping_bag_outlined), label: tr(context, 'Pre-orders', 'Vorbestellungen')),
-          NavigationDestination(icon: const Icon(Icons.menu_book_outlined), label: tr(context, 'Recipes', 'Rezepte')),
-          if (manager) NavigationDestination(icon: const Icon(Icons.no_food_outlined), label: tr(context, 'Sold out', 'Ausverkauft')),
+          // The kitchen manager works without recipes (user's choice, 2026-10-27).
+          if (!manager) NavigationDestination(icon: const Icon(Icons.menu_book_outlined), label: tr(context, 'Recipes', 'Rezepte')),
+          if (manager) NavigationDestination(icon: const Icon(Icons.restaurant_menu), label: tr(context, 'Menu', 'Speisekarte')),
           if (manager) NavigationDestination(icon: const Icon(Icons.inventory_2_outlined), label: tr(context, 'Stock', 'Lager')),
         ],
       ),
     );
   }
+
+  List<String> _sections(bool manager) => manager ? const ['tickets', 'preorders', 'menu', 'stock'] : const ['tickets', 'preorders', 'recipes'];
 
   Widget _card(Ticket t) {
     final (label, color) = ticketStatus(context, t.status);

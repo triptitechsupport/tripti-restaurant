@@ -2,7 +2,17 @@ package at.tripti.tripti_staff
 
 import android.app.Activity
 import android.content.Intent
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.RingtoneManager
+import android.media.ToneGenerator
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import io.flutter.embedding.android.FlutterActivity
@@ -23,6 +33,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tripti/sound").setMethodCallHandler { call, result ->
             when (call.method) {
                 "notify" -> {
+                    vibrate(longArrayOf(0, 300, 150, 300))
                     try {
                         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                         RingtoneManager.getRingtone(applicationContext, uri)?.play()
@@ -30,6 +41,28 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         result.success(false)
                     }
+                }
+                // New order: three loud beeps on the alarm channel (heard even
+                // when the ringer is quiet) plus a strong vibration pattern.
+                "order" -> {
+                    vibrate(longArrayOf(0, 450, 180, 450, 180, 700))
+                    try {
+                        val tone = ToneGenerator(AudioManager.STREAM_ALARM, 100)
+                        val h = Handler(Looper.getMainLooper())
+                        for (i in 0 until 3) h.postDelayed({ try { tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 450) } catch (e: Exception) {} }, i * 650L)
+                        h.postDelayed({ try { tone.release() } catch (e: Exception) {} }, 2400L)
+                    } catch (e: Exception) { }
+                    try {
+                        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                        val r = RingtoneManager.getRingtone(applicationContext, uri)
+                        r?.audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                        Handler(Looper.getMainLooper()).postDelayed({ try { r?.play() } catch (e: Exception) {} }, 2000L)
+                    } catch (e: Exception) { }
+                    result.success(true)
+                }
+                "vibrate" -> {
+                    vibrate(longArrayOf(0, 300, 150, 300))
+                    result.success(true)
                 }
                 // Incoming staff call: the phone's ringtone until answered.
                 "ring" -> {
@@ -119,5 +152,18 @@ class MainActivity : FlutterActivity() {
         ringtone?.stop()
         tts?.shutdown()
         super.onDestroy()
+    }
+
+    private fun vibrate(pattern: LongArray) {
+        try {
+            val v: Vibrator? = if (Build.VERSION.SDK_INT >= 31) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION") getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (v == null || !v.hasVibrator()) return
+            if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            else @Suppress("DEPRECATION") v.vibrate(pattern, -1)
+        } catch (e: Exception) { }
     }
 }

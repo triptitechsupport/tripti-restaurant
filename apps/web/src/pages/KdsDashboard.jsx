@@ -57,26 +57,30 @@ function saveSettings(s) {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (_) { /* ignore */ }
 }
 
-/* ---- Sound: 2 second attention chime ---- */
+/* ---- Sound: loud 2.5 second attention chime + vibration ---- */
 let sharedAudioCtx = null;
 function playAlertChime() {
+  try { if (navigator.vibrate) navigator.vibrate([450, 180, 450, 180, 700]); } catch (_) { /* no vibration */ }
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
     const ctx = sharedAudioCtx;
     if (ctx.state === 'suspended') ctx.resume();
-    const beeps = [0, 0.7, 1.4];
-    beeps.forEach((offset) => {
+    // A compressor keeps the louder square wave from clipping.
+    const comp = ctx.createDynamicsCompressor();
+    comp.connect(ctx.destination);
+    [0, 0.6, 1.2, 1.8].forEach((offset) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
+      gain.connect(comp);
+      osc.type = 'square';
       osc.frequency.setValueAtTime(880, ctx.currentTime + offset);
-      osc.frequency.setValueAtTime(1174, ctx.currentTime + offset + 0.2);
+      osc.frequency.setValueAtTime(1320, ctx.currentTime + offset + 0.18);
       gain.gain.setValueAtTime(0.001, ctx.currentTime + offset);
-      gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.9, ctx.currentTime + offset + 0.02);
+      gain.gain.setValueAtTime(0.9, ctx.currentTime + offset + 0.35);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.5);
       osc.start(ctx.currentTime + offset);
       osc.stop(ctx.currentTime + offset + 0.55);
@@ -529,7 +533,8 @@ export default function KdsDashboard() {
   const sections = [
     { key: 'tickets', icon: ClipboardList, label: language === 'en' ? 'Tickets' : 'Bons', count: orders.length },
     canManage && { key: 'menu', icon: UtensilsCrossed, label: language === 'en' ? 'Menu' : 'Speisekarte' },
-    { key: 'recipes', icon: BookOpen, label: language === 'en' ? 'Recipes' : 'Rezepte' },
+    // The kitchen manager works without recipes (user's choice, 2026-10-27).
+    !isManager && { key: 'recipes', icon: BookOpen, label: language === 'en' ? 'Recipes' : 'Rezepte' },
     canManage && { key: 'requests', icon: PackageSearch, label: language === 'en' ? 'Stock requests' : 'Lageranforderung', dot: requestDue },
     canManage && { key: 'backup', icon: DatabaseBackup, label: language === 'en' ? 'Backup' : 'Sicherung' },
   ].filter(Boolean);

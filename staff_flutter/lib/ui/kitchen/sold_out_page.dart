@@ -9,7 +9,8 @@ import '../../core/store.dart';
 import '../../core/theme.dart';
 import '../common/widgets.dart';
 
-/// Kitchen manager: mark dishes sold out (or available again). Sold-out
+/// Kitchen manager's menu: edit dishes (name, price, category, VAT, text),
+/// add new ones and mark dishes sold out (or available again). Sold-out
 /// dishes disappear from the website menu and the waiter's menu.
 class SoldOutPage extends StatefulWidget {
   const SoldOutPage({super.key});
@@ -80,6 +81,11 @@ class _SoldOutPageState extends State<SoldOutPage> {
     if (mounted) setState(() => _busy = null);
   }
 
+  Future<void> _edit(MenuItem? m) async {
+    final saved = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => DishEditor(item: m, categories: _cats)));
+    if (saved == true) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final de = AppScope.of(context).de;
@@ -98,6 +104,13 @@ class _SoldOutPageState extends State<SoldOutPage> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+          onPressed: () => _edit(null),
+          icon: const Icon(Icons.add),
+          label: Text(tr(context, 'New dish', 'Neues Gericht')),
+        ),
+        const SizedBox(height: 8),
         TextField(
           controller: _q,
           onChanged: (_) => setState(() {}),
@@ -113,17 +126,162 @@ class _SoldOutPageState extends State<SoldOutPage> {
           Card(
             child: Column(children: [
               for (final m in groups[k]!)
-                SwitchListTile(
+                ListTile(
+                  contentPadding: const EdgeInsets.only(left: 4, right: 8),
+                  leading: IconButton(icon: const Icon(Icons.edit_outlined), tooltip: tr(context, 'Edit dish', 'Gericht bearbeiten'), onPressed: () => _edit(m)),
+                  onTap: () => _edit(m),
                   title: Text(m.nameFor(de), style: TextStyle(fontWeight: FontWeight.w600, color: m.available ? null : Colors.black45)),
-                  subtitle: m.available ? null : Text(tr(context, 'Sold out', 'Ausverkauft'), style: const TextStyle(color: TriptiColors.red)),
-                  value: m.available,
-                  activeThumbColor: TriptiColors.green,
-                  onChanged: _busy == m.id ? null : (v) => _toggle(m, v, de),
+                  subtitle: Text(
+                    m.available ? euro(m.price) : '${euro(m.price)} · ${tr(context, 'Sold out', 'Ausverkauft')}',
+                    style: TextStyle(color: m.available ? Colors.black54 : TriptiColors.red),
+                  ),
+                  trailing: Switch(
+                    value: m.available,
+                    activeThumbColor: TriptiColors.green,
+                    onChanged: _busy == m.id ? null : (v) => _toggle(m, v, de),
+                  ),
                 ),
             ]),
           ),
         ],
       ]),
+    );
+  }
+}
+
+const _vatRates = {'REDUCED_1': '10 %', 'STANDARD': '20 %', 'REDUCED_2': '13 %', 'SPECIAL': '19 %'};
+
+/// Edit or add one dish. Saves with the kitchen manager's own login
+/// (PocketBase allows the kitchen manager to change menu_items).
+class DishEditor extends StatefulWidget {
+  const DishEditor({super.key, this.item, required this.categories});
+  final MenuItem? item;
+  final List<Category> categories;
+
+  @override
+  State<DishEditor> createState() => _DishEditorState();
+}
+
+class _DishEditorState extends State<DishEditor> {
+  late final Map<String, dynamic> _d = widget.item?.data ?? {};
+  late final _nameEN = TextEditingController(text: '${_d['nameEN'] ?? _d['name'] ?? ''}');
+  late final _nameDE = TextEditingController(text: '${_d['nameDE'] ?? ''}');
+  late final _price = TextEditingController(text: widget.item == null ? '' : toDouble(_d['price']).toStringAsFixed(2).replaceAll('.', ','));
+  late final _descEN = TextEditingController(text: '${_d['descriptionEN'] ?? _d['description'] ?? ''}');
+  late final _descDE = TextEditingController(text: '${_d['descriptionDE'] ?? ''}');
+  late final _prep = TextEditingController(text: _d['prepMinutes'] == null || toDouble(_d['prepMinutes']) == 0 ? '' : '${(_d['prepMinutes'] as num).toInt()}');
+  late String _cat = '${_d['category'] ?? ''}';
+  late String _vat = _vatRates.containsKey('${_d['vat_Rate']}') ? '${_d['vat_Rate']}' : 'REDUCED_1';
+  late bool _veg = _d['isVegetarian'] == true;
+  late bool _available = _d['availability'] != false;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    for (final c in [_nameEN, _nameDE, _price, _descEN, _descDE, _prep]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final name = _nameEN.text.trim();
+    final price = toDouble(_price.text.replaceAll(',', '.'));
+    if (name.isEmpty || price <= 0 || _cat.isEmpty) {
+      toast(context, tr(context, 'Name, price and category are needed.', 'Name, Preis und Kategorie sind nötig.'), error: true);
+      return;
+    }
+    final pb = AppScope.read(context).pb;
+    setState(() => _saving = true);
+    final body = <String, dynamic>{
+      'name': name,
+      'nameEN': name,
+      'nameDE': _nameDE.text.trim(),
+      'price': price,
+      'category': _cat,
+      'vat_Rate': _vat,
+      'description': _descEN.text.trim(),
+      'descriptionEN': _descEN.text.trim(),
+      'descriptionDE': _descDE.text.trim(),
+      'isVegetarian': _veg,
+      'availability': _available,
+      if (_prep.text.trim().isNotEmpty) 'prepMinutes': toDouble(_prep.text),
+    };
+    try {
+      if (widget.item == null) {
+        await pb.collection('menu_items').create(body: body);
+      } else {
+        await pb.collection('menu_items').update(widget.item!.id, body: body);
+      }
+      if (!mounted) return;
+      toast(context, tr(context, 'Dish saved.', 'Gericht gespeichert.'));
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      toast(context, errorMessage(e), error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final de = AppScope.of(context).de;
+    final cats = [...widget.categories]..sort((a, b) => a.order.compareTo(b.order));
+    final names = {for (final c in cats) c.name};
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.item == null ? tr(context, 'New dish', 'Neues Gericht') : tr(context, 'Edit dish', 'Gericht bearbeiten'))),
+      body: AbsorbPointer(
+        absorbing: _saving,
+        child: ListView(padding: const EdgeInsets.fromLTRB(14, 14, 14, 100), children: [
+          TextField(controller: _nameEN, decoration: InputDecoration(labelText: tr(context, 'Name (English)', 'Name (Englisch)'))),
+          const SizedBox(height: 10),
+          TextField(controller: _nameDE, decoration: InputDecoration(labelText: tr(context, 'Name (German)', 'Name (Deutsch)'))),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: TextField(controller: _price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: InputDecoration(labelText: tr(context, 'Price €', 'Preis €')))),
+            const SizedBox(width: 10),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: _vat,
+                decoration: InputDecoration(labelText: tr(context, 'VAT', 'MwSt.')),
+                items: [for (final e in _vatRates.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
+                onChanged: (v) => setState(() => _vat = v ?? _vat),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            initialValue: names.contains(_cat) ? _cat : null,
+            isExpanded: true,
+            decoration: InputDecoration(labelText: tr(context, 'Category', 'Kategorie')),
+            items: [for (final c in cats) DropdownMenuItem(value: c.name, child: Text(c.nameFor(de)))],
+            onChanged: (v) => setState(() {
+              _cat = v ?? _cat;
+              if (widget.item == null) _vat = RegExp(r'beverage|drink|getränk|getraenk', caseSensitive: false).hasMatch(_cat) ? 'STANDARD' : 'REDUCED_1';
+            }),
+          ),
+          const SizedBox(height: 10),
+          TextField(controller: _descEN, maxLines: 3, minLines: 1, decoration: InputDecoration(labelText: tr(context, 'Description (English)', 'Beschreibung (Englisch)'))),
+          const SizedBox(height: 10),
+          TextField(controller: _descDE, maxLines: 3, minLines: 1, decoration: InputDecoration(labelText: tr(context, 'Description (German)', 'Beschreibung (Deutsch)'))),
+          const SizedBox(height: 10),
+          TextField(controller: _prep, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: tr(context, 'Cooking time (minutes, for pre-orders)', 'Kochzeit (Minuten, für Vorbestellungen)'))),
+          SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(tr(context, 'Vegetarian', 'Vegetarisch')), value: _veg, onChanged: (v) => setState(() => _veg = v)),
+          SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(tr(context, 'Available (not sold out)', 'Verfügbar (nicht ausverkauft)')), value: _available, activeThumbColor: TriptiColors.green, onChanged: (v) => setState(() => _available = v)),
+          Text(tr(context, 'Photos are changed on the website (Menu).', 'Fotos werden auf der Website geändert (Speisekarte).'), style: const TextStyle(fontSize: 12, color: Colors.black54)),
+        ]),
+      ),
+      bottomSheet: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+            onPressed: _saving ? null : _save,
+            icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.save),
+            label: Text(tr(context, 'Save', 'Speichern')),
+          ),
+        ),
+      ),
     );
   }
 }

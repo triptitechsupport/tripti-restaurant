@@ -20,6 +20,7 @@ const ACTIVE = ['received', 'confirmed', 'in_kitchen', 'ready'];
 let audioCtx = null;
 export function pickupChime() {
   try {
+    try { if (navigator.vibrate) navigator.vibrate([450, 180, 450, 180, 700]); } catch { /* no vibration */ }
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     if (!audioCtx) audioCtx = new Ctx();
@@ -31,7 +32,7 @@ export function pickupChime() {
       o.type = 'triangle';
       o.frequency.setValueAtTime([660, 880, 1320][i], audioCtx.currentTime + t);
       g.gain.setValueAtTime(0.001, audioCtx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.8, audioCtx.currentTime + t + 0.02);
       g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + t + 0.35);
       o.start(audioCtx.currentTime + t);
       o.stop(audioCtx.currentTime + t + 0.4);

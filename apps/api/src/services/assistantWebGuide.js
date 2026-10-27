@@ -58,7 +58,7 @@ ${help('waiter')}`,
   kitchen_manager: `
 # Kitchen Display for the kitchen manager (website)
 - Header: Pre-orders, Sold out (switch dishes off/on for the website and online orders), Settings, Refresh, Logout.
-- Tabs: Tickets (Start -> Preparing -> Ready; the manager may also cancel started tickets), Menu, Recipes (write recipes with ingredients linked to stock items; food cost is calculated), Stock requests (weekly requests to the stock manager: plan from recipes or copy a week, send, then confirm receipt), Backup (download / restore kitchen data as CSV).
+- Tabs: Tickets (Start -> Preparing -> Ready; the manager may also cancel started tickets), Menu (edit dishes, prices, categories, photos and availability), Stock requests (weekly requests to the stock manager: plan from recipes or copy a week, send, then confirm receipt), Backup (download / restore kitchen data as CSV).
 - Quick message box (Waiter / Administrator, URGENT, Send) and staff chat as for the kitchen.
 `,
   stock: `

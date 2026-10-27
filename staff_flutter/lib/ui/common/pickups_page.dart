@@ -68,7 +68,7 @@ class _PickupsPageState extends State<PickupsPage> {
             sort: 'pickupDate,pickupTime,created',
           );
       final rows = list.map((e) => e.toJson()).toList();
-      if (_known != null && rows.any((o) => !_known!.contains(o['id']) && _activePickup.contains(o['status']))) alertBeep();
+      if (_known != null && rows.any((o) => !_known!.contains(o['id']) && _activePickup.contains(o['status']))) orderAlert();
       _known = rows.map((o) => '${o['id']}').toSet();
       if (mounted) {
         setState(() {
