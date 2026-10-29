@@ -96,7 +96,9 @@ test('settlement register is pinned through duplicate requests, signing, and can
   const remote = async (path, request) => { paths.push(path); if (!request) throw Object.assign(new FiscalError('Missing',404),{code:'E_RECEIPT_NOT_FOUND'});return {signed:true,qr_code_data:'qr',receipt_number:paths.length,time_signature:1234567890}; };
   const service=createBillingService({db,remote,config:()=>({enabled:true,environment:'TEST',company:{name:'Test',address:'Test',vatId:'ATU12345678'}}),resolveRegister:async id=>registers[id]});
   const a=await service.generateSettlement('s1','CASH','admin','a');
-  const b=await service.generateSettlement('s2','CARD','admin','b');
+  const b=await service.generateSettlement('s2','CARD','admin','b','Priya');
+  assert.equal(b.receiptSnapshot.cashierName,'Priya');
+  assert.equal(a.receiptSnapshot.cashierName,undefined);
   await assert.rejects(service.generateSettlement('s1','CASH','admin','b'),/different cash register/);
   assert.equal((await service.generateSettlement('s1','CASH','admin','a')).id,a.id);
   await service.process(a); await service.process(b);
@@ -105,4 +107,30 @@ test('settlement register is pinned through duplicate requests, signing, and can
   const cancellation=await service.cancel(a.id,'admin','Test cancellation');
   assert.equal(cancellation.cashRegister,'a');
   assert.equal(a.receiptSnapshot.cashRegisterName,'Main');
+});
+
+test('billing restores the configured register after the local list was emptied', async () => {
+  const f = fixture();
+  const a = await f.service.add({name: 'Main', registerId: firstId});
+  await f.service.setup(a.id);
+  f.rows.length = 0; // database reset
+  const puts = f.calls.filter(c => c.request?.method === 'PUT').length;
+  await assert.rejects(f.service.resolve(), /Add and set up/);
+  const row = await f.service.forBilling();
+  assert.equal(row.fiskalyCashRegisterId, firstId);
+  assert.equal(row.enabledForBilling, true);
+  assert.equal(f.rows[0].isDefault, true);
+  assert.equal(f.calls.filter(c => c.request?.method === 'PUT').length, puts, 'existing fiskaly resources are not created again');
+});
+test('billing sets up the configured register in TEST when it does not exist yet', async () => {
+  const f = fixture();
+  const row = await f.service.forBilling();
+  assert.equal(row.enabledForBilling, true);
+  assert.equal(f.rows.length, 1);
+});
+test('LIVE never creates a missing register automatically', async () => {
+  const f = fixture();
+  f.cfg.environment = 'LIVE';
+  await assert.rejects(f.service.forBilling());
+  assert.equal(f.calls.filter(c => c.request?.method === 'PUT').length, 0);
 });

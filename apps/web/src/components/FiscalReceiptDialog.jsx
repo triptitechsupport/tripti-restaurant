@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { fiscalPrintModel } from "@/lib/fiscalPrintModel.js";
 import "@/styles/fiscal-receipt.css";
+import { printReceiptHtml } from "@/lib/receiptPrint.js";
 
 const money = (value) =>
   new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" }).format(
@@ -44,16 +45,8 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
         : "RECEIPT / BELEG";
 
   function printReceipt() {
-    document.body.classList.add("printing-fiscal-receipt");
-    const cleanup = () =>
-      document.body.classList.remove("printing-fiscal-receipt");
-    window.addEventListener("afterprint", cleanup, { once: true });
-    try {
-      window.print();
-    } catch (error) {
-      cleanup();
-      throw error;
-    }
+    const el = document.getElementById("fiscal-receipt");
+    if (el) printReceiptHtml(el.outerHTML, "Beleg");
   }
 
   return (
@@ -89,6 +82,7 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
           <h3 className="fiscal-title">{title}</h3>
           <section className="fiscal-meta">
             {snapshot.cashRegisterName && <ReceiptRow label="Register">{snapshot.cashRegisterName}</ReceiptRow>}
+            {snapshot.cashierName && <ReceiptRow label="Cashier / Kassier">{snapshot.cashierName}</ReceiptRow>}
             {t.isFallback ? (
               <ReceiptRow label="Local reference">
                 {t.localReference}
@@ -181,7 +175,7 @@ export default function FiscalReceiptDialog({ transaction, onClose }) {
           ))}
           <hr />
           {!t.isFallback && (
-            <ReceiptRow label="Cash register">
+            <ReceiptRow label="Kassen-ID">
               {response.cash_register_serial_number}
             </ReceiptRow>
           )}

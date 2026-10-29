@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
-import { ShoppingBag, CalendarDays, UtensilsCrossed, Plus, X, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, Tag, Pencil, Trash2, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck } from 'lucide-react';
+import { ShoppingBag, CalendarDays, UtensilsCrossed, Settings, Loader2, FileText, Globe, ArrowRight, LayoutGrid, MessageSquare, Clock, ChefHat, ConciergeBell, Receipt, BellRing, Users, AlertCircle, RefreshCw, Printer, HelpCircle, BarChart3, PackageCheck, CookingPot, Banknote, ShieldCheck, Smartphone, Activity, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Link, Navigate, useSearchParams, useNavigate } from 'react-router-dom';
-import OrderManagementTable from '@/components/OrderManagementTable.jsx';
+import AdminPickupSection from '@/components/pickup/AdminPickupSection.jsx';
+import AdminStaffAccounts, { STAFF_ROLES } from '@/components/AdminStaffAccounts.jsx';
 import AdminTableReservations from '@/components/AdminTableReservations.jsx';
-import MenuItemsList from '@/components/MenuItemsList.jsx';
-import MenuItemForm from '@/components/MenuItemForm.jsx';
 import AdminLogsTab from '@/components/AdminLogsTab.jsx';
 import TableCapacitySettings from '@/components/TableCapacitySettings.jsx';
 import TimeSlotConfiguration from '@/components/TimeSlotConfiguration.jsx';
@@ -27,19 +24,20 @@ import EmailTemplateSettings from '@/components/EmailTemplateSettings.jsx';
 import AdminFeedbackManagement from '@/components/AdminFeedbackManagement.jsx';
 import AdminPrintSettings from '@/components/AdminPrintSettings.jsx';
 import AdminTimesheetView from '@/components/AdminTimesheetView.jsx';
+
+// Timesheets section hidden on request (2026-10-22). Clock in/out is still recorded.
+const SHOW_TIMESHEETS = false;
 import AdminKotsView from '@/components/AdminKotsView.jsx';
 import AdminWaiterManagement from '@/components/AdminWaiterManagement.jsx';
 import AdminStockManagement from '@/components/AdminStockManagement.jsx';
 import StockAlertsPanel from '@/components/StockAlertsPanel.jsx';
 import AdminKotPrintOrder from '@/components/AdminKotPrintOrder.jsx';
 import AdminAnalysisView from '@/components/AdminAnalysisView.jsx';
-import CategoryFormModal from '@/components/CategoryFormModal.jsx';
-import CsvImportExport from '@/components/CsvImportExport.jsx';
-import {
-  menuItemsExportColumns, menuItemsImportConfig,
-  categoriesExportColumns, categoriesImportConfig,
-} from '@/lib/csvConfigs.js';
+import AdminStaffFeedback from '@/components/AdminStaffFeedback.jsx';
+import MenuManager from '@/components/MenuManager.jsx';
 import SettlementBillingView from '@/components/SettlementBillingView.jsx';
+import StaffAppDownload from '@/components/StaffAppDownload.jsx';
+import LiveOverview from '@/components/LiveOverview.jsx';
 import AdminRksvDiagnostics from '@/components/AdminRksvDiagnostics.jsx';
 import GanttChart from '@/components/GanttChart.jsx';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
@@ -48,10 +46,12 @@ import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import pb from '@/lib/pocketbaseClient.js';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/use-mobile.jsx';
+import { isStaffApp } from '@/lib/staffApp.js';
 
 export default function AdminBookingDashboard() {
   const { isAdminAuthenticated, initialLoading, currentAdmin } = useAuth();
-  const { t, isOrderingEnabled, setIsOrderingEnabled } = useLanguage();
+  const { t, language, isOrderingEnabled, setIsOrderingEnabled } = useLanguage();
+  const roleTitle = (r) => STAFF_ROLES[r][language === 'en' ? 'en' : 'de'].title;
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   
@@ -91,18 +91,6 @@ export default function AdminBookingDashboard() {
     return undefined;
   }, [searchParams, setSearchParams]);
   
-  const [menuItems, setMenuItems] = useState([]);
-  const [isMenuLoading, setIsMenuLoading] = useState(true);
-  const [showMenuForm, setShowMenuForm] = useState(false);
-  const [editingMenuItem, setEditingMenuItem] = useState(null);
-
-  // Dynamic menu categories (sourced from the `categories` collection).
-  const [categories, setCategories] = useState([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
-  const [editingCategory, setEditingCategory] = useState(null);
-  const [categoryToDelete, setCategoryToDelete] = useState(null);
-  const [isDeletingCategory, setIsDeletingCategory] = useState(false);
 
   // Pending reservation requests — sticky attention panel at the top of the
   // dashboard. Updates immediately from realtime events (no full-page refresh)
@@ -157,37 +145,6 @@ export default function AdminBookingDashboard() {
     });
     setPendingLoading(false);
   }, [isGenuinelyPending, sortPendingNewestFirst]);
-
-  const fetchMenuItems = async () => {
-    setIsMenuLoading(true);
-    try {
-      const records = await pb.collection('menu_items').getFullList({ sort: '-created', $autoCancel: false });
-      setMenuItems(records);
-    } catch (err) {
-      toast.error('Failed to load menu items');
-    } finally {
-      setIsMenuLoading(false);
-    }
-  };
-
-  const fetchCategories = async () => {
-    setCategoriesLoading(true);
-    try {
-      const records = await pb.collection('categories').getFullList({ sort: 'display_order,name', $autoCancel: false });
-      setCategories(records);
-    } catch (err) {
-      toast.error('Failed to load categories');
-    } finally {
-      setCategoriesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isAdminAuthenticated) {
-      fetchMenuItems();
-      fetchCategories();
-    }
-  }, [isAdminAuthenticated]);
 
   const fetchPendingReservations = useCallback(async ({ silent = true } = {}) => {
     const gen = ++pendingFetchGenRef.current;
@@ -333,30 +290,7 @@ export default function AdminBookingDashboard() {
 
   const authToken = pb.authStore.token;
 
-  const handleEditMenu = (item) => { setEditingMenuItem(item); setShowMenuForm(true); };
-  const handleMenuFormSuccess = () => { setShowMenuForm(false); setEditingMenuItem(null); fetchMenuItems(); };
-  const handleMenuFormCancel = () => { setShowMenuForm(false); setEditingMenuItem(null); };
-
-  const handleAddCategory = () => { setEditingCategory(null); setShowCategoryForm(true); };
-  const handleEditCategory = (cat) => { setEditingCategory(cat); setShowCategoryForm(true); };
-  const handleCategoryFormClose = () => { setShowCategoryForm(false); setEditingCategory(null); };
-  const handleCategoryFormSuccess = () => { setShowCategoryForm(false); setEditingCategory(null); fetchCategories(); };
-  const handleDeleteCategoryConfirm = async () => {
-    if (!categoryToDelete) return;
-    setIsDeletingCategory(true);
-    try {
-      await pb.collection('categories').delete(categoryToDelete.id, { $autoCancel: false });
-      setCategories(prev => prev.filter(c => c.id !== categoryToDelete.id));
-      toast.success('Category deleted successfully');
-    } catch (err) {
-      toast.error(err.message || 'Failed to delete category.');
-    } finally {
-      setIsDeletingCategory(false);
-      setCategoryToDelete(null);
-    }
-  };
-
-  const renderOrdersSection = () => <OrderManagementTable />;
+  const renderOrdersSection = () => <AdminPickupSection />;
   
   const renderReservationsSection = () => (
     <div ref={reservationsSectionRef} className="space-y-6 scroll-mt-24">
@@ -414,141 +348,7 @@ export default function AdminBookingDashboard() {
     </div>
   );
   
-  const renderMenuSection = () => (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-card p-mobile rounded-2xl border-2 border-border shadow-md">
-        <div>
-          <h2 className="text-2xl font-serif font-bold tracking-tight text-primary">{t('menuManagement')}</h2>
-          <p className="text-muted-foreground font-medium text-sm mt-1">Manage your digital menu offerings.</p>
-        </div>
-        {!showMenuForm && (
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <Button onClick={handleAddCategory} variant="outline" className="w-full sm:w-auto min-h-touch shadow-sm">
-              <Tag className="h-4 w-4 mr-2" /> Add Category
-            </Button>
-            <Button onClick={() => setShowMenuForm(true)} className="w-full sm:w-auto min-h-touch shadow-md">
-              <Plus className="h-4 w-4 mr-2" /> {t('addNewItem')}
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* CSV export / import for menu items — bulk management */}
-      {!showMenuForm && (
-        <div className="bg-card border-2 border-border rounded-2xl p-4 md:p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-            <div className="min-w-0">
-              <h3 className="text-sm font-serif font-bold text-primary">Menu Items — CSV Export / Import</h3>
-              <p className="text-xs text-muted-foreground font-medium mt-0.5">
-                Export the menu to CSV, edit offline, then re-import to bulk create or update items. Matched by ID or Name (EN).
-              </p>
-            </div>
-            <div className="sm:ml-auto">
-              <CsvImportExport
-                collection="menu_items"
-                entityLabel="menu items"
-                exportFileName="menu_items.csv"
-                exportColumns={menuItemsExportColumns}
-                importConfig={menuItemsImportConfig}
-                onImportComplete={fetchMenuItems}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Dynamic categories management */}
-      {!showMenuForm && (
-        <div className="bg-card border-2 border-border rounded-2xl p-mobile shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Tag className="w-4 h-4 text-primary" />
-            <h3 className="text-sm font-serif font-bold tracking-tight text-primary">Menu Categories</h3>
-            <span className="text-xs text-muted-foreground font-medium">({categories.length})</span>
-            <div className="ml-auto">
-              <CsvImportExport
-                collection="categories"
-                entityLabel="categories"
-                exportFileName="categories.csv"
-                exportColumns={categoriesExportColumns}
-                importConfig={categoriesImportConfig}
-                onImportComplete={fetchCategories}
-              />
-            </div>
-          </div>
-          {categoriesLoading ? (
-            <p className="text-sm text-muted-foreground italic">Loading categories…</p>
-          ) : categories.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic">No categories yet. Click “Add Category” to create one.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {categories.map(cat => (
-                <div key={cat.id} className="flex items-center gap-2 bg-muted/40 border border-border/60 rounded-lg pl-3 pr-1.5 py-1.5">
-                  <span className="text-sm font-medium text-foreground">{cat.name}</span>
-                  {cat.name_de && <span className="text-xs text-muted-foreground">/ {cat.name_de}</span>}
-                  {cat.display_order != null && (
-                    <span className="text-[10px] font-bold text-muted-foreground bg-muted rounded px-1.5 py-0.5">#{cat.display_order}</span>
-                  )}
-                  <button onClick={() => handleEditCategory(cat)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded p-1" aria-label={`Edit ${cat.name}`}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => setCategoryToDelete(cat)} className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded p-1" aria-label={`Delete ${cat.name}`}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {showMenuForm ? (
-        <Card className="border-2 border-primary shadow-xl animate-in fade-in duration-300 rounded-2xl overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between border-b-2 border-border bg-primary/5 pb-4">
-            <div>
-              <CardTitle className="font-serif text-primary text-xl">{editingMenuItem ? t('editItem') : t('addNewItem')}</CardTitle>
-              <CardDescription className="font-medium text-foreground">Fill in the details for the dish.</CardDescription>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleMenuFormCancel} className="touch-target hover:bg-destructive/10 hover:text-destructive">
-              <X className="h-5 w-5" />
-            </Button>
-          </CardHeader>
-          <CardContent className="pt-6 px-mobile bg-card">
-            <MenuItemForm initialData={editingMenuItem} onSuccess={handleMenuFormSuccess} onCancel={handleMenuFormCancel} />
-          </CardContent>
-        </Card>
-      ) : (
-        <MenuItemsList items={menuItems} onEdit={handleEditMenu} onDelete={fetchMenuItems} />
-      )}
-
-      <CategoryFormModal
-        isOpen={showCategoryForm}
-        onClose={handleCategoryFormClose}
-        onSuccess={handleCategoryFormSuccess}
-        editingCategory={editingCategory}
-      />
-
-      <AlertDialog open={!!categoryToDelete} onOpenChange={(open) => !open && !isDeletingCategory && setCategoryToDelete(null)}>
-        <AlertDialogContent className="modal-mobile-safe">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes <strong>{categoryToDelete?.name}</strong> from the category list. Existing menu items keep their current category value — reassign them individually if needed. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 mt-4">
-            <AlertDialogCancel disabled={isDeletingCategory} className="h-12 sm:h-10 mt-0">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); handleDeleteCategoryConfirm(); }}
-              disabled={isDeletingCategory}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-12 sm:h-10"
-            >
-              {isDeletingCategory ? 'Deleting...' : 'Delete Category'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
+  const renderMenuSection = () => <MenuManager />;
 
   const renderTablesSection = () => <AdminTableSettings />;
 
@@ -612,8 +412,14 @@ export default function AdminBookingDashboard() {
   const renderBillingSection = () => <SettlementBillingView />;
   const renderWaitersSection = () => <AdminWaiterManagement />;
   const renderStockManagersSection = () => <AdminStockManagement />;
+  const renderKitchenManagersSection = () => <AdminStaffAccounts role="kitchen_manager" icon={CookingPot} />;
+  const renderCashiersSection = () => <AdminStaffAccounts role="cashier" icon={Banknote} />;
+  const renderAuditorsSection = () => <AdminStaffAccounts role="auditor" icon={ShieldCheck} />;
+  const renderStaffAppSection = () => <div className="p-2"><StaffAppDownload /></div>;
+  const renderLiveSection = () => <div className="p-2"><LiveOverview /></div>;
   const renderKotPrintOrderSection = () => <AdminKotPrintOrder />;
   const renderAnalysisSection = () => <AdminAnalysisView />;
+  const renderStaffFeedbackSection = () => <AdminStaffFeedback />;
 
   return (
     <>
@@ -705,11 +511,11 @@ export default function AdminBookingDashboard() {
             className="mb-6 md:mb-8"
           />
 
-          <div className="mb-8 md:mb-12 flex items-start justify-between gap-4">
+          <div className={`${isStaffApp ? 'mb-4 items-center' : 'mb-8 md:mb-12 items-start'} flex justify-between gap-4`}>
             <div className="min-w-0">
-              <h1 className="text-3xl md:text-5xl font-serif font-bold text-primary tracking-tight mb-2">{t('adminDashboard')}</h1>
-              <div className="w-16 h-1 bg-secondary rounded-full mb-4"></div>
-              <p className="text-foreground font-medium max-w-2xl text-base md:text-lg">
+              <h1 className={`${isStaffApp ? 'text-2xl' : 'text-3xl md:text-5xl mb-2'} font-serif font-bold text-primary tracking-tight`}>{t('adminDashboard')}</h1>
+              <div className="app-hide w-16 h-1 bg-secondary rounded-full mb-4"></div>
+              <p className="app-hide text-foreground font-medium max-w-2xl text-base md:text-lg">
                 {t('adminDashboardDesc')}
               </p>
             </div>
@@ -723,6 +529,28 @@ export default function AdminBookingDashboard() {
           {/* Admin Quick Access — navigate to the operational dashboards using
               the same authenticated admin session. No separate login, no
               duplicate account; route guards recognize admin_users. */}
+          {isStaffApp ? (
+            <div className="mb-5 grid grid-cols-4 gap-2">
+              {[
+                ['/waiter-dashboard', ConciergeBell, language === 'de' ? 'Kellner' : 'Waiter'],
+                ['/kds-dashboard', ChefHat, language === 'de' ? 'Küche' : 'Kitchen'],
+                ['/stock-dashboard', PackageCheck, language === 'de' ? 'Lager' : 'Stock'],
+              ].map(([to, Icon, label]) => (
+                <Link key={to} to={to} className="flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-secondary text-secondary-foreground py-3.5 shadow-sm active:scale-95">
+                  <Icon className="h-6 w-6" />
+                  <span className="text-xs font-bold">{label}</span>
+                </Link>
+              ))}
+              <button
+                type="button"
+                onClick={() => { setActiveTab('analysis'); setTimeout(() => document.getElementById('admin-analysis')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350); }}
+                className="flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-primary text-primary-foreground py-3.5 shadow-sm active:scale-95"
+              >
+                <BarChart3 className="h-6 w-6" />
+                <span className="text-xs font-bold">{language === 'de' ? 'Analyse' : 'Analysis'}</span>
+              </button>
+            </div>
+          ) : (
           <div className="mb-8 md:mb-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl">
             <Button asChild variant="secondary" className="h-auto justify-start py-4 px-5 shadow-md">
               <Link to="/waiter-dashboard">
@@ -752,6 +580,7 @@ export default function AdminBookingDashboard() {
               </Link>
             </Button>
           </div>
+          )}
 
           {isMobile ? (
             <Accordion
@@ -845,12 +674,12 @@ export default function AdminBookingDashboard() {
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderLogsSection()}</AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="timesheets" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+              {SHOW_TIMESHEETS && <AccordionItem value="timesheets" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
                   <div className="flex items-center font-bold text-lg"><Clock className="w-5 h-5 mr-4 text-primary"/> {t('tab_timesheets')}</div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderTimesheetsSection()}</AccordionContent>
-              </AccordionItem>
+              </AccordionItem>}
 
               <AccordionItem value="waiters" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
@@ -866,11 +695,53 @@ export default function AdminBookingDashboard() {
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderStockManagersSection()}</AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="analysis" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+              <AccordionItem value="kitchen-managers" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
                 <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
-                  <div className="flex items-center font-bold text-lg"><BarChart3 className="w-5 h-5 mr-4 text-primary"/> Analysis</div>
+                  <div className="flex items-center font-bold text-lg"><CookingPot className="w-5 h-5 mr-4 text-primary"/> {roleTitle('kitchen_manager')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderKitchenManagersSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="cashiers" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Banknote className="w-5 h-5 mr-4 text-primary"/> {roleTitle('cashier')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderCashiersSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="auditors" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><ShieldCheck className="w-5 h-5 mr-4 text-primary"/> {roleTitle('auditor')}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderAuditorsSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="live" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Activity className="w-5 h-5 mr-4 text-primary"/> {language === 'en' ? 'Live overview' : 'Live-Übersicht'}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderLiveSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="staff-app" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Smartphone className="w-5 h-5 mr-4 text-primary"/> {language === 'en' ? 'Staff app' : 'Mitarbeiter-App'}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderStaffAppSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem id="admin-analysis" value="analysis" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><BarChart3 className="w-5 h-5 mr-4 text-primary"/> {language === 'en' ? 'Analysis' : 'Analyse'}</div>
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderAnalysisSection()}</AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="staff-feedback" className="bg-card border-2 border-border rounded-2xl overflow-hidden shadow-md">
+                <AccordionTrigger className="px-5 py-5 hover:no-underline [&[data-state=open]]:bg-primary/5">
+                  <div className="flex items-center font-bold text-lg"><Sparkles className="w-5 h-5 mr-4 text-primary"/> {language === 'en' ? 'Staff feedback' : 'Mitarbeiter-Feedback'}</div>
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-6 pt-4 bg-background border-t-2 border-border/50">{renderStaffFeedbackSection()}</AccordionContent>
               </AccordionItem>
             </Accordion>
           ) : (
@@ -912,17 +783,35 @@ export default function AdminBookingDashboard() {
                 <button onClick={() => setActiveTab('logs')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'logs' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <FileText className="h-4 w-4 mr-2" /> {t('tab_logs')}
                 </button>
-                <button onClick={() => setActiveTab('timesheets')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'timesheets' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                {SHOW_TIMESHEETS && <button onClick={() => setActiveTab('timesheets')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'timesheets' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <Clock className="h-4 w-4 mr-2" /> {t('tab_timesheets')}
-                </button>
+                </button>}
                 <button onClick={() => setActiveTab('waiters')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'waiters' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <ConciergeBell className="h-4 w-4 mr-2" /> {t('tab_waiters')}
                 </button>
                 <button onClick={() => setActiveTab('stock-managers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'stock-managers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
                   <PackageCheck className="h-4 w-4 mr-2" /> {t('tab_stockManagers')}
                 </button>
+                <button onClick={() => setActiveTab('kitchen-managers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'kitchen-managers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <CookingPot className="h-4 w-4 mr-2" /> {roleTitle('kitchen_manager')}
+                </button>
+                <button onClick={() => setActiveTab('cashiers')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'cashiers' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Banknote className="h-4 w-4 mr-2" /> {roleTitle('cashier')}
+                </button>
+                <button onClick={() => setActiveTab('auditors')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'auditors' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <ShieldCheck className="h-4 w-4 mr-2" /> {roleTitle('auditor')}
+                </button>
+                <button onClick={() => setActiveTab('live')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'live' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Activity className="h-4 w-4 mr-2" /> {language === 'en' ? 'Live overview' : 'Live-Übersicht'}
+                </button>
+                <button onClick={() => setActiveTab('staff-app')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'staff-app' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Smartphone className="h-4 w-4 mr-2" /> {language === 'en' ? 'Staff app' : 'Mitarbeiter-App'}
+                </button>
                 <button onClick={() => setActiveTab('analysis')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
-                  <BarChart3 className="h-4 w-4 mr-2" /> Analysis
+                  <BarChart3 className="h-4 w-4 mr-2" /> {language === 'en' ? 'Analysis' : 'Analyse'}
+                </button>
+                <button onClick={() => setActiveTab('staff-feedback')} className={`flex items-center px-5 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'staff-feedback' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}>
+                  <Sparkles className="h-4 w-4 mr-2" /> {language === 'en' ? 'Staff feedback' : 'Mitarbeiter-Feedback'}
                 </button>
               </div>
 
@@ -939,10 +828,16 @@ export default function AdminBookingDashboard() {
                 {activeTab === 'translations' && renderTranslationsSection()}
                 {activeTab === 'settings' && renderSettingsSection()}
                 {activeTab === 'logs' && renderLogsSection()}
-                {activeTab === 'timesheets' && renderTimesheetsSection()}
+                {SHOW_TIMESHEETS && activeTab === 'timesheets' && renderTimesheetsSection()}
                 {activeTab === 'waiters' && renderWaitersSection()}
                 {activeTab === 'stock-managers' && renderStockManagersSection()}
+                {activeTab === 'kitchen-managers' && renderKitchenManagersSection()}
+                {activeTab === 'cashiers' && renderCashiersSection()}
+                {activeTab === 'auditors' && renderAuditorsSection()}
+                {activeTab === 'live' && renderLiveSection()}
+                {activeTab === 'staff-app' && renderStaffAppSection()}
                 {activeTab === 'analysis' && renderAnalysisSection()}
+                {activeTab === 'staff-feedback' && renderStaffFeedbackSection()}
               </div>
             </>
           )}

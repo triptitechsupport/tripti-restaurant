@@ -16,9 +16,55 @@ const handle = fn => async (req, res) => {
   }
 };
 router.get('/transactions', handle(async (_req,res) => res.json({transactions: await billing.listTransactions()})));
+router.get('/transactions/:id', handle(async (req,res) => res.json({transaction: await pb.collection('fiskaly_transactions').getOne(req.params.id)})));
+// End-of-day report for the cashier, admin and auditor: takings by payment
+// type and whether every payment has its signed RKSV receipt.
+// ?from=&to= are the start and end of the local day as ISO times.
+const pbTime = (value) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) throw new FiscalError('Invalid day.', 400);
+  return d.toISOString().replace('T', ' ');
+};
+router.get('/day-report', handle(async (req, res) => {
+  const from = pbTime(req.query.from), to = pbTime(req.query.to);
+  if (to <= from || new Date(req.query.to) - new Date(req.query.from) > 49 * 3600 * 1000) throw new FiscalError('Choose one day.', 400);
+  const range = pb.filter('created >= {:from} && created < {:to}', {from, to});
+  const [settlements, allTransactions, orders] = await Promise.all([
+    pb.collection('payment_settlements').getFullList({filter: range, sort: 'created'}),
+    pb.collection('fiskaly_transactions').getFullList({filter: range, sort: 'created'}),
+    pb.collection('waiter_orders').getFullList({filter: range}),
+  ]);
+  const cents = (v) => Math.round(Number(v || 0) * 100);
+  // A released failed attempt (superseded) is history, not a receipt.
+  const transactions = allTransactions.filter((t) => t.status !== 'superseded');
+  const receiptFor = new Map(transactions.filter((t) => t.settlement).map((t) => [t.settlement, t]));
+  const byType = {};
+  const statuses = {};
+  let cancelled = 0;
+  for (const t of transactions) {
+    if (t.receiptType === 'TRAINING') continue;
+    statuses[t.status] = (statuses[t.status] || 0) + 1;
+    if (t.receiptType === 'CANCELLATION') { cancelled += cents(t.amount); continue; }
+    const type = t.paymentType || 'OTHER';
+    byType[type] = (byType[type] || 0) + cents(t.amount);
+  }
+  const missing = settlements.filter((s) => !receiptFor.has(s.id));
+  const problems = transactions.filter((t) => t.receiptType !== 'TRAINING' && !['signed', 'outage'].includes(t.status));
+  const open = orders.filter((o) => o.orderStatus !== 'closed');
+  res.json({report: {
+    from: req.query.from, to: req.query.to,
+    payments: settlements.length,
+    paid: settlements.reduce((sum, s) => sum + cents(s.amount), 0) / 100,
+    byPaymentType: Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, v / 100])),
+    cancellations: cancelled / 100,
+    receipts: {statuses, signed: (statuses.signed || 0) + (statuses.outage || 0), outage: statuses.outage || 0,
+      notSigned: problems.length, missing: missing.length, missingAmount: missing.reduce((sum, s) => sum + cents(s.amount), 0) / 100},
+    orders: {count: orders.length, open: open.length, due: open.reduce((sum, o) => sum + cents(o.outstandingAmount), 0) / 100},
+  }});
+}));
 router.get('/settlements', handle(async (_req,res) => res.json({settlements: await pb.collection('payment_settlements').getFullList({sort: '-created', expand: 'order'})})));
 router.post('/settlements/:id/generate', handle(async (req,res) => {
-  const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.cashRegisterId);
+  const transaction = await billing.generateSettlement(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.cashRegisterId, req.fiscalUserName);
   void billing.drain().catch(error => console.error('[RKSV queue]', error.message));
   res.status(202).json({transaction});
 }));
@@ -35,7 +81,7 @@ for (const [action, fn] of Object.entries({setup: registers.setup, refresh: regi
 }
 router.post('/registers/:id/action/:action', handle(async (req,res) => res.json(await registers.action(req.params.id, req.params.action, req.body))));
 router.post('/orders/:id/generate', handle(async (req,res) => {
-  const transaction = await billing.generate(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.receiptType);
+  const transaction = await billing.generate(req.params.id, req.body.paymentType, req.fiscalAdmin, req.body.receiptType, req.fiscalUserName);
   // The durable queue survives browser disconnection and API restart.
   void billing.drain().catch(error => console.error('[RKSV queue]', error.message));
   res.status(202).json({transaction});

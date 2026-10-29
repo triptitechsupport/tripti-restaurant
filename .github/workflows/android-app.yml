@@ -1,0 +1,66 @@
+name: Android staff app
+
+# Builds the Tripti Staff APK and publishes it at a fixed download link:
+# https://github.com/triptitechsupport/tripti-restaurant/releases/download/staff-app-latest/tripti-staff.apk
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/android-app.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npx cap sync android
+      - name: Build APK
+        working-directory: android-app/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          TRIPTI_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/tripti.jks"
+            export TRIPTI_KEYSTORE="$RUNNER_TEMP/tripti.jks"
+            echo "Signing with the Tripti key"
+          else
+            echo "No signing key secret: using a debug key (uninstall the old app before installing this one)"
+          fi
+          chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tripti-staff-apk
+          path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
+      # Only the branches the websites run on publish the shared download link;
+      # other branches just build (the APK is in the run's Artifacts).
+      - name: Publish at the fixed download link
+        if: github.event_name == 'push' && (github.ref_name == 'pickup-orders' || github.ref_name == 'main')
+        working-directory: android-app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk tripti-staff.apk
+          NOTES="Android app for Tripti staff. Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Install tripti-staff.apk on the phone or tablet."
+          if gh release view staff-app-latest >/dev/null 2>&1; then
+            gh release upload staff-app-latest tripti-staff.apk --clobber
+            gh release edit staff-app-latest --notes "$NOTES"
+          else
+            gh release create staff-app-latest tripti-staff.apk --prerelease --target "$GITHUB_SHA" \
+              --title "Tripti Staff app (latest)" --notes "$NOTES"
+          fi

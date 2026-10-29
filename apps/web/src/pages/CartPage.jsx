@@ -10,7 +10,8 @@ import pb from '@/lib/pocketbaseClient.js';
 
 export default function CartPage() {
   const { cartItems, removeFromCart, updateQuantity, getCartTotal } = useCart();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const en = language === 'en';
   const navigate = useNavigate();
 
   const total = getCartTotal();
@@ -110,10 +111,9 @@ export default function CartPage() {
                       <span>{t('subtotal')}</span>
                       <span>€{total.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>{t('taxesIncluded')}</span>
-                      <span>€0.00</span>
-                    </div>
+                    <p className="text-muted-foreground">
+                      {en ? 'Prices include VAT. Pick up at the restaurant, pay there by cash or card.' : 'Preise inkl. MwSt. Abholung im Restaurant, Bezahlung vor Ort bar oder mit Karte.'}
+                    </p>
                     <div className="border-t pt-4 flex justify-between items-center">
                       <span className="text-base font-bold text-foreground">{t('total')}</span>
                       <span className="text-2xl font-bold text-primary">€{total.toFixed(2)}</span>
@@ -124,7 +124,7 @@ export default function CartPage() {
                     className="w-full h-12 text-base rounded-xl shadow-md group"
                     onClick={() => navigate('/checkout')}
                   >
-                    {t('proceedToCheckout')}
+                    {en ? 'Choose pickup time' : 'Abholzeit wählen'}
                     <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                   </Button>
                   

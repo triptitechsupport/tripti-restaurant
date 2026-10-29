@@ -1,0 +1,24 @@
+{
+  "appId": "at.tripti.staff",
+  "appName": "Tripti Staff",
+  "webDir": "www",
+  "server": {
+    "url": "https://tripti-rksv-test.onrender.com/staff-login",
+    "allowNavigation": [
+      "www.triptistore.in",
+      "triptistore.in",
+      "tripti-rksv-test.onrender.com"
+    ],
+    "errorPath": "index.html"
+  },
+  "android": {
+    "appendUserAgent": "TriptiStaffApp",
+    "allowMixedContent": false
+  },
+  "backgroundColor": "#710D27",
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}

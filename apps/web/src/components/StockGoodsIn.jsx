@@ -10,6 +10,7 @@ import { parseCsv, downloadCsv, recordsToCsv } from '@/lib/csvUtils.js';
 import { goodsInExportColumns, parseGoodsInRow } from '@/lib/goodsInCsv.js';
 import { validateNumericBarcode, generateNumericBarcode, generateUniqueNumericBarcode, collectTakenBarcodes, toDatetimeLocalValue, fromDatetimeLocalValue, validatePrepExpiry } from '@/lib/barcodeUtils.js';
 import BarcodeScanner from '@/components/BarcodeScanner.jsx';
+import StockBillUpload from '@/components/StockBillUpload.jsx';
 
 const emptyLine = () => ({ barcode: '', itemId: '', itemName: '', quantity: '', expiry: '', preparedAt: '', unitCost: '', locationId: '', perishable: false, notes: '' });
 
@@ -201,6 +202,8 @@ export default function StockGoodsIn({ pb: pbProp, displayName, userId, userRole
         <p className="text-xs text-muted-foreground">Receive stock against a supplier bill. Each line creates a lot with its own quantity, expiry, location, and numeric barcode. Expiry is required for perishable items.</p>
       </div>
 
+      <StockBillUpload pb={pbClient} onBooked={fetchMeta} />
+
       {/* CSV import / export */}
       <div className="bg-card border-2 border-border rounded-2xl p-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -368,7 +371,9 @@ export async function createLotAndAdjust(pbClient, opts, keySuffix = '') {
   }, { $autoCancel: false, requestKey: `gi-lot-${itemId}-${keySuffix}` });
   // Bump aggregate stock level.
   const newQty = prevQty + quantity;
-  await pbClient.collection('stock_items').update(itemId, { quantity: newQty }, { $autoCancel: false, requestKey: `gi-item-up-${itemId}-${keySuffix}` });
+  // The latest purchase price becomes the item's price (used for recipe costs).
+  const price = Number(unitCost);
+  await pbClient.collection('stock_items').update(itemId, { quantity: newQty, ...(unitCost != null && unitCost !== '' && price > 0 ? { unitCost: price } : {}) }, { $autoCancel: false, requestKey: `gi-item-up-${itemId}-${keySuffix}` });
   // Audit trail.
   await pbClient.collection('stock_adjustments').create({
     stockItem: itemId,

@@ -10,7 +10,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import pb from '@/lib/pocketbaseClient.js';
+import defaultPb from '@/lib/pocketbaseClient.js';
 import {
   recordsToCsv, parseCsv, buildFieldResolver, downloadCsv,
 } from '@/lib/csvUtils.js';
@@ -52,7 +52,9 @@ export default function CsvImportExport({
   onImportComplete,
   customApply,
   disabled = false,
+  client,
 }) {
+  const pb = client || defaultPb;
   const fileInputRef = useRef(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);

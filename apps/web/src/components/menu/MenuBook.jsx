@@ -2,13 +2,16 @@
 // contents page, one page per category and a back page with the allergen
 // codes. Pages turn with a 3D page-flip (arrows, swipe or arrow keys).
 // On wide screens it shows two pages side by side like an open book.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// A long category continues on the next page, so every dish is visible
+// without scrolling inside a page (page breaks are measured, not guessed).
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { useAuth } from '@/contexts/AdminAuthContext.jsx';
 import { useCart } from '@/hooks/useCart.jsx';
 import { useMenuData, buildCats } from '@/components/menu/menuData.js';
+import OrderingHint from './OrderingHint.jsx';
 import DishRow, { VegMark } from '@/components/menu/DishRow.jsx';
 import { ALG, PHONE, PHONE_TEL } from '@/pages/home/homeData.js';
 import { swish } from '@/pages/home/homeSound.js';
@@ -36,6 +39,7 @@ const TX = {
     reserve: 'Tisch reservieren', call: 'Anrufen', cart: 'Warenkorb',
     loading: 'Speisekarte wird geladen …', failed: 'Die Speisekarte konnte gerade nicht geladen werden. Bitte versuchen Sie es später noch einmal.',
     thanks: 'Danke für Ihren Besuch', swipe: 'Wischen zum Blättern',
+    more: 'Weiter auf der nächsten Seite', cont: 'Fortsetzung',
   },
   en: {
     label: 'Menu', open: 'Open the menu', toc: 'Contents', page: 'Page',
@@ -51,6 +55,7 @@ const TX = {
     reserve: 'Book a table', call: 'Call', cart: 'Cart',
     loading: 'Loading the menu …', failed: 'The menu could not be loaded right now. Please try again later.',
     thanks: 'Thank you for visiting', swipe: 'Swipe to turn the page',
+    more: 'Continued on the next page', cont: 'continued',
   },
 };
 
@@ -90,18 +95,36 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
   const lastFocus = useRef(null);
   const turnTimer = useRef(null);
   const swipe = useRef(null);
+  const shownPage = useRef(null);
 
   const cats = useMemo(() => buildCats(items, categories), [items, categories]);
 
+  // Dishes per category for the current filter.
+  const catLists = useMemo(() => cats
+    .map((c) => ({ c, its: items.filter((i) => i.cat === c.id && (diet === 'all' || (diet === 'v' ? i.veg : !i.veg))) }))
+    .filter((x) => x.its.length), [cats, items, diet]);
+
+  // How many dishes fit on each page of a category: { catId: [n1, n2, ...] }.
+  const [fit, setFit] = useState(null);
+  const [box, setBox] = useState(null);
+  const [fontsTick, setFontsTick] = useState(0);
+  const bookRef = useRef(null);
+  const measureRef = useRef(null);
+
   const pages = useMemo(() => {
     const list = [{ k: 'cover' }, { k: 'toc' }];
-    cats.forEach((c) => {
-      const its = items.filter((i) => i.cat === c.id && (diet === 'all' || (diet === 'v' ? i.veg : !i.veg)));
-      if (its.length) list.push({ k: 'cat', c, its });
+    catLists.forEach(({ c, its }, ci) => {
+      const want = fit && fit[c.id];
+      const sizes = want && want.reduce((a, n) => a + n, 0) === its.length ? want : [its.length];
+      let from = 0;
+      sizes.forEach((n, part) => {
+        list.push({ k: 'cat', c, its: its.slice(from, from + n), part, parts: sizes.length, chap: ci + 1 });
+        from += n;
+      });
     });
     list.push({ k: 'back' });
     return list;
-  }, [cats, items, diet]);
+  }, [catLists, fit]);
 
   /* page <-> view (a view is one page, or a two-page spread on wide screens) */
   const viewCount = wide ? Math.floor(pages.length / 2) + 1 : pages.length;
@@ -109,6 +132,75 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
   const pageOf = useCallback((v) => (wide ? (v === 0 ? 0 : 2 * v - 1) : v), [wide]);
   const view = viewOf(page);
   const viewPages = (v) => (wide ? [v === 0 ? { k: 'inside' } : pages[2 * v - 1], pages[2 * v] || { k: 'end' }] : [pages[v]]);
+
+  /* page size: re-measure when the window (and so the book) changes size */
+  useEffect(() => {
+    const el = bookRef.current;
+    if (!open || !el) return undefined;
+    const read = () => {
+      const slot = el.querySelector('.bk-slot');
+      if (!slot) return;
+      const w = Math.round(slot.clientWidth);
+      const h = Math.round(slot.clientHeight);
+      if (w > 0 && h > 0) setBox((b) => (b && b.w === w && b.h === h ? b : { w, h }));
+    };
+    read();
+    if (!window.ResizeObserver) return undefined;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, loading, wide, catLists.length]);
+
+  useEffect(() => {
+    if (!open || !document.fonts || !document.fonts.ready) return;
+    let alive = true;
+    document.fonts.ready.then(() => { if (alive) setFontsTick((n) => n + 1); });
+    return () => { alive = false; };
+  }, [open]);
+
+  /* split each category into pages that fit, using a hidden copy of the page */
+  useLayoutEffect(() => {
+    const root = measureRef.current;
+    if (!root || !box) return;
+    const body = root.querySelector('.pg-body');
+    if (!body) return;
+    const cs = getComputedStyle(body);
+    const avail = body.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 6;
+    const next = {};
+    root.querySelectorAll('section[data-cat]').forEach((sec) => {
+      const headH = sec.querySelector('[data-part="head"]').getBoundingClientRect().height;
+      const contH = sec.querySelector('[data-part="cont"]').getBoundingClientRect().height;
+      const wrap = sec.querySelector('[data-part="list"]');
+      const lis = [...wrap.querySelectorAll('li')];
+      const bottom = wrap.getBoundingClientRect().bottom;
+      const tops = lis.map((li) => li.getBoundingClientRect().top);
+      const sizes = [];
+      let n = 0;
+      let used = headH;
+      tops.forEach((t, i) => {
+        const h = (i + 1 < tops.length ? tops[i + 1] : bottom) - t;
+        if (n > 0 && used + h > avail) { sizes.push(n); n = 0; used = contH; }
+        n += 1;
+        used += h;
+      });
+      if (n) sizes.push(n);
+      next[sec.dataset.cat] = sizes;
+    });
+    setFit((old) => (old && JSON.stringify(old) === JSON.stringify(next) ? old : next));
+  }, [box, catLists, lang, canOrder, fontsTick, isAdminAuthenticated]);
+
+  /* contents and back page: shrink a little when they don't fit the page */
+  useLayoutEffect(() => {
+    if (!open) return;
+    document.querySelectorAll('.tg-book .bk-book .pg-body > .fit').forEach((el) => {
+      const bodyEl = el.parentElement;
+      const cs = getComputedStyle(bodyEl);
+      const avail = bodyEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      el.style.zoom = '';
+      const h = el.getBoundingClientRect().height;
+      if (avail > 0 && h > avail) el.style.zoom = String(Math.max(0.55, Math.floor((avail / h) * 100) / 100));
+    });
+  });
 
   /* open / close */
   useEffect(() => {
@@ -136,8 +228,18 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
       setPage(idx >= 0 ? idx : 1);
       return;
     }
+    const was = shownPage.current;
+    if (was && was.k === 'cat' && !pages.includes(was)) {
+      const first = was.its[0] && was.its[0].id;
+      let idx = pages.findIndex((p) => p.k === 'cat' && p.its.some((d) => d.id === first));
+      if (idx < 0) idx = pages.findIndex((p) => p.k === 'cat' && p.c.id === was.c.id);
+      if (idx >= 0) { setPage(idx); return; }
+    }
+    if (was && was.k === 'back') { setPage(pages.length - 1); return; }
     if (page > pages.length - 1) setPage(pages.length - 1);
   }, [pages, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { shownPage.current = pages[page] || null; }, [page, pages]);
 
   const goView = useCallback((to) => {
     if (turn) return;
@@ -209,6 +311,27 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
     else navigate('/menu?view=list');
   };
 
+  const catHead = (c, chap) => {
+    const other = lang === 'de' ? c.en : c.de;
+    return (
+      <>
+        <div className="cat-head">
+          <div className="caps pg-eyebrow">{tx.chapter} {chap}</div>
+          <h3>{catName(c)}</h3>
+          {other !== catName(c) && <div className="sub">{other}</div>}
+          <img src={imgDivider} alt="" width="346" height="39" />
+        </div>
+        <OrderingHint style={{ margin: '0 0 14px', fontSize: '.85rem' }} />
+      </>
+    );
+  };
+  const contHead = (c, chap) => (
+    <div className="cat-head cat-cont">
+      <div className="caps pg-eyebrow">{tx.chapter} {chap} · {tx.cont}</div>
+      <h3>{catName(c)}</h3>
+    </div>
+  );
+
   /* ---------- page faces ---------- */
   const renderPage = (pg, side, live) => {
     if (!pg) return null;
@@ -250,15 +373,16 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
       return (
         <div className={cls}>
           <div className="pg-body">
+            <div className="fit">
             <div className="cat-head">
-              <img className="pg-mark" src={imgLogoMark} alt="" />
+              <img className="pg-mark" src={imgLogoMark} alt="" width="1070" height="365" />
               <h3>{tx.welcome}</h3>
-              <img src={imgDivider} alt="" />
+              <img src={imgDivider} alt="" width="346" height="39" />
             </div>
             <p className="toc-how">{tx.how}</p>
             <h4 className="caps toc-h">{tx.toc}</h4>
             <ol className="toc">
-              {pages.map((p, i) => (p.k === 'cat' ? (
+              {pages.map((p, i) => (p.k === 'cat' && p.part === 0 ? (
                 <li key={p.c.id}>
                   <button type="button" onClick={() => goPage(i)} tabIndex={live ? 0 : -1}>
                     <span className="toc-name">{catName(p.c)}</span>
@@ -280,6 +404,7 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
               <span><VegMark veg={false} lang={lang} /> {tx.nv}</span>
             </div>
             {live && <button type="button" className="btn btn-out toc-list" onClick={showList}>{tx.list}</button>}
+            </div>
           </div>
           {num}
         </div>
@@ -289,9 +414,10 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
       return (
         <div className={cls}>
           <div className="pg-body">
+            <div className="fit">
             <div className="cat-head">
               <h3>{tx.back}</h3>
-              <img src={imgDivider} alt="" />
+              <img src={imgDivider} alt="" width="346" height="39" />
             </div>
             <p className="back-h">{tx.allergens}</p>
             <ul className="alg-list">
@@ -304,29 +430,30 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
                 <a className="btn btn-out" href={`tel:${PHONE_TEL}`}>{tx.call} {PHONE}</a>
               </div>
             )}
+            </div>
           </div>
           {num}
         </div>
       );
     }
-    // category page
-    const other = lang === 'de' ? pg.c.en : pg.c.de;
+    // category page (a long category continues on the following pages)
+    const more = pg.part < pg.parts - 1;
     return (
       <div className={cls}>
         <div className="pg-body">
-          <div className="cat-head">
-            <div className="caps pg-eyebrow">{tx.chapter} {idx - 1}</div>
-            <h3>{catName(pg.c)}</h3>
-            {other !== catName(pg.c) && <div className="sub">{other}</div>}
-            <img src={imgDivider} alt="" />
-          </div>
+          {pg.part === 0 ? catHead(pg.c, pg.chap) : contHead(pg.c, pg.chap)}
           <ul className="items one">
             {pg.its.map((d) => (
               <DishRow key={d.id} d={d} lang={lang} canOrder={canOrder && live} qty={qtyOf(d.id)} onAdd={onAdd} onLess={onLess} />
             ))}
           </ul>
         </div>
-        {num}
+        <div className="pg-num">
+          {idx}
+          {more && (live
+            ? <button type="button" className="pg-more" onClick={next}>{tx.more} →</button>
+            : <span className="pg-more">{tx.more} →</span>)}
+        </div>
       </div>
     );
   };
@@ -348,11 +475,32 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
     }
   }
   const sides = wide ? ['l', 'r'] : ['s'];
-  const curCatPage = pages[page] && pages[page].k === 'cat' ? page : '';
+  const curCatPage = pages[page] && pages[page].k === 'cat'
+    ? pages.findIndex((p) => p.k === 'cat' && p.c.id === pages[page].c.id) : '';
 
   const body = (
     <div className="tg-home tg-book" role="dialog" aria-modal="true" aria-label={tx.label}>
       <div className="bk-backdrop" onClick={onClose} />
+      {box && !loading && (
+        <div ref={measureRef} className="bk-measure" aria-hidden="true" inert="" onLoadCapture={() => setFontsTick((n) => n + 1)} style={{ width: box.w, height: box.h }}>
+          <div className={`pg pg-cat side-${wide ? 'r' : 's'}`}>
+            <div className="pg-body">
+              {catLists.map(({ c, its }) => (
+                <section key={c.id} data-cat={c.id}>
+                  <div data-part="head">{catHead(c, 1)}</div>
+                  <div data-part="cont">{contHead(c, 1)}</div>
+                  <div data-part="list">
+                    <ul className="items one">
+                      {its.map((d) => <DishRow key={d.id} d={d} lang={lang} canOrder={canOrder} qty={0} onAdd={() => {}} onLess={() => {}} />)}
+                    </ul>
+                  </div>
+                </section>
+              ))}
+            </div>
+            <div className="pg-num">12<span className="pg-more">{tx.more} →</span></div>
+          </div>
+        </div>
+      )}
       <div className="bk-dialog">
         <div className="bk-bar">
           <div className="seg" role="group" aria-label="Filter">
@@ -367,7 +515,7 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
             <span className="sr-only">{tx.chapter}</span>
             <select value={curCatPage} onChange={(e) => { if (e.target.value !== '') goPage(Number(e.target.value)); }} aria-label={tx.chapter}>
               <option value="">{tx.chapter} …</option>
-              {pages.map((p, i) => (p.k === 'cat' ? <option key={p.c.id} value={i}>{catName(p.c)}</option> : null))}
+              {pages.map((p, i) => (p.k === 'cat' && p.part === 0 ? <option key={p.c.id} value={i}>{catName(p.c)}</option> : null))}
             </select>
           </label>
           {canOrder && cartCount > 0 && (
@@ -384,7 +532,7 @@ export default function MenuBook({ open, onClose, startCat = '', onShowList }) {
           ) : failed && items.length === 0 ? (
             <p className="bk-msg">{tx.failed}</p>
           ) : (
-            <div className={`bk-book ${wide ? 'wide' : 'narrow'}${turn ? ' turning' : ''}`}>
+            <div ref={bookRef} onLoadCapture={() => setFontsTick((n) => n + 1)} className={`bk-book ${wide ? 'wide' : 'narrow'}${turn ? ' turning' : ''}`}>
               {sides.map((s, i) => (
                 <div key={s} className={`bk-slot slot-${s}`}>
                   {renderPage(base[i], s, !turn)}

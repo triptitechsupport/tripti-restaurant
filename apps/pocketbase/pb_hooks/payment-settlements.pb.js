@@ -1,5 +1,9 @@
 routerAdd('POST', '/api/payment-settlements/confirm', e => {
-  if (!e.auth || !['waiter_users', 'admin_users'].includes(e.auth.collection().name)) throw new ForbiddenError('Staff sign-in required.');
+  // Only the cashier (or an admin) takes payments; each one is then issued as an
+  // RKSV receipt. Waiters ask the cashier for the bill instead.
+  const name = e.auth ? e.auth.collection().name : '';
+  if (name !== 'admin_users' && !(name === 'waiter_users' && e.auth.getString('role') === 'cashier'))
+    throw new ForbiddenError('Only the cashier can take payments. Request the bill from the cashier.');
   const body = e.requestInfo().body;
   if (!/^[0-9a-f-]{36}$/i.test(body.requestKey || '') || !Array.isArray(body.selections) || !body.selections.length)
     throw new BadRequestError('A payment reference and selected items are required.');
@@ -20,6 +24,9 @@ routerAdd('POST', '/api/payment-settlements/confirm', e => {
     if (!app.canAccessRecord(order, e.requestInfo(), order.collection().updateRule)) throw new ForbiddenError('Cannot settle this order.');
     // Legacy full-order receipts remain authoritative. Do not allocate their items again.
     if (order.getBool('fiscalLocked')) throw new BadRequestError('This order already has a whole-order fiscal receipt. Use the legacy payment workflow.');
+    // Payment only after every dish was served (no ticket pending, cooking or ready).
+    const unserved = app.findRecordsByFilter('kitchen_orders', 'parentOrder = {:id} && status != "completed" && status != "cancelled"', '', 0, 0, {id: order.id});
+    if (unserved.length) throw new BadRequestError(`Payment is not possible yet: ${unserved.length} ticket${unserved.length > 1 ? 's are' : ' is'} still in the kitchen or not served. Serve all dishes first.`);
     const selected = [], seen = {};
     let cents = 0;
     body.selections.forEach(selection => {
@@ -75,6 +82,9 @@ routerAdd('POST', '/api/payment-settlements/confirm', e => {
     order.set('totalAmount', total / 100); order.set('paidAmount', paid / 100);
     order.set('outstandingAmount', Math.max(0, total - paid) / 100);
     order.set('paymentStatus', paid >= total && total > 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid');
+    // Fully paid: the waiter can collect the bill from the cashier.
+    if (paid >= total && total > 0 && order.getString('billRequestedAt') && order.collection().fields.getByName('billReadyAt'))
+      order.set('billReadyAt', new Date().toISOString());
     app.save(order); result = settlement;
   });
   return e.json(200, result);
@@ -107,6 +117,11 @@ onRecordUpdateRequest(e => {
     if ((item.settlementId || '') !== (before[index]?.settlementId || '') ||
       (!legacy && item.cleared === true && before[index]?.cleared !== true))
       throw new BadRequestError('Confirm payment through the settlement endpoint.');
+    if (legacy && item.cleared === true && before[index]?.cleared !== true) {
+      const name = e.auth ? e.auth.collection().name : '';
+      if (name !== 'admin_users' && !(name === 'waiter_users' && e.auth.getString('role') === 'cashier'))
+        throw new ForbiddenError('Only the cashier can take payments.');
+    }
   });
   e.next();
 }, 'kitchen_orders');

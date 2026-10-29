@@ -1,15 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { MessageCircle, X, Send, Volume2, VolumeX, Phone, PhoneOff, PhoneCall, Mic, MicOff, AlertTriangle, ChevronDown, Search, Users } from 'lucide-react';
+import { MessageCircle, X, Send, Volume2, VolumeX, Phone, AlertTriangle, ChevronDown, Search, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import useStaffCall from '@/hooks/useStaffCall';
-
-function fmtDuration(s) {
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-}
 
 const ROLE_META = {
   admin: { label: 'Admin', cls: 'bg-primary text-primary-foreground' },
@@ -137,7 +130,6 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
 
   const canBrowseWaiters = role === 'admin' || role === 'kds';
 
-  const call = useStaffCall({ role, userId, pbClient, displayName });
 
   const loadMessages = useCallback(async () => {
     try {
@@ -333,7 +325,7 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-[80] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
+        className="app-raise fixed bottom-6 right-6 z-[80] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
         aria-label="Staff chat"
       >
         {open ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
@@ -349,88 +341,9 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
         )}
       </button>
 
-      {/* Incoming call overlay */}
-      {call.incoming && (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-xs bg-card border-2 border-border rounded-2xl shadow-2xl p-6 text-center">
-            <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center animate-pulse">
-              <PhoneCall className="h-8 w-8 text-primary" />
-            </div>
-            <p className="text-sm text-muted-foreground">Incoming call</p>
-            <p className="text-lg font-bold mb-6">
-              {call.incoming.callerName || ROLE_META[call.incoming.callerRole]?.label}
-              <span className="block text-xs font-normal text-muted-foreground">
-                {ROLE_META[call.incoming.callerRole]?.label}
-              </span>
-            </p>
-            <div className="flex justify-center gap-4">
-              <button
-                type="button"
-                onClick={call.declineCall}
-                className="flex flex-col items-center gap-1 text-destructive"
-                aria-label="Decline call"
-              >
-                <span className="h-14 w-14 rounded-full bg-destructive text-white flex items-center justify-center shadow-lg">
-                  <PhoneOff className="h-6 w-6" />
-                </span>
-                Decline
-              </button>
-              <button
-                type="button"
-                onClick={call.acceptCall}
-                className="flex flex-col items-center gap-1 text-emerald-600"
-                aria-label="Accept call"
-              >
-                <span className="h-14 w-14 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg">
-                  <Phone className="h-6 w-6" />
-                </span>
-                Accept
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Active / outgoing call bar */}
-      {call.callState !== 'idle' && !call.incoming && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 z-[90] w-[92vw] max-w-sm bg-primary text-primary-foreground rounded-2xl shadow-2xl p-4 flex items-center gap-3">
-          <span className="h-11 w-11 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-            <PhoneCall className="h-5 w-5" />
-          </span>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold truncate">
-              {call.peerName || (call.peerRole ? ROLE_META[call.peerRole]?.label : '')}
-            </p>
-            <p className="text-xs opacity-80 notranslate" translate="no">
-              {call.callState === 'calling'
-                ? 'Calling…'
-                : `Connected · ${fmtDuration(call.duration)}`}
-            </p>
-          </div>
-          {call.callState === 'connected' && (
-            <button
-              type="button"
-              onClick={call.toggleMute}
-              className="h-10 w-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center"
-              aria-label={call.muted ? 'Unmute' : 'Mute'}
-            >
-              {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={call.endCall}
-            className="h-10 w-10 rounded-full bg-destructive hover:opacity-90 flex items-center justify-center"
-            aria-label="End call"
-          >
-            <PhoneOff className="h-5 w-5" />
-          </button>
-        </div>
-      )}
-
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-24 right-6 z-[80] w-[92vw] max-w-sm h-[70vh] max-h-[560px] bg-card border-2 border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="app-raise-panel fixed bottom-24 right-6 z-[80] w-[92vw] max-w-sm h-[70vh] max-h-[560px] bg-card border-2 border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 bg-primary text-primary-foreground">
             <div className="flex items-center gap-2 font-semibold">
               <MessageCircle className="h-5 w-5" /> Staff Chat
@@ -615,17 +528,19 @@ export default function StaffChat({ role, userId, pbClient, displayName }) {
             )}
           </div>
 
-          {call.error && (
-            <p className="px-3 py-1.5 text-xs text-destructive bg-destructive/10">{call.error}</p>
-          )}
-
           {/* Input */}
           <div className="flex items-center gap-2 p-3 border-t border-border bg-card">
             <Button
               size="icon"
               variant="outline"
-              onClick={() => call.startCall(activePeerTarget())}
-              disabled={call.callState !== 'idle' || !!call.incoming}
+              onClick={() => {
+                // Calls are handled by StaffCalls (works on every staff page and in the app).
+                const t = activePeerTarget();
+                const targets = t.id ? [{ type: 'user', id: t.id, name: t.name, role: 'waiter' }]
+                  : t.role === 'kds' ? [{ type: 'role', role: 'kitchen' }, { type: 'role', role: 'kitchen_manager' }]
+                  : [{ type: 'role', role: t.role }];
+                window.dispatchEvent(new CustomEvent('staff-call', { detail: { targets, title: t.name } }));
+              }}
               aria-label={`Call ${activePeerLabel()}`}
               title={`Call ${activePeerLabel()}`}
               className="shrink-0 text-emerald-600 border-emerald-600 hover:bg-emerald-50"

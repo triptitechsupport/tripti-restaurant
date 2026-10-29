@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate } from 'react-router-dom';
 import { stockPb } from '@/lib/staffClients.js';
@@ -22,12 +22,16 @@ import { toast } from 'sonner';
 import StockLocations from '@/components/StockLocations.jsx';
 import StockLots from '@/components/StockLots.jsx';
 import StockGoodsIn from '@/components/StockGoodsIn.jsx';
+import StockCatalog from '@/components/StockCatalog.jsx';
 import StockIssue from '@/components/StockIssue.jsx';
 import StockBarcodes from '@/components/StockBarcodes.jsx';
 import StockAlertsPanel from '@/components/StockAlertsPanel.jsx';
 import CsvImportExport from '@/components/CsvImportExport.jsx';
 import { stockItemsExportColumns, stockItemsImportConfig } from '@/lib/csvConfigs.js';
-import { Truck, Package, Layers, Barcode } from 'lucide-react';
+import { Truck, Package, Layers, Barcode, ClipboardList } from 'lucide-react';
+import StockRequests, { useOpenStockRequests } from '@/components/kitchen/StockRequests.jsx';
+import DataBackup, { useAutoBackup } from '@/components/kitchen/DataBackup.jsx';
+import { DatabaseBackup } from 'lucide-react';
 import {
   validateNumericBarcode,
   generateUniqueNumericBarcode,
@@ -38,6 +42,8 @@ import {
   printLabels,
   renderBarcodeToCanvas,
 } from '@/lib/barcodeUtils.js';
+import { loginPath, isStaffApp } from '@/lib/staffApp.js';
+import AppMoreMenu from '@/components/AppMoreMenu.jsx';
 
 const WASTE_REASONS = [
   'spoiled', 'expired', 'damaged', 'over-preparation', 'spill', 'burnt', 'customer-return', 'other',
@@ -73,7 +79,7 @@ function StatCard({ icon: Icon, label, value, tone }) {
 }
 
 export default function StockDashboard() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
 
   // Authorization: a real stock user (stock_users on the stock auth store) OR
@@ -91,6 +97,15 @@ export default function StockDashboard() {
   const userRole = isStock ? 'stock' : 'admin';
 
   const [activeTab, setActiveTab] = useState('inventory');
+  const openRequests = useOpenStockRequests(pb, authed);
+  const autoBackup = useAutoBackup(pb, 'stock', authed);
+  // Open the kitchen requests first when some are waiting (once per visit).
+  const autoTabbed = useRef(false);
+  useEffect(() => {
+    if (autoTabbed.current || openRequests <= 0) return;
+    autoTabbed.current = true;
+    setActiveTab((t) => (t === 'inventory' ? 'requests' : t));
+  }, [openRequests]);
   const [items, setItems] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [waste, setWaste] = useState([]);
@@ -109,7 +124,7 @@ export default function StockDashboard() {
   const [editingItem, setEditingItem] = useState(null);
   const [itemForm, setItemForm] = useState({
     name: '', category: '', unit: '', quantity: '', minStock: '', notes: '', menuItem: '',
-    barcode: '', preparedAt: '', expiry: '', perishable: false,
+    barcode: '', preparedAt: '', expiry: '', perishable: false, unitCost: '',
   });
   const [savingItem, setSavingItem] = useState(false);
   const [lotBarcodesCache, setLotBarcodesCache] = useState([]);
@@ -190,7 +205,7 @@ export default function StockDashboard() {
 
   useEffect(() => {
     if (!authed) {
-      navigate('/stock-login', { replace: true });
+      navigate(loginPath('/stock-login'), { replace: true });
       return;
     }
     fetchItems();
@@ -348,7 +363,7 @@ export default function StockDashboard() {
     const nowLocal = toDatetimeLocalValue(new Date().toISOString());
     const taken = collectTakenBarcodes(items, lotBarcodesCache, {});
     setItemForm({
-      name: '', category: '', unit: '', quantity: '', minStock: '', notes: '', menuItem: '',
+      name: '', category: '', unit: '', quantity: '', minStock: '', notes: '', menuItem: '', unitCost: '',
       barcode: generateUniqueNumericBarcode(taken),
       preparedAt: nowLocal,
       expiry: '',
@@ -366,6 +381,7 @@ export default function StockDashboard() {
       unit: it.unit || '',
       quantity: String(it.quantity ?? ''),
       minStock: String(it.minStock ?? ''),
+      unitCost: it.unitCost ? String(it.unitCost) : '',
       notes: it.notes || '',
       menuItem: it.menuItem || '',
       barcode: it.barcode || '',
@@ -432,6 +448,7 @@ export default function StockDashboard() {
       unit: itemForm.unit.trim(),
       quantity: Number.isFinite(qty) ? qty : 0,
       minStock: Number.isFinite(minSt) ? minSt : 0,
+      unitCost: itemForm.unitCost === '' || !Number.isFinite(Number(itemForm.unitCost)) ? null : Number(itemForm.unitCost),
       notes: itemForm.notes.trim(),
       menuItem: itemForm.menuItem || null,
       barcode: bcCheck.value,
@@ -797,9 +814,9 @@ export default function StockDashboard() {
     try { pb.collection('waste_records').unsubscribe('*'); } catch (_) { /* ignore */ }
     try { pb.collection('stock_adjustments').unsubscribe('*'); } catch (_) { /* ignore */ }
     pb.authStore.clear();
-    navigate('/stock-login', { replace: true });
+    navigate(loginPath('/stock-login'), { replace: true });
     setTimeout(() => {
-      if (window.location.pathname !== '/stock-login') window.location.assign('/stock-login');
+      if (window.location.pathname !== loginPath('/stock-login')) window.location.assign(loginPath('/stock-login'));
     }, 120);
   };
 
@@ -813,15 +830,22 @@ export default function StockDashboard() {
         <title>{t('stock_station')} - Tripti Genusswelt</title>
       </Helmet>
       <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
+        <header className="app-bar sticky top-0 z-40 bg-primary text-primary-foreground px-3 sm:px-4 py-3 flex items-center justify-between gap-2 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
-            <PackageCheck className="h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            <PackageCheck className="app-hide h-5 w-5 sm:h-6 sm:w-6 shrink-0" />
+            {isStaffApp ? (
+              <div className="min-w-0 leading-tight">
+                <h1 className="text-base font-bold truncate">{t('stock_station')}</h1>
+                <p className="text-xs opacity-80 truncate">{displayName}</p>
+              </div>
+            ) : (<>
             <h1 className="text-base sm:text-xl font-serif font-bold shrink-0 hidden sm:block">{t('stock_station')}</h1>
             <span className="text-sm sm:text-base opacity-90 truncate min-w-0 font-medium" title={displayName}>{displayName}</span>
+            </>)}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isAdmin && (
-              <Button variant="secondary" size="sm" onClick={() => navigate('/admin-dashboard')} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_backToAdmin')} title={t('stock_backToAdmin')}>
+              <Button variant="secondary" size="sm" onClick={() => navigate('/admin-dashboard')} className="app-hide h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_backToAdmin')} title={t('stock_backToAdmin')}>
                 <ArrowLeft className="h-4 w-4 sm:mr-1" />
                 <span className="hidden lg:inline">{t('stock_backToAdmin')}</span>
               </Button>
@@ -829,11 +853,21 @@ export default function StockDashboard() {
             <Button variant="secondary" size="sm" onClick={handleRefreshAll} disabled={refreshing} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label="Refresh" title="Refresh">
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => navigate('/stock-help')} className="h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_help')} title={t('stock_help')}>
+            {isStaffApp && (
+              <AppMoreMenu
+                title={displayName}
+                items={[
+                  isAdmin && { icon: ArrowLeft, label: t('stock_backToAdmin'), onClick: () => navigate('/admin-dashboard') },
+                  { icon: HelpCircle, label: t('stock_help'), onClick: () => navigate('/stock-help') },
+                  { icon: LogOut, label: t('logout'), onClick: logout, danger: true },
+                ]}
+              />
+            )}
+            <Button variant="secondary" size="sm" onClick={() => navigate('/stock-help')} className="app-hide h-10 min-h-[44px] px-3 sm:px-4 bg-secondary hover:bg-secondary/90" aria-label={t('stock_help')} title={t('stock_help')}>
               <HelpCircle className="h-4 w-4 sm:mr-1" />
               <span className="hidden lg:inline">{t('stock_help')}</span>
             </Button>
-            <Button variant="secondary" size="sm" onClick={logout} className="shrink-0 h-10 min-h-[44px] px-3 sm:px-4" aria-label={t('logout')}>
+            <Button variant="secondary" size="sm" onClick={logout} className="app-hide shrink-0 h-10 min-h-[44px] px-3 sm:px-4" aria-label={t('logout')}>
               <LogOut className="h-4 w-4 sm:mr-1" />
               <span className="hidden sm:inline">{t('logout')}</span>
             </Button>
@@ -842,19 +876,27 @@ export default function StockDashboard() {
 
         <main className="p-4 max-w-7xl mx-auto">
           {/* Stock alerts — low/out of stock + expiring/expired lots */}
+          {/* On the phone the alerts and totals show on the Inventory tab only, so
+              each other tab starts at the top of the screen. */}
+          {(!isStaffApp || activeTab === 'inventory') && (
           <StockAlertsPanel
-            pb={pb}
-            variant="stock"
-            onAction={(target) => {
-              if (target === 'inventory' || target === 'lots') setActiveTab(target);
-            }}
-            className="mb-6"
-          />
+              pb={pb}
+              variant="stock"
+              onAction={(target) => {
+                if (target === 'inventory' || target === 'lots') setActiveTab(target);
+              }}
+              className="mb-6"
+            />
+          )}
 
           {/* Tabs */}
-          <div className="flex flex-wrap gap-2 mb-6 p-2 bg-card border-2 border-border rounded-2xl shadow-sm w-fit">
+          <div className={isStaffApp ? 'app-chip-row' : 'flex flex-wrap gap-2 mb-6 p-2 bg-card border-2 border-border rounded-2xl shadow-sm w-fit'}>
             <button onClick={() => setActiveTab('inventory')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Boxes className="h-4 w-4 mr-2" /> {t('stock_tabInventory')}
+            </button>
+            <button onClick={() => setActiveTab('requests')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'requests' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
+              <ClipboardList className="h-4 w-4 mr-2" /> {language === 'en' ? 'Kitchen requests' : 'Küchenanforderungen'}
+              {openRequests > 0 && <span className="ml-1.5 rounded-full bg-destructive px-1.5 text-[11px] text-destructive-foreground">{openRequests}</span>}
             </button>
             <button onClick={() => setActiveTab('goodsin')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'goodsin' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Truck className="h-4 w-4 mr-2" /> Goods-In
@@ -871,6 +913,9 @@ export default function StockDashboard() {
             <button onClick={() => setActiveTab('barcodes')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'barcodes' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Barcode className="h-4 w-4 mr-2" /> Barcodes
             </button>
+            <button onClick={() => setActiveTab('backup')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'backup' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
+              <DatabaseBackup className="h-4 w-4 mr-2" /> {language === 'en' ? 'Backup' : 'Sicherung'}
+            </button>
             <button onClick={() => setActiveTab('waste')} className={`flex items-center px-4 py-2.5 text-sm font-bold rounded-xl transition-all ${activeTab === 'waste' ? 'bg-primary text-primary-foreground shadow' : 'text-foreground hover:bg-muted'}`}>
               <Trash2 className="h-4 w-4 mr-2" /> {t('stock_tabWaste')}
             </button>
@@ -880,13 +925,15 @@ export default function StockDashboard() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 ${isStaffApp && activeTab !== 'inventory' ? 'hidden' : ''}`}>
             <StatCard icon={Boxes} label={t('stock_totalItems')} value={stats.total} />
             <StatCard icon={AlertTriangle} label={t('stock_lowStockCount')} value={stats.low} tone="bg-amber-500/15 text-amber-700" />
             <StatCard icon={AlertTriangle} label={t('stock_outOfStockCount')} value={stats.out} tone="bg-destructive/15 text-destructive" />
             <StatCard icon={Trash2} label={t('stock_totalWaste')} value={stats.waste} tone="bg-secondary/20 text-secondary-foreground" />
           </div>
 
+          {activeTab === 'backup' && <DataBackup client={pb} role="stock" auto={autoBackup} />}
+          {activeTab === 'requests' && <StockRequests client={pb} mode="stock" user={{ id: userId, name: displayName, role: userRole }} />}
           {activeTab === 'goodsin' && <StockGoodsIn pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
           {activeTab === 'issue' && <StockIssue pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
           {activeTab === 'lots' && <StockLots pb={pb} displayName={displayName} userId={userId} userRole={userRole} />}
@@ -906,7 +953,10 @@ export default function StockDashboard() {
                     {t('stock_lowStockOnly')}
                   </label>
                 </div>
-                <Button onClick={openAddItem} className="h-11 shadow-md shrink-0"><Plus className="h-4 w-4 mr-2" /> {t('stock_addItem')}</Button>
+                <div className="flex gap-2 shrink-0">
+                  <StockCatalog pb={pb} onAdded={fetchItems} />
+                  <Button onClick={openAddItem} className="h-11 shadow-md shrink-0"><Plus className="h-4 w-4 mr-2" /> {t('stock_addItem')}</Button>
+                </div>
               </div>
 
               {/* CSV export / import for stock items — bulk management */}
@@ -1217,6 +1267,11 @@ export default function StockDashboard() {
                 <div className="space-y-1.5">
                   <Label className="font-bold text-primary text-sm">{t('stock_minStock')}</Label>
                   <Input type="number" min="0" step="any" value={itemForm.minStock} onChange={(e) => setItemForm((f) => ({ ...f, minStock: e.target.value }))} className="h-11" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="font-bold text-primary text-sm">{language === 'en' ? 'Price per unit (€)' : 'Preis pro Einheit (€)'}</Label>
+                  <Input type="number" min="0" step="0.01" inputMode="decimal" value={itemForm.unitCost} onChange={(e) => setItemForm((f) => ({ ...f, unitCost: e.target.value }))} className="h-11" placeholder={itemForm.unit ? `€ / ${itemForm.unit}` : '€'} />
+                  <p className="text-[11px] text-muted-foreground">{language === 'en' ? 'Used for recipe costs. Goods-In updates it.' : 'Für Rezeptkosten. Wird beim Wareneingang aktualisiert.'}</p>
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="font-bold text-primary text-sm">Barcode (numeric) *</Label>

@@ -26,6 +26,8 @@ import { recordsToCsv, downloadCsv } from '@/lib/csvUtils.js';
 import { resolveOrderId } from '@/lib/kotPrint.js';
 import { isKotDelayed, KOT_DELAY_THRESHOLD_MS } from '@/lib/kotDelayed.js';
 import StockAnalysis from '@/components/StockAnalysis.jsx';
+import BusinessAnalysis from '@/components/BusinessAnalysis.jsx';
+import { useLanguage } from '@/contexts/LanguageContext.jsx';
 
 /**
  * Admin Analysis — read-only operational analytics over existing stored
@@ -127,7 +129,9 @@ function downloadJson(filename, data) {
 // ---- component ----
 
 export default function AdminAnalysisView() {
-  const [analysisView, setAnalysisView] = useState('operations'); // 'operations' | 'stock'
+  const [analysisView, setAnalysisView] = useState('business'); // 'business' | 'operations' | 'stock'
+  const { language } = useLanguage();
+  const de = language === 'de';
   const [kots, setKots] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -169,7 +173,13 @@ export default function AdminAnalysisView() {
     }
   }, []);
 
-  useEffect(() => { fetchKots(false); }, [fetchKots]);
+  // Load all tickets only when the kitchen & service view is opened.
+  const [opsLoaded, setOpsLoaded] = useState(false);
+  useEffect(() => {
+    if (analysisView !== 'operations' || opsLoaded) return;
+    setOpsLoaded(true);
+    fetchKots(false);
+  }, [analysisView, opsLoaded, fetchKots]);
 
   // Distinct filter option lists derived from loaded data.
   const waiterOptions = useMemo(() => {
@@ -459,24 +469,30 @@ export default function AdminAnalysisView() {
       <Helmet><title>Analysis - Tripti Genusswelt Admin</title></Helmet>
       <div className="space-y-5">
         {/* Sub-navigation: Operations vs Stock & Waste */}
-        <div className="flex flex-wrap gap-2 border-b border-border pb-3">
+        <div className="app-chip-row flex gap-2 overflow-x-auto border-b border-border pb-3">
+          <button
+            onClick={() => setAnalysisView('business')}
+            className={`shrink-0 flex items-center px-4 py-2 text-sm font-bold rounded-lg transition-all ${analysisView === 'business' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}
+          >
+            <TrendingUp className="h-4 w-4 mr-2" /> {de ? 'Geschäft' : 'Business'}
+          </button>
           <button
             onClick={() => setAnalysisView('operations')}
-            className={`flex items-center px-4 py-2 text-sm font-bold rounded-lg transition-all ${analysisView === 'operations' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}
+            className={`shrink-0 flex items-center px-4 py-2 text-sm font-bold rounded-lg transition-all ${analysisView === 'operations' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}
           >
-            <ChefHat className="h-4 w-4 mr-2" /> Operations
+            <ChefHat className="h-4 w-4 mr-2" /> {de ? 'Küche & Service' : 'Kitchen & service'}
           </button>
           <button
             onClick={() => setAnalysisView('stock')}
-            className={`flex items-center px-4 py-2 text-sm font-bold rounded-lg transition-all ${analysisView === 'stock' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}
+            className={`shrink-0 flex items-center px-4 py-2 text-sm font-bold rounded-lg transition-all ${analysisView === 'stock' ? 'bg-primary text-primary-foreground shadow-md' : 'text-foreground hover:bg-muted'}`}
           >
-            <PackageCheck className="h-4 w-4 mr-2" /> Stock & Waste
+            <PackageCheck className="h-4 w-4 mr-2" /> {de ? 'Lager & Abfall' : 'Stock & waste'}
           </button>
         </div>
 
-        {analysisView === 'stock' ? (
-          <StockAnalysis />
-        ) : (
+        {analysisView === 'business' && <BusinessAnalysis />}
+        {analysisView === 'stock' && <StockAnalysis />}
+        {analysisView === 'operations' && (
         <>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

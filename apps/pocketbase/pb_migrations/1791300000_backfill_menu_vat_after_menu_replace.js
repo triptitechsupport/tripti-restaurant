@@ -6,7 +6,7 @@
 migrate((app) => {
   app.findRecordsByFilter('menu_items', "vat_Rate = ''", '', 0).forEach(record => {
     const category = String(record.get('category') || '').toLowerCase();
-    record.set('vat_Rate', /beverages|getränke|getraenke/.test(category) ? 'STANDARD' : 'REDUCED_1');
+    record.set('vat_Rate', /beverage|drink|getränk|getraenk/.test(category) ? 'STANDARD' : 'REDUCED_1');
     app.saveNoValidate(record);
   });
 }, (app) => {

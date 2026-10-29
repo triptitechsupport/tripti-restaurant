@@ -14,8 +14,10 @@ export const VegMark = ({ veg, lang }) => (
   <span className={`vm ${veg ? 'v' : 'n'}`} title={veg ? TX[lang].veg : TX[lang].nv} role="img" aria-label={veg ? TX[lang].veg : TX[lang].nv} />
 );
 
-export default function DishRow({ d, lang, canOrder, qty = 0, onAdd, onLess, flash, as: Tag = 'li', image }) {
+export default function DishRow({ d, lang, canOrder: canOrderAll, qty = 0, onAdd, onLess, flash, as: Tag = 'li', image }) {
   const tx = TX[lang];
+  // Dishes marked "not for online orders" in Menu Management stay on the menu without an add button.
+  const canOrder = canOrderAll && !(d.raw && d.raw.pickupBlocked);
   const name = lang === 'de' ? d.de : d.en;
   const other = lang === 'de' ? d.en : d.de;
   const desc = lang === 'de' ? d.descDe : d.descEn;

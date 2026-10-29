@@ -16,6 +16,12 @@
 // numeric fallback until tables are configured.
 
 onRecordCreateRequest((e) => {
+  // Online pickup orders get their own pickup number (AB-0001) instead of a
+  // table, so the table check does not apply to them.
+  if (e.record.getString("channel") === "online") {
+    e.next();
+    return;
+  }
   const tableNumber = e.record.get("tableNumber");
   if (!tableNumber || String(tableNumber).trim() === "") {
     // The required-field check is enforced by the collection schema; let it

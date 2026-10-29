@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useEffect, useState } from 'react';
 import NotFoundPage from '@/pages/NotFoundPage.jsx';
 import { Route, Routes, BrowserRouter as Router, Navigate, useLocation } from 'react-router-dom';
 import { LanguageProvider } from '@/contexts/LanguageContext.jsx';
-import { AdminAuthProvider } from '@/contexts/AdminAuthContext.jsx';
+import { AdminAuthProvider, useAuth } from '@/contexts/AdminAuthContext.jsx';
 import { SubscriptionAuthProvider } from '@/contexts/SubscriptionAuthContext.jsx';
 import { CartProvider } from '@/hooks/useCart.jsx';
 import ScrollToTop from '@/components/ScrollToTop.jsx';
@@ -28,6 +28,9 @@ const OrderConfirmationPage = lazy(() => import('@/pages/OrderConfirmationPage.j
 const AdminLoginPage = lazy(() => import('@/pages/AdminLoginPage.jsx'));
 const KdsLoginPage = lazy(() => import('@/pages/KdsLoginPage.jsx'));
 const WaiterLoginPage = lazy(() => import('@/pages/WaiterLoginPage.jsx'));
+const CashierLoginPage = lazy(() => import('@/pages/CashierLoginPage.jsx'));
+const StaffLoginPage = lazy(() => import('@/pages/StaffLoginPage.jsx'));
+const AuditorDashboard = lazy(() => import('@/pages/AuditorDashboard.jsx'));
 const KdsDashboard = lazy(() => import('@/pages/KdsDashboard.jsx'));
 const WaiterDashboard = lazy(() => import('@/pages/WaiterDashboard.jsx'));
 const AdminPlaceOrderPage = lazy(() => import('@/pages/AdminPlaceOrderPage.jsx'));
@@ -49,8 +52,15 @@ const StockHelpPage = lazy(() => import('@/pages/StockHelpPage.jsx'));
 // Subscriptions
 const SubscriptionsPage = lazy(() => import('@/pages/SubscriptionsPage.jsx'));
 import WhatsAppButton from '@/components/WhatsAppButton.jsx';
+import StaffAssistant from '@/components/StaffAssistant.jsx';
+import StaffCalls from '@/components/StaffCalls.jsx';
 import GlobalReservationNotifications from '@/components/GlobalReservationNotifications.jsx';
 import { LOGIN_PATH, MANAGE_PATH } from '@/config/subscriptionRoutes.js';
+import { isStaffApp } from '@/lib/staffApp.js';
+import { Toaster } from 'sonner';
+
+// In the staff Android app every sign-in goes through the one staff login.
+const inApp = (page) => (isStaffApp ? <Navigate to="/staff-login" replace /> : page);
 
 // Global Connection Monitor Component
 function ConnectionMonitor() {
@@ -100,31 +110,37 @@ function PageLoading() {
 function Layout() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const location = useLocation();
+  const { logout: adminLogout } = useAuth();
   // Waiter Station pages get a minimal header (logo + language switcher
   // only) instead of the full public restaurant header. All other routes
   // keep the public Header with its full nav, phone, Order Now, and cart.
-  const isWaiterRoute = location.pathname.startsWith('/waiter-');
+  const isWaiterRoute = location.pathname.startsWith('/waiter-') || location.pathname === '/cashier-login';
   const isKdsRoute = location.pathname.startsWith('/kds-');
   const isStockRoute = location.pathname.startsWith('/stock-');
+  const isStaffAppRoute = location.pathname === '/staff-login' || location.pathname.startsWith('/auditor-');
   const isAdminDashboardRoute = location.pathname === '/admin-dashboard'
     || location.pathname === '/admin-booking-dashboard'
     || location.pathname === '/admin'
     || location.pathname === '/admin-help'
     || location.pathname.startsWith('/admin/');
-  const showFooter = !isWaiterRoute && !isKdsRoute && !isStockRoute && !isAdminDashboardRoute;
+  // In the staff app these screens draw their own app-style top bar.
+  const ownAppBar = isStaffApp && ['/staff-login', '/waiter-dashboard', '/kds-dashboard', '/stock-dashboard', '/auditor-dashboard'].includes(location.pathname);
+  const showFooter = !isWaiterRoute && !isKdsRoute && !isStockRoute && !isAdminDashboardRoute && !isStaffAppRoute && !isStaffApp;
 
   return (
     <div className="flex flex-col min-h-screen">
-      {isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : <Header setIsCartOpen={setIsCartOpen} />}
-      <MarqueeBar />
-      <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />
+      {ownAppBar ? null : isWaiterRoute ? <WaiterHeader /> : isKdsRoute ? <KdsHeader /> : isStockRoute ? <StockHeader /> : isStaffAppRoute ? <StockHeader home="/staff-login" subtitle="Staff" /> : (isStaffApp && isAdminDashboardRoute) ? <StockHeader home="/admin-dashboard" subtitle="Admin" onLogout={adminLogout} /> : <Header setIsCartOpen={setIsCartOpen} />}
+      {!isStaffApp && <MarqueeBar />}
+      {!isStaffApp && <ShoppingCart isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} />}
       <GlobalReservationNotifications />
+      {/* Short messages such as "Clocked in" or "Order sent" (toast() is used across the app). */}
+      <Toaster position="top-center" richColors closeButton duration={3500} />
       
-      <div className="flex-1 flex flex-col">
+      <div key={isStaffApp ? location.pathname : undefined} className={`flex-1 flex flex-col${isStaffApp ? ' app-page' : ''}`}>
         <Suspense fallback={<PageLoading />}>
         <Routes>
           {/* Public Routes */}
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={inApp(<HomePage />)} />
           <Route path="/menu" element={<MenuPage />} />
           
           <Route path="/table-reservation" element={<TableReservationPage />} />
@@ -140,17 +156,20 @@ function Layout() {
           <Route path="/order-confirmation/:id" element={<OrderConfirmationPage />} />
           
           {/* Admin Login (Publicly accessible) */}
-          <Route path="/admin-login" element={<AdminLoginPage />} />
+          <Route path="/admin-login" element={inApp(<AdminLoginPage />)} />
 
           {/* KDS & Waiter Login + Dashboards */}
-          <Route path="/kds-login" element={<KdsLoginPage />} />
+          <Route path="/kds-login" element={inApp(<KdsLoginPage />)} />
           <Route path="/kds-dashboard" element={<KdsDashboard />} />
-          <Route path="/waiter-login" element={<WaiterLoginPage />} />
+          <Route path="/waiter-login" element={inApp(<WaiterLoginPage />)} />
+          <Route path="/cashier-login" element={inApp(<CashierLoginPage />)} />
+          <Route path="/staff-login" element={<StaffLoginPage />} />
+          <Route path="/auditor-dashboard" element={<AuditorDashboard />} />
           <Route path="/waiter-dashboard" element={<WaiterDashboard />} />
           <Route path="/waiter-help" element={<WaiterHelpPage />} />
 
           {/* Stock & Waste Management Login + Dashboard */}
-          <Route path="/stock-login" element={<StockLoginPage />} />
+          <Route path="/stock-login" element={inApp(<StockLoginPage />)} />
           <Route path="/stock-dashboard" element={<StockDashboard />} />
           <Route path="/stock-help" element={<StockHelpPage />} />
           
@@ -244,7 +263,9 @@ function App() {
                     <>
                       <ConnectionMonitor />
                       <Layout />
-                      <WhatsAppButton />
+                      <StaffAssistant />
+                      <StaffCalls />
+                      {!isStaffApp && <WhatsAppButton />}
                     </>
                   }
                 />

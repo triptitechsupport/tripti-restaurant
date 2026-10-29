@@ -13,11 +13,27 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Pencil, Trash2, Image as ImageIcon, AlertCircle, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import pb from '@/lib/pocketbaseClient.js';
+import defaultPb from '@/lib/pocketbaseClient.js';
 import MobileTableCard from '@/components/MobileTableCard.jsx';
 import { useIsMobile } from '@/hooks/use-mobile.jsx';
 
-export default function MenuItemsList({ refreshTrigger, onEdit }) {
+// Small hints for the online pickup settings of a dish.
+function PickupHints({ item }) {
+  const bits = [];
+  if (item.prepMinutes) bits.push(`${item.prepMinutes} min prep`);
+  if (item.noticeHours) bits.push(`${item.noticeHours} h notice`);
+  if (!bits.length && !item.pickupBlocked) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+      {item.pickupBlocked && <span className="rounded border border-red-200 bg-red-50 px-1.5 text-red-800">Not online</span>}
+      {bits.map((b) => <span key={b} className="rounded border border-amber-200 bg-amber-50 px-1.5 text-amber-900">{b}</span>)}
+    </div>
+  );
+}
+
+export default function MenuItemsList({ refreshTrigger, onEdit, client }) {
+  // The kitchen manager uses their own login (client); the admin the default one.
+  const pb = client || defaultPb;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -172,6 +188,7 @@ export default function MenuItemsList({ refreshTrigger, onEdit }) {
                       {item.availability ? 'Available' : 'Unavailable'}
                     </Button>
                   </div>
+                  <PickupHints item={item} />
                 </div>
               }
               actions={
@@ -262,6 +279,7 @@ export default function MenuItemsList({ refreshTrigger, onEdit }) {
                         Inactive
                       </Badge>
                     )}
+                    <PickupHints item={item} />
                   </TableCell>
                   <TableCell className="text-right pr-4">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">

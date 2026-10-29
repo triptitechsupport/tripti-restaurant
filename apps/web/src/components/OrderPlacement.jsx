@@ -20,8 +20,11 @@ import {
   Plus, Minus, Trash2, Send, Loader2, Search, UtensilsCrossed, Printer,
   CheckCircle2, Flame, ListOrdered, RefreshCw, DoorOpen, ShoppingCart, ArrowLeft,
   CircleStop, Layers, XCircle, Ban, CreditCard, Check, Banknote, AlertTriangle, Bell,
-  Receipt, Leaf, Beef,
+  Receipt, Leaf, Beef, HandCoins, Clock, Activity,
 } from 'lucide-react';
+import { billingApi, setBillingClient } from '@/lib/billingApi.js';
+import FiscalReceiptDialog from '@/components/FiscalReceiptDialog.jsx';
+import LiveOverview from '@/components/LiveOverview.jsx';
 import { toast } from 'sonner';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -35,11 +38,12 @@ import { printKOT, openKOT, SPICE_LEVELS, resolveOrderId, resolveBaseOrderId } f
 import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
 import { buildGroupMap, tableDisplayForParent, kdsTableLabel, isSharedParent } from '@/lib/tableGroups.js';
 import { isKotDelayed, DELAYED_CARD_CLS } from '@/lib/kotDelayed.js';
-import { ITEM_STATUS, getItemStatus, listUnits, splitForUnitStatus, splitForPayment, splitKotUnits, flatUnitIndex, allItemsPickedUp } from '@/lib/kotItemStatus.js';
+import { ITEM_STATUS, getItemStatus, listUnits, splitForUnitStatus, splitForPayment, splitKotUnits, flatUnitIndex, allItemsPickedUp, countItemStatuses, getItemStatuses } from '@/lib/kotItemStatus.js';
 import KotDelayedBadge from '@/components/KotDelayedBadge.jsx';
 import { usePrintSettings, canPrint, shouldAutoPrint } from '@/hooks/usePrintSettings.js';
 import { useLanguage } from '@/contexts/LanguageContext.jsx';
 import { pbDateFilter } from '@/lib/pbDateFilter.js';
+import { isStaffApp } from '@/lib/staffApp.js';
 
 // Each ordered unit is its own line, even when the dish and options match,
 // so billing, kitchen prep, and pickup can address that unit alone.
@@ -125,6 +129,19 @@ function playReadyChime() {
   } catch (_) { /* Web Audio unavailable — visual banner + vibration still fire */ }
 }
 
+// Phones only allow sound after the user touched the screen once: unlock the
+// chime on the first tap so later alerts can play without a tap.
+if (typeof window !== 'undefined') {
+  const unlock = () => {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !_readyAudioCtx) _readyAudioCtx = new AC();
+      if (_readyAudioCtx && _readyAudioCtx.state === 'suspended') _readyAudioCtx.resume().catch(() => {});
+    } catch (_) { /* no audio */ }
+  };
+  window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+}
+
 // Local-midnight (browser timezone) as a PocketBase date-filter literal.
 // PocketBase stores `created` as a UTC instant, so comparing
 // `created >= "<local-midnight PB date>"` yields "records from today" in the
@@ -140,8 +157,22 @@ function startOfTodayFilter() {
   return pbDateFilter(d);
 }
 
-const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, placedByRole, onPlaced, pbClient, showActiveTab = true, initialTab = 'place' }, ref) {
+// An ended order takes no more tickets: the table has to be freed first.
+function assertOrderTakesTickets(parent) {
+  if (parent && parent.endedAt) {
+    throw new Error(`Order ${parent.orderId || ''} for table ${parent.tableNumber || ''} has been ended. Free the table before sending a new ticket.`);
+  }
+}
+
+// A waiter's bill request is open until the server marks the order fully
+// paid (billReadyAt) after it was requested. PocketBase dates compare as text.
+const billPending = (p) => Boolean(p && p.billRequestedAt && (!p.billReadyAt || p.billReadyAt < p.billRequestedAt));
+
+const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, placedByRole, onPlaced, pbClient, showActiveTab = true, initialTab = 'place', cashier = false }, ref) {
   const pb = pbClient || defaultPb;
+  // Only the cashier (or an admin) takes payments. Every payment is issued
+  // straight away as an RKSV receipt; waiters ask the cashier for the bill.
+  const canTakePayment = cashier || placedByRole === 'admin';
   const [menuItems, setMenuItems] = useState([]);
   const [tables, setTables] = useState([]);
   const [maxTableNumber, setMaxTableNumber] = useState(9);
@@ -173,12 +204,25 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Previous status per KOT id, so we only notify on an actual transition
   // INTO `ready` (not on every realtime tick or re-fetch).
   const prevStatusRef = useRef(new Map());
+  // Dishes the kitchen marked ready one by one, per ticket, to alert on new ones.
+  const prevPreparedRef = useRef(new Map());
   useEffect(() => {
     ordersRef.current = orders;
     const m = new Map();
-    orders.forEach((o) => m.set(o.id, o.status));
+    const prepared = new Map();
+    orders.forEach((o) => { m.set(o.id, o.status); prepared.set(o.id, countItemStatuses(o).prepared); });
     prevStatusRef.current = m;
+    prevPreparedRef.current = prepared;
   }, [orders]);
+  // Ready alerts go only to the waiter who took the order (or added the ticket).
+  const placedByRef = useRef(placedBy);
+  useEffect(() => { placedByRef.current = placedBy; }, [placedBy]);
+  const isMine = useCallback((kot) => {
+    const me = placedByRef.current;
+    const parent = kot && kot.expand && kot.expand.parentOrder;
+    const owners = [kot && kot.placedBy, parent && parent.placedBy].filter(Boolean);
+    return !me || owners.length === 0 || owners.includes(me);
+  }, []);
 
   // KOTs the waiter has acknowledged (dismissed the banner or opened the
   // Active tab) so the persistent Ready-for-Pickup banner does not reappear
@@ -250,7 +294,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     // banner appears automatically because it is derived from `orders`.
     if (rec.status === 'ready' && prevStatus !== 'ready') {
       const existing = ordersRef.current.find((o) => o.id === rec.id) || rec;
-      notifyReadyForPickup(existing);
+      if (isMine({ ...existing, placedBy: rec.placedBy || existing.placedBy })) notifyReadyForPickup(existing);
+    } else if (rec.status === 'preparing') {
+      // The kitchen marked single dishes ready: chime and name them.
+      const before = prevPreparedRef.current.get(rec.id) || 0;
+      const nowPrepared = countItemStatuses(rec).prepared;
+      const existing = ordersRef.current.find((o) => o.id === rec.id) || rec;
+      if (nowPrepared > before && isMine({ ...existing, placedBy: rec.placedBy || existing.placedBy })) {
+        playReadyChime();
+        try { navigator.vibrate?.([200, 100, 200]); } catch (_) { /* ignore */ }
+        const table = (existing.expand && existing.expand.parentOrder && existing.expand.parentOrder.tableNumber) || rec.tableNumber || '';
+        const statuses = getItemStatuses(rec);
+        const names = (rec.items || []).filter((_, i) => statuses[String(i)] === ITEM_STATUS.PREPARED).map((it) => it.name);
+        toast(`🔔 Table ${table || '—'}: dish ready`, { description: names.join(', '), duration: 10000 });
+      }
+      prevPreparedRef.current.set(rec.id, nowPrepared);
     }
     // Transition OUT of ready → drop from acknowledged so a future ready
     // transition can alert again, and the banner clears naturally (the KOT
@@ -263,7 +321,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         return next;
       });
     }
-  }, [notifyReadyForPickup]);
+  }, [notifyReadyForPickup, isMine]);
 
   // Sticky tab bar offset — the site header + marquee bar are fixed/sticky
   // at the top of the viewport (z-50 / z-40). The tab bar must stick BELOW
@@ -275,12 +333,15 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
 
   useEffect(() => {
     const measure = () => {
-      const header = document.querySelector('.sticky-header');
+      // In the staff app the screen's own top bar (.app-bar) sticks below
+      // the phone's status bar, so its sticky top is counted too.
+      const header = document.querySelector('.sticky-header') || (isStaffApp ? document.querySelector('.app-bar') : null);
       const marquee = document.querySelector('.marquee-bar-sticky');
-      const h = header ? header.offsetHeight : 0;
+      const h = header ? header.offsetHeight + (parseFloat(getComputedStyle(header).top) || 0) : 0;
       const m = marquee ? marquee.offsetHeight : 0;
       setStickyTop(h + m);
-      if (tabBarRef.current) setTabBarHeight(tabBarRef.current.offsetHeight);
+      // In the app the tabs sit at the bottom of the screen, not under the top bar.
+      if (tabBarRef.current) setTabBarHeight(isStaffApp ? 0 : tabBarRef.current.offsetHeight);
     };
     measure();
     // Marquee text loads asynchronously; re-measure shortly after mount.
@@ -309,14 +370,14 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // but still-ready unacknowledged KOTs still show the banner.
   const readyPickups = useMemo(() => {
     return orders
-      .filter((o) => o.status === 'ready' && !acknowledgedReadyIds.has(o.id))
+      .filter((o) => o.status === 'ready' && !acknowledgedReadyIds.has(o.id) && isMine(o))
       .map((o) => ({
         id: o.id,
         kotId: resolveOrderId(o) || o.id,
         table: (o.expand && o.expand.parentOrder && o.expand.parentOrder.tableNumber) || o.tableNumber || '',
         orderId: (o.expand && o.expand.parentOrder && o.expand.parentOrder.orderId) || '',
       }));
-  }, [orders, acknowledgedReadyIds]);
+  }, [orders, acknowledgedReadyIds, isMine]);
 
   // Height of the persistent Ready-for-Pickup banner (0 when hidden). Used to
   // push the sticky tab bar (and the Order tab's sticky header) down so the
@@ -483,6 +544,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // entries the waiter has ticked for settlement in the payment modal.
   const [paymentSelections, setPaymentSelections] = useState({});
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+  const [payType, setPayType] = useState('CASH');
+  const [receiptPreview, setReceiptPreview] = useState(null);
+  const [billBusy, setBillBusy] = useState(null);
+  const [endBusy, setEndBusy] = useState(null);
   // Parent waiter_orders records (for open/closed status + endedAt).
   const [waiterOrders, setWaiterOrders] = useState([]);
   // Per-item spice level selections on the New Order cards (used before an
@@ -707,10 +772,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       // Waiter active list = current day only. A fresh list starts each day;
       // historical KOTs are retained for Admin (AdminKotsView) but are not
       // surfaced in the Waiter active view.
+      // Unfinished orders from an earlier day stay on the list until they are
+      // freed, so their bill can still be taken and the table is not shown free.
       const since = startOfTodayFilter();
       const res = await pb.collection('kitchen_orders').getList(1, 100, {
         sort: '-created',
-        filter: `created >= "${since}"`,
+        filter: `created >= "${since}" || (parentOrder.freed != true && parentOrder.orderStatus = "open")`,
         expand: 'parentOrder',
         $autoCancel: false,
       });
@@ -739,11 +806,13 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   const fetchWaiterOrders = useCallback(async () => {
     try {
       // Current day only — the Waiter active list resets each day. Closed
-      // (historical) billing parents remain available to Admin.
+      // (historical) billing parents remain available to Admin. An order from
+      // an earlier day that was never freed stays until it is: the table is
+      // still taken and its bill still open.
       const since = startOfTodayFilter();
       const res = await pb.collection('waiter_orders').getList(1, 100, {
         sort: '-created',
-        filter: `created >= "${since}"`,
+        filter: `created >= "${since}" || (freed != true && orderStatus = "open")`,
         $autoCancel: false,
       });
       setWaiterOrders(res.items);
@@ -1064,7 +1133,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     if (order.status === 'cancelled' || order.status === 'completed') return;
     const units = listUnits(order);
     const unit = units.find((u) => u.itemIndex === itemIndex && u.unitIndex === unitIndex);
-    if (!unit || unit.status !== ITEM_STATUS.PREPARED) return;
+    // When the whole ticket is ready, every dish not served yet can be served.
+    const servable = unit && (unit.status === ITEM_STATUS.PREPARED || (order.status === 'ready' && unit.status !== ITEM_STATUS.PICKEDUP));
+    if (!servable) return;
     const split = splitForUnitStatus(order, unit.itemIndex, unit.unitIndex, ITEM_STATUS.PICKEDUP);
     const optimistic = { ...order, items: split.items, itemStatuses: split.itemStatuses };
     setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, items: split.items, itemStatuses: split.itemStatuses } : o)));
@@ -2076,6 +2147,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           });
           if (open.items && open.items.length > 0) parent = open.items[0];
         } catch (_) { /* ignore — fall through to create */ }
+        assertOrderTakesTickets(parent);
       }
       if (!parent) {
         try {
@@ -2508,6 +2580,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           });
           if (open.items && open.items.length > 0) parent = open.items[0];
         } catch (_) { /* ignore — fall through to create */ }
+        assertOrderTakesTickets(parent);
       }
       if (!parent) {
         try {
@@ -2660,7 +2733,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       if (onPlaced) onPlaced();
     } catch (err) {
       console.error('Failed to place order:', err);
-      toast.error('Failed to place order');
+      const serverMsg = (err && err.response && err.response.message) || (err && err.message) || '';
+      toast.error(serverMsg ? `Failed to place order: ${serverMsg}` : 'Failed to place order');
     } finally {
       setSubmitting(false);
     }
@@ -2718,6 +2792,54 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     });
     return { groupArr, unparented };
   }, [orders, parentMap]);
+
+  // Bills waiters asked for that the cashier has not issued yet.
+  const billRequests = useMemo(() => groupedOrders.groupArr.filter(({ parent }) =>
+    billPending(parent) && parent.paymentStatus !== 'paid' && parent.orderStatus !== 'closed'
+  ).sort((x, y) => new Date(x.parent.billRequestedAt) - new Date(y.parent.billRequestedAt)), [groupedOrders]);
+
+  // Orders a waiter asked the cashier to end, not ended yet.
+  const endRequests = useMemo(() => groupedOrders.groupArr.filter(({ parent }) =>
+    parent && parent.endRequestedAt && !parent.endedAt && parent.orderStatus !== 'closed'
+  ).sort((x, y) => new Date(x.parent.endRequestedAt) - new Date(y.parent.endRequestedAt)), [groupedOrders]);
+
+  // Tell the cashier about new end requests, and the waiter when the order was ended.
+  const endSeen = useRef(null);
+  useEffect(() => {
+    const now = new Map(waiterOrders.map((w) => [w.id, `${w.endRequestedAt || ''}|${w.endedAt || ''}`]));
+    const before = endSeen.current;
+    endSeen.current = now;
+    if (!before) return;
+    waiterOrders.forEach((w) => {
+      if (before.get(w.id) === now.get(w.id)) return;
+      if (canTakePayment && w.endRequestedAt && !w.endedAt) {
+        toast.warning(`Table ${w.tableNumber}: ${w.endRequestedBy || 'the waiter'} asks you to end the order`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      } else if (!canTakePayment && w.endedAt && w.endRequestedBy && w.endRequestedBy === placedBy) {
+        toast.success(`Table ${w.tableNumber}: the cashier ended the order.`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      }
+    });
+  }, [waiterOrders, canTakePayment, placedBy]);
+
+  // Tell the cashier about new bill requests, and the waiter when a bill is ready.
+  const billSeen = useRef(null);
+  useEffect(() => {
+    const now = new Map(waiterOrders.map((w) => [w.id, `${w.billRequestedAt || ''}|${w.billReadyAt || ''}`]));
+    const before = billSeen.current;
+    billSeen.current = now;
+    if (!before) return;
+    waiterOrders.forEach((w) => {
+      if (before.get(w.id) === now.get(w.id)) return;
+      if (canTakePayment && billPending(w) && w.paymentStatus !== 'paid') {
+        toast.warning(`Table ${w.tableNumber}: bill requested${w.billRequestedBy ? ` by ${w.billRequestedBy}` : ''}`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      } else if (!canTakePayment && w.billReadyAt && w.billRequestedBy && w.billRequestedBy === placedBy) {
+        toast.success(`Table ${w.tableNumber}: the bill is ready. Collect it from the cashier.`, { duration: 8000 });
+        try { navigator.vibrate?.([120, 80, 120]); } catch (_) { /* ignore */ }
+      }
+    });
+  }, [waiterOrders, canTakePayment, placedBy]);
 
   const activeGroupCount = useMemo(() => {
     let n = groupedOrders.groupArr.filter((g) => (g.parent && g.parent.orderStatus) !== 'closed').length;
@@ -2779,7 +2901,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         const aU = new Date((a.parent && a.parent.updated) || (a.parent && a.parent.created) || 0).getTime();
         const bU = new Date((b.parent && b.parent.updated) || (b.parent && b.parent.created) || 0).getTime();
         return bU - aU;
-      });
+      })
+      // Staff screens show only the last 5 finished orders of the day; the
+      // admin keeps every record (Admin dashboard).
+      .slice(0, 5);
     return { groupArr, unparented: [] };
   }, [filteredGroupedOrders]);
 
@@ -2922,6 +3047,28 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // once every child KOT is completed (served). It does NOT set orderStatus —
   // the order stays "open" and the table stays occupied. orderStatus only
   // becomes "closed" later, by the explicit Free Table action.
+  // Waiter: ask the cashier to end the order once every ticket is served.
+  const requestEnd = async (parent, kots) => {
+    if (!parent?.id) return;
+    const open = (kots || []).filter((k) => k.status !== 'completed' && k.status !== 'cancelled');
+    if (open.length > 0) {
+      toast.error(`Not yet: ${open.length} ticket${open.length > 1 ? 's are' : ' is'} still in the kitchen or not served.`);
+      return;
+    }
+    setEndBusy(parent.id);
+    try {
+      await pb.collection('waiter_orders').update(parent.id, {
+        endRequestedAt: new Date().toISOString(), endRequestedBy: placedBy || '',
+      }, { $autoCancel: false });
+      toast.success(`Table ${parent.tableNumber}: the cashier has been asked to end the order.`);
+      fetchWaiterOrders();
+    } catch (err) {
+      toast.error(err?.response?.message || 'Could not send the request to the cashier');
+    } finally {
+      setEndBusy(null);
+    }
+  };
+
   const handleEndOrder = async () => {
     if (!endOrderTarget) return;
     const { parent, kots } = endOrderTarget;
@@ -2956,26 +3103,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       if (onPlaced) onPlaced();
     } catch (err) {
       console.error('Failed to end order:', err);
-      toast.error('Failed to end order');
+      toast.error(err?.response?.message || 'Failed to end order');
     } finally {
       setEndOrderTarget(null);
     }
-  };
-
-  // Generate Bill — Phase 1: gated ONLY on the successful completion of the
-  // existing End Order workflow (parent.endedAt set). It does NOT call
-  // Fiskaly, does NOT generate a fiscal receipt, does NOT change payment
-  // processing, and does NOT free the table. The handler is a placeholder
-  // that confirms the gating; fiscal receipt generation is a later phase.
-  // Existing Pay / Free Table / pre-End-Order behavior is untouched.
-  const handleGenerateBill = (parent, kots) => {
-    // Defensive re-check: bill generation is allowed only after End Order.
-    if (!parent || !parent.endedAt) {
-      toast.error('Generate Bill is available only after End Order is completed.');
-      return;
-    }
-    const baseOrderId = resolveBaseOrderId({ expand: { parentOrder: parent } });
-    toast.info(`Bill generation for order ${baseOrderId} will be available in a later phase.`);
   };
 
   // ---- Linked Orders group-level actions ----
@@ -3006,7 +3137,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       try {
         await pb.collection('waiter_orders').update(
           parent.id,
-          { endedAt: new Date().toISOString() },
+          canTakePayment
+            ? { endedAt: new Date().toISOString() }
+            : { endRequestedAt: new Date().toISOString(), endRequestedBy: placedBy || '' },
           { $autoCancel: false, requestKey: `end-grp-${parent.id}` },
         );
         ended.push(parent.tableNumber || parent.orderId);
@@ -3018,7 +3151,9 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
     fetchWaiterOrders();
     fetchOrders();
     if (ended.length > 0 && blocked.length === 0) {
-      toast.success(`Ended ${ended.length} order(s): ${ended.join(', ')}`);
+      toast.success(canTakePayment
+        ? `Ended ${ended.length} order(s): ${ended.join(', ')}`
+        : `Asked the cashier to end ${ended.length} order(s): ${ended.join(', ')}`);
     } else if (ended.length > 0 && blocked.length > 0) {
       toast.message(`Ended ${ended.length}: ${ended.join(', ')}. Blocked ${blocked.length}: ${blocked.join(', ')}`);
     } else if (blocked.length > 0) {
@@ -3114,11 +3249,70 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
   // Begin settling a specific parent order. Loads its KOTs fresh and seeds
   // the selection map empty (nothing pre-selected — settlement is an
   // explicit payment event, not a toggle).
+  // RKSV: every payment becomes a signed receipt at once. The receipt opens
+  // for printing; the waiter then collects it from the cashier.
+  const printableReceipt = (t) => {
+    if (!t) return null;
+    if (['signed', 'outage'].includes(t.status) && t.qrCodeData) return t;
+    if (t.fallbackReceipt) return { ...t, printVariant: 'fallback' };
+    return null;
+  };
+  const issueReceipt = async (settlement, paymentType) => {
+    setBillingClient(pb);
+    try {
+      const { transaction } = await billingApi(`/settlements/${settlement.id}/generate`, { paymentType });
+      let current = transaction;
+      for (let i = 0; i < 20 && !printableReceipt(current) && current.status !== 'failed'; i += 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const data = await billingApi(`/transactions/${transaction.id}`);
+        current = data.transaction || current;
+      }
+      const ready = printableReceipt(current);
+      if (!ready) {
+        toast.error(`Payment saved, but the RKSV receipt is not signed yet (${current.errorMessage || current.status}). Open Receipts to retry.`, { duration: 10000 });
+        return;
+      }
+      setReceiptPreview(ready);
+    } catch (err) {
+      toast.error(`Payment saved, but the RKSV receipt failed: ${String(err.message).replace(/\.+$/, "")}. Open Receipts to retry.`, { duration: 10000 });
+    }
+  };
+
+  // Waiter: ask the cashier for the bill of this order.
+  const requestBill = async (parent) => {
+    setBillBusy(parent.id);
+    try {
+      await pb.collection('waiter_orders').update(parent.id, {
+        billRequestedAt: new Date().toISOString(), billRequestedBy: placedBy || '', billReadyAt: '',
+      }, { $autoCancel: false });
+      toast.success(`Bill requested for table ${parent.tableNumber}. The cashier has been told.`);
+      fetchWaiterOrders();
+    } catch (err) {
+      toast.error(err?.response?.message || 'Could not request the bill');
+    } finally {
+      setBillBusy(null);
+    }
+  };
+
   const startPaymentSettlement = async (group) => {
     settlementAttempt.current = null;
     setPaymentTarget(group);
-    setPaymentSelections({});
-    setPaymentFullOrderMode(false);
+    // The cashier usually takes the whole bill: start with every unpaid item
+    // ticked (untick items to split the bill).
+    const all = {};
+    if (canTakePayment) {
+      group.kots.forEach((k) => {
+        if (k.status === 'cancelled') return;
+        const sel = {};
+        (k.items || []).forEach((it, idx) => {
+          if (isCleared(it)) return;
+          for (let u = 0; u < itemUnitCount(it); u += 1) sel[unitSelKey(idx, u)] = true;
+        });
+        if (Object.keys(sel).length) all[k.id] = sel;
+      });
+    }
+    setPaymentSelections(all);
+    setPaymentFullOrderMode(Object.keys(all).length > 0);
   };
 
   // Toggle a single unpaid unit in the payment selection. Already-cleared
@@ -3269,7 +3463,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         });
         const signature = JSON.stringify({order: parent.id, selections});
         if (settlementAttempt.current?.signature !== signature) settlementAttempt.current = {signature, key: crypto.randomUUID()};
-        await pb.send('/api/payment-settlements/confirm', {method: 'POST', body: {order: parent.id, selections, requestKey: settlementAttempt.current.key}});
+        const settlement = await pb.send('/api/payment-settlements/confirm', {method: 'POST', body: {order: parent.id, selections, requestKey: settlementAttempt.current.key}});
+        if (canTakePayment && settlement?.id) issueReceipt(settlement, payType);
       }
       toast.success(
         `Payment settled: €${selectedSettleAmount.toFixed(2)} cleared`,
@@ -3374,7 +3569,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                   ) : null}
                                   <div className="ml-auto flex items-center gap-1.5 shrink-0">
                                     {(() => {
-                                      const ist = unit.status;
+                                      const ist = order.status === 'ready' && unit.status !== ITEM_STATUS.PICKEDUP ? ITEM_STATUS.PREPARED : unit.status;
                                       const active = order.status === 'preparing' || order.status === 'ready';
                                       if (ist === ITEM_STATUS.PREPARED) {
                                         return (
@@ -3482,7 +3677,21 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                       return (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
-                            {!isEnded ? (
+                            {!isEnded && !canTakePayment && parent.endRequestedAt ? (
+                              <span className="flex-1 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-2 text-center flex items-center justify-center gap-1">
+                                <Clock className="h-3.5 w-3.5 shrink-0" /> Waiting for the cashier to end the order
+                              </span>
+                            ) : !isEnded && !canTakePayment ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="flex-1"
+                                disabled={!allResolved || endBusy === parent.id}
+                                onClick={() => requestEnd(parent, kots)}
+                              >
+                                {endBusy === parent.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CircleStop className="h-4 w-4 mr-1" />} Ask cashier to end order
+                              </Button>
+                            ) : !isEnded ? (
                               <Button
                                 size="sm"
                                 variant="destructive"
@@ -3490,7 +3699,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                                 disabled={!allResolved}
                                 onClick={() => setEndOrderTarget({ parent, kots })}
                               >
-                                <CircleStop className="h-4 w-4 mr-1" /> End Order
+                                <CircleStop className="h-4 w-4 mr-1" /> {parent.endRequestedAt ? 'Confirm end of order' : 'End Order'}
                               </Button>
                             ) : (
                               <span className="flex-1 text-xs text-muted-foreground italic text-center">Order ended</span>
@@ -3514,33 +3723,10 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               </Button>
                             )}
                           </div>
-                          {/* Generate Bill — Phase 1: DISABLED until the existing
-                              End Order workflow has successfully completed
-                              (parent.orderStatus === 'closed'). Before End Order
-                              the button is visibly disabled; after End Order it
-                              becomes enabled. It does NOT call Fiskaly, does NOT
-                              generate a fiscal receipt, and does NOT free the
-                              table in this phase. */}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full"
-                            disabled={!isEnded}
-                            onClick={() => handleGenerateBill(parent, kots)}
-                            title={!isEnded ? 'Generate Bill is available only after End Order is completed.' : 'Generate Bill'}
-                          >
-                            <Receipt className="h-4 w-4 mr-1" /> Generate Bill
-                          </Button>
-                          {!isEnded && (
-                            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-                              <Receipt className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span>Generate Bill locked — complete End Order first.</span>
-                            </p>
-                          )}
                           {!isEnded && !allResolved && (
                             <p className="text-[11px] text-amber-700 flex items-start gap-1.5">
                               <CircleStop className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span>End Order locked — {pendingCount} ticket{pendingCount > 1 ? 's' : ''} still pending or being prepared.</span>
+                              <span>Cannot end yet: {pendingCount} ticket{pendingCount > 1 ? 's are' : ' is'} still in the kitchen or not served. Mark each ticket served first.</span>
                             </p>
                           )}
                           {!freeable && !isFreed && (
@@ -3586,17 +3772,43 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                               {fig.paymentStatus}
                             </Badge>
                           </div>
-                          {fig.outstandingAmount > 0 ? (
-                            <Button
-                              size="sm"
-                              className="w-full touch-target"
-                              onClick={() => startPaymentSettlement({ parent, kots })}
-                            >
-                              <CreditCard className="h-4 w-4 mr-1" /> Pay — €{fig.outstandingAmount.toFixed(2)} due
-                            </Button>
+                          {fig.outstandingAmount > 0 && canTakePayment ? (
+                            <>
+                              {billPending(parent) && (
+                                <p className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5 flex items-center gap-1.5">
+                                  <HandCoins className="h-3.5 w-3.5 shrink-0" /> Bill requested{parent.billRequestedBy ? ` by ${parent.billRequestedBy}` : ''}
+                                </p>
+                              )}
+                              <Button
+                                size="sm"
+                                className="w-full touch-target"
+                                onClick={() => startPaymentSettlement({ parent, kots })}
+                              >
+                                <CreditCard className="h-4 w-4 mr-1" /> Take payment & print bill — €{fig.outstandingAmount.toFixed(2)}
+                              </Button>
+                            </>
+                          ) : fig.outstandingAmount > 0 ? (
+                            billPending(parent) ? (
+                              <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 flex items-center gap-1.5">
+                                <Clock className="h-4 w-4 shrink-0" /> Bill requested. The cashier is preparing it.
+                              </p>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="w-full touch-target"
+                                disabled={billBusy === parent.id}
+                                onClick={() => requestBill(parent)}
+                              >
+                                {billBusy === parent.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <HandCoins className="h-4 w-4 mr-1" />}
+                                Request bill from cashier — €{fig.outstandingAmount.toFixed(2)}
+                              </Button>
+                            )
                           ) : (
                             <p className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1.5">
-                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Fully settled
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                              {!canTakePayment && parent.billReadyAt
+                                ? 'Paid. Collect the printed bill from the cashier and give it to the guest.'
+                                : 'Fully settled'}
                             </p>
                           )}
                         </div>
@@ -3660,8 +3872,8 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
       )}
     <Tabs value={tab} onValueChange={setTab} className="w-full">
       {/* Sticky tab bar — positioned below header + marquee */}
-      <div ref={tabBarRef} className="sticky z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-4 px-4 py-2 border-b border-border" style={{ top: stickyTop + readyBannerHeight }}>
-        <TabsList className={`w-full grid ${showActiveTab ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div ref={tabBarRef} className="app-bottom-tabs sticky z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 -mx-4 px-4 py-2 border-b border-border" style={{ top: stickyTop + readyBannerHeight }}>
+        <TabsList className={`w-full grid ${showActiveTab ? (canTakePayment ? 'grid-cols-4' : 'grid-cols-3') : 'grid-cols-2'}`}>
           <TabsTrigger value="place">
             <Plus className="h-4 w-4 mr-1" /> New Order
           </TabsTrigger>
@@ -3678,8 +3890,64 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
               <ListOrdered className="h-4 w-4 mr-1" /> Active ({activeGroupCount})
             </TabsTrigger>
           )}
+          {showActiveTab && canTakePayment && (
+            <TabsTrigger value="overview">
+              <Activity className="h-4 w-4 mr-1" /> Live
+            </TabsTrigger>
+          )}
         </TabsList>
       </div>
+
+      {/* Cashier: bills the waiters asked for */}
+      {canTakePayment && showActiveTab && billRequests.length > 0 && (
+        <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 space-y-2" role="status" aria-live="polite">
+          <p className="flex items-center gap-2 text-sm font-bold text-amber-900">
+            <HandCoins className="h-4 w-4" /> Bill requests ({billRequests.length})
+          </p>
+          {billRequests.map(({ parent, kots }) => {
+            const due = computePayment(kots).outstandingAmount;
+            return (
+              <div key={parent.id} className="flex items-center justify-between gap-2 rounded-lg bg-card border border-amber-200 px-3 py-2">
+                <div className="min-w-0 text-sm">
+                  <p className="font-bold truncate">Table {parent.tableNumber} · €{due.toFixed(2)}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {parent.billRequestedBy || 'Waiter'} · {new Date(parent.billRequestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <Button size="sm" className="shrink-0" onClick={() => startPaymentSettlement({ parent, kots })}>
+                  <CreditCard className="h-4 w-4 mr-1" /> Take payment
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Cashier: orders the waiters asked to end */}
+      {canTakePayment && showActiveTab && endRequests.length > 0 && (
+        <div className="mt-3 rounded-xl border-2 border-primary/40 bg-primary/5 p-3 space-y-2" role="status" aria-live="polite">
+          <p className="flex items-center gap-2 text-sm font-bold text-primary">
+            <CircleStop className="h-4 w-4" /> End order requests ({endRequests.length})
+          </p>
+          {endRequests.map(({ parent, kots }) => {
+            const open = kots.filter((k) => k.status !== 'completed' && k.status !== 'cancelled').length;
+            return (
+              <div key={parent.id} className="flex items-center justify-between gap-2 rounded-lg bg-card border border-border px-3 py-2">
+                <div className="min-w-0 text-sm">
+                  <p className="font-bold truncate">Table {parent.tableNumber}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {parent.endRequestedBy || 'Waiter'} · {new Date(parent.endRequestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {open > 0 ? ` · ${open} not served` : ''}
+                  </p>
+                </div>
+                <Button size="sm" variant="destructive" className="shrink-0" disabled={open > 0} onClick={() => setEndOrderTarget({ parent, kots })}>
+                  <CircleStop className="h-4 w-4 mr-1" /> Confirm end
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* ===== New Order tab ===== */}
       <TabsContent value="place" className="mt-4 space-y-4 pb-24">
@@ -3920,7 +4188,45 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                 <Label className="text-xs font-semibold uppercase tracking-wide text-primary">
                   Table Number <span className="text-destructive">*</span>
                 </Label>
-                {activeTables.length > 0 ? (
+                {isStaffApp ? (
+                  // Phone app: tap a table. Colours show which tables are free.
+                  <div ref={tableSelectRef} tabIndex={-1} className="grid grid-cols-4 gap-2 outline-none" role="radiogroup" aria-label="Table">
+                    {(activeTables.length > 0
+                      ? activeTables
+                      : Array.from({ length: maxTableNumber }, (_, i) => ({ id: `n${i + 1}`, name: String(i + 1) }))
+                    ).map((t) => {
+                      const hasOpenOrder = openOrderTableNumbers.has(t.name);
+                      const occupied = occupiedTableNumbers.has(t.name);
+                      const combined = activeCombinationTableNumbers.has(t.name);
+                      const blocked = !hasOpenOrder && (occupied || combined);
+                      const chosen = tableNumber === t.name;
+                      const state = hasOpenOrder ? 'Open' : occupied ? 'Ended' : combined ? 'Combined' : 'Free';
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={chosen}
+                          aria-label={`Table ${t.name} ${state}`}
+                          disabled={blocked}
+                          onClick={() => { setTableNumber(t.name); setRoom(t.room || ''); }}
+                          className={`relative flex flex-col items-center justify-center rounded-2xl border-2 h-16 font-bold transition-colors disabled:opacity-40 ${
+                            chosen
+                              ? 'bg-primary border-primary text-primary-foreground shadow-md'
+                              : hasOpenOrder
+                                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                                : 'bg-background border-border text-foreground'
+                          }`}
+                        >
+                          <span className="text-xl leading-none">{String(t.name).replace(/^table\s*/i, '')}</span>
+                          <span className={`text-[9px] uppercase tracking-wide mt-1 ${chosen ? 'opacity-80' : hasOpenOrder ? 'text-amber-700' : blocked ? 'text-destructive' : 'text-muted-foreground'}`}>
+                            {hasOpenOrder ? 'Open' : occupied ? 'Ended' : combined ? 'Combined' : t.room || 'Free'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : activeTables.length > 0 ? (
                   <Select
                     value={tableNumber}
                     onValueChange={(v) => {
@@ -4181,7 +4487,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           <button
             type="button"
             onClick={() => setTab('order')}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-5 py-3 shadow-lg hover:scale-[1.02] active:scale-95 transition-transform"
+            className="app-raise fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 whitespace-nowrap rounded-full bg-primary text-primary-foreground px-5 py-3 shadow-lg hover:scale-[1.02] active:scale-95 transition-transform"
           >
             <ShoppingCart className="h-5 w-5" />
             <span className="font-bold text-sm">View Order</span>
@@ -4427,6 +4733,12 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
         )}
       </TabsContent>
 
+      {showActiveTab && canTakePayment && (
+        <TabsContent value="overview" className="mt-4 pb-8">
+          {tab === 'overview' && <LiveOverview client={pb} />}
+        </TabsContent>
+      )}
+
       {/* ===== Active tab ===== */}
       {showActiveTab && (
       <TabsContent value="active" className="mt-4 pb-8">
@@ -4461,14 +4773,19 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                   : 'text-muted-foreground hover:bg-background'
               }`}
             >
-              <Receipt className="h-3.5 w-3.5 shrink-0" /> Order History
+              <Receipt className="h-3.5 w-3.5 shrink-0" /> Last 5 finished
             </button>
           </div>
         </div>
+        {activeSubTab === 'history' && (
+          <p className="-mt-2 mb-3 text-[11px] text-muted-foreground">
+            Last 5 finished orders today. This list starts fresh every day; all records stay with the admin.
+          </p>
+        )}
 
         {/* Filter controls (Kitchen Status + Table) + refresh */}
         <div className="space-y-2 mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3">
+          <div className={isStaffApp ? 'grid grid-cols-[1fr_1fr_auto] items-end gap-2' : 'flex flex-col sm:flex-row sm:items-end gap-2 sm:gap-3'}>
             <div className="flex-1 min-w-0">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Kitchen Status</Label>
               <Select value={filterKitchenStatus} onValueChange={setFilterKitchenStatus}>
@@ -4499,11 +4816,11 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             </div>
             <div className="flex gap-2 sm:items-end">
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="touch-target">
-                {refreshing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Refresh
+                {refreshing ? <Loader2 className="h-4 w-4 sm:mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 sm:mr-1" />}<span className={isStaffApp ? 'sr-only' : ''}>Refresh</span>
               </Button>
               {activeFilterCount > 0 && (
-                <Button variant="ghost" size="sm" onClick={resetFilters} className="touch-target text-destructive hover:text-destructive hover:bg-destructive/10">
-                  <XCircle className="h-4 w-4 mr-1" /> Reset
+                <Button variant="ghost" size="sm" onClick={resetFilters} className="touch-target text-destructive hover:text-destructive hover:bg-destructive/10" aria-label="Reset filters">
+                  <XCircle className="h-4 w-4 sm:mr-1" /><span className={isStaffApp ? 'sr-only' : ''}>Reset</span>
                 </Button>
               )}
             </div>
@@ -4523,7 +4840,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           <p className="text-center text-muted-foreground py-16">No orders yet.</p>
         ) : !currentHasOrders ? (
           <p className="text-center text-muted-foreground py-16">
-            {activeSubTab === 'history' ? 'No order history' : 'No active orders'}
+            {activeSubTab === 'history' ? 'No finished orders today' : 'No active orders'}
           </p>
         ) : (
           <div className="space-y-4">
@@ -4734,7 +5051,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
                             </span>
                           ) : null}
                           {(() => {
-                            const ist = unit.status;
+                            const ist = order.status === 'ready' && unit.status !== ITEM_STATUS.PICKEDUP ? ITEM_STATUS.PREPARED : unit.status;
                             const active = order.status === 'preparing' || order.status === 'ready';
                             if (ist === ITEM_STATUS.PREPARED) {
                               return (
@@ -4875,7 +5192,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           ) : null}
           <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0">
             <AlertDialogCancel className="w-full sm:w-auto mt-0">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="w-full sm:w-auto" onClick={handleEndOrderGroup}>End Eligible Orders</AlertDialogAction>
+            <AlertDialogAction className="w-full sm:w-auto" onClick={handleEndOrderGroup}>{canTakePayment ? 'End Eligible Orders' : 'Ask cashier to end them'}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -5132,6 +5449,16 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
             >
               Close
             </Button>
+            {canTakePayment && !paymentTarget?.parent?.fiscalLocked && (
+              <div className="flex rounded-lg border-2 border-border p-1 gap-1 w-full sm:w-auto" role="radiogroup" aria-label="Payment type">
+                {[['CASH', 'Cash', Banknote], ['CARD', 'Card', CreditCard]].map(([value, label, Icon]) => (
+                  <button key={value} type="button" role="radio" aria-checked={payType === value} onClick={() => setPayType(value)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-bold ${payType === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
+                    <Icon className="h-4 w-4" />{label}
+                  </button>
+                ))}
+              </div>
+            )}
             <Button
               onClick={handleConfirmPayment}
               disabled={paymentSubmitting || selectedSettleAmount <= 0}
@@ -5140,7 +5467,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
               {paymentSubmitting ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Settling...</>
               ) : (
-                <><Banknote className="h-4 w-4 mr-2" /> Confirm €{selectedSettleAmount.toFixed(2)}</>
+                <><Receipt className="h-4 w-4 mr-2" /> Paid €{selectedSettleAmount.toFixed(2)} · print bill</>
               )}
             </Button>
           </DialogFooter>
@@ -5177,6 +5504,7 @@ const OrderPlacementComponent = forwardRef(function OrderPlacement({ placedBy, p
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <FiscalReceiptDialog transaction={receiptPreview} onClose={() => setReceiptPreview(null)} />
     </Tabs>
     </>
   );

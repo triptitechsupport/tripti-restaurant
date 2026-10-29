@@ -90,8 +90,11 @@ function extractRoutes(appJsxPath) {
 	}
 }
 
+// Page files only; sub-folders (such as pages/home) hold page parts.
 function findReactFiles(dir) {
-	return fs.readdirSync(dir).map(item => path.join(dir, item));
+	return fs.readdirSync(dir, { withFileTypes: true })
+		.filter(item => item.isFile() && /\.(jsx|tsx)$/.test(item.name))
+		.map(item => path.join(dir, item.name));
 }
 
 function extractHelmetData(content, filePath, routes) {

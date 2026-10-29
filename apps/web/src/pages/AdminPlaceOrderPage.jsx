@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowLeft, ChefHat, PlusCircle, ListOrdered, Printer, Flame, DoorOpen, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChefHat, PlusCircle, ListOrdered, Printer, Flame, DoorOpen, RefreshCw } from 'lucide-react';
 import OrderPlacement from '@/components/OrderPlacement.jsx';
 import KotPrintOptionsDialog from '@/components/KotPrintOptionsDialog.jsx';
 import { resolveOrderId } from '@/lib/kotPrint.js';
@@ -110,16 +110,6 @@ export default function AdminPlaceOrderPage() {
     }
   };
 
-  const deleteOrder = async (order) => {
-    try {
-      await pb.collection('kitchen_orders').delete(order.id, { $autoCancel: false });
-      toast.success('Order removed');
-      fetchOrders();
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to remove order');
-    }
-  };
 
   return (
     <>
@@ -208,9 +198,6 @@ export default function AdminPlaceOrderPage() {
                           </Button>
                           <Button size="sm" variant="ghost" className="flex-1 text-primary" onClick={() => markAvailable(order)}>
                             <DoorOpen className="h-4 w-4 mr-1" /> Free
-                          </Button>
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteOrder(order)}>
-                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </CardContent>
