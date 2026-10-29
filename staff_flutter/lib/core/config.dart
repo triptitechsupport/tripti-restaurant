@@ -1,9 +1,9 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Where the app finds the restaurant server. The test site is the default;
+/// Where the app finds the restaurant server. The live site is the default;
 /// it can be changed on the sign-in screen (Server settings).
 class AppConfig {
-  static const defaultServer = String.fromEnvironment('TRIPTI_SERVER', defaultValue: 'https://tripti-rksv-test.onrender.com');
+  static const defaultServer = String.fromEnvironment('TRIPTI_SERVER', defaultValue: 'https://www.triptistore.in');
   static String server = defaultServer;
 
   static String get pocketBaseUrl => '$server/hcgi/platform';

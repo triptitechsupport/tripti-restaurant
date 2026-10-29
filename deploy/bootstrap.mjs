@@ -109,8 +109,11 @@ if (!configured) {
   await restoreSeedBackups(pb);
   // The demo database is new after every deploy and its seed data has online
   // ordering switched off. Switch it on so the test site can take orders
-  // straight away (set DEMO_ORDERING=off to keep it off).
-  if (process.env.DEMO_ORDERING !== 'off') {
+  // straight away (set DEMO_ORDERING=off to keep it off). The live site
+  // (branch rksv-platform) keeps it off unless DEMO_ORDERING=on is set.
+  const live = process.env.RENDER_GIT_BRANCH === 'rksv-platform';
+  const ordering = process.env.DEMO_ORDERING === 'on' || (!live && process.env.DEMO_ORDERING !== 'off');
+  if (ordering) {
     for (const record of await pb.collection('order_settings').getFullList()) {
       await pb.collection('order_settings').update(record.id, {isOrderingEnabled: true});
     }
